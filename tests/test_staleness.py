@@ -44,19 +44,22 @@ def _vol_item(name, county, roles, availability=""):
     }
 
 
+TRACKER_GROUP_ID = "topics"
+
+
 def _tracker_response(items, *, include_column=True, include_group=True):
+    """Returns a 2-element list mirroring the two-call shape of
+    fetch_remote_last_updated: [discovery_resp, narrow_items_resp]."""
     columns = []
     if include_column:
-        columns.append({"id": TRACKER_COL_ID, "title": rm.TRACKER_COL_TITLE_LAST_UPDATED, "type": "date"})
-    columns.append({"id": "name", "title": "Name", "type": "name"})
+        columns.append({"id": TRACKER_COL_ID, "title": rm.TRACKER_COL_TITLE_LAST_UPDATED})
+    columns.append({"id": "name", "title": "Name"})
     groups = []
     if include_group:
-        groups.append({
-            "id": "topics",
-            "title": rm.TRACKER_GROUP_TITLE,
-            "items_page": {"cursor": None, "items": items},
-        })
-    return {"boards": [{"id": rm.TRACKER_BOARD_ID, "columns": columns, "groups": groups}]}
+        groups.append({"id": TRACKER_GROUP_ID, "title": rm.TRACKER_GROUP_TITLE})
+    discovery = {"boards": [{"id": rm.TRACKER_BOARD_ID, "columns": columns, "groups": groups}]}
+    narrow = {"boards": [{"groups": [{"id": TRACKER_GROUP_ID, "items_page": {"items": items}}]}]}
+    return [discovery, narrow]
 
 
 def _tracker_item(name, last_updated_text):
@@ -90,17 +93,29 @@ def _main_items(items):
 def _make_dispatcher(*, tracker_resp, main_items=None, raise_on_items=False):
     """Return a fake graphql_request that routes by query content.
 
-    Tracks call counts in `.calls` for assertions.
+    `tracker_resp` is either a list of sequential responses (popped per
+    tracker call) or a single Exception to raise on first tracker call.
+    Tracks call counts in `.calls` and tracker variables in
+    `.tracker_vars` for assertions.
     """
     calls = {"tracker": 0, "introspect": 0, "items": 0}
+    tracker_queue = list(tracker_resp) if isinstance(tracker_resp, list) else None
+    tracker_vars: list = []
 
     def fake(query, variables=None, token=None, session=None, _retry=True):
-        if "groups" in query and "items_page" in query and variables and variables.get("board_ids") == [rm.TRACKER_BOARD_ID]:
+        if variables and variables.get("board_ids") == [rm.TRACKER_BOARD_ID]:
             calls["tracker"] += 1
-            if isinstance(tracker_resp, Exception):
-                raise tracker_resp
-            return tracker_resp
-        if "columns" in query and "items_page" not in query:
+            tracker_vars.append(dict(variables))
+            if tracker_queue is not None:
+                if not tracker_queue:
+                    raise AssertionError("tracker called more times than responses provided")
+                resp = tracker_queue.pop(0)
+            else:
+                resp = tracker_resp
+            if isinstance(resp, Exception):
+                raise resp
+            return resp
+        if variables and variables.get("board_ids") == [rm.BOARD_ID] and "items_page" not in query:
             calls["introspect"] += 1
             return _main_introspect()
         if "items_page" in query:
@@ -111,6 +126,7 @@ def _make_dispatcher(*, tracker_resp, main_items=None, raise_on_items=False):
         raise AssertionError(f"Unexpected query: {query[:80]}")
 
     fake.calls = calls
+    fake.tracker_vars = tracker_vars
     return fake
 
 
@@ -192,41 +208,71 @@ def test_sidecar_unparseable_raises(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_fetch_remote_last_updated_max_of_multiple():
-    resp = _tracker_response([
+    resps = _tracker_response([
         _tracker_item("a", "2026-05-10 12:00:00"),
         _tracker_item("b", "2026-05-19 14:30:00"),  # max
         _tracker_item("c", "2026-05-15 09:00:00"),
     ])
-    with mock.patch.object(rm, "graphql_request", return_value=resp):
+    with mock.patch.object(rm, "graphql_request", side_effect=resps) as mocked:
         ts = rm.fetch_remote_last_updated(token="X")
     assert ts == datetime(2026, 5, 19, 14, 30, 0, tzinfo=timezone.utc)
+    assert mocked.call_count == 2
+
+
+def test_tracker_query_uses_two_calls():
+    """Phase 1.5 fix: discovery + narrow fetch, with resolved group_id
+    threaded into the second call's variables."""
+    resps = _tracker_response([_tracker_item("a", "2026-05-19 14:30:00")])
+    with mock.patch.object(rm, "graphql_request", side_effect=resps) as mocked:
+        rm.fetch_remote_last_updated(token="X")
+    assert mocked.call_count == 2
+    second = mocked.call_args_list[1]
+    second_vars = second.kwargs.get("variables")
+    if second_vars is None:
+        second_vars = second.args[1]
+    assert second_vars["group_ids"] == [TRACKER_GROUP_ID]
+    assert second_vars["col_ids"] == [TRACKER_COL_ID]
+    assert second_vars["board_ids"] == [rm.TRACKER_BOARD_ID]
+    # Narrow fetch must use a small limit, not the old 100.
+    assert second_vars["limit"] <= 25
 
 
 def test_fetch_remote_last_updated_zero_items_fails_loud():
-    resp = _tracker_response([])
-    with mock.patch.object(rm, "graphql_request", return_value=resp):
+    resps = _tracker_response([])
+    with mock.patch.object(rm, "graphql_request", side_effect=resps):
         with pytest.raises(rm.StalenessError, match="zero items"):
             rm.fetch_remote_last_updated(token="X")
 
 
 def test_fetch_remote_last_updated_missing_column_fails():
-    resp = _tracker_response([_tracker_item("a", "2026-05-19")], include_column=False)
-    with mock.patch.object(rm, "graphql_request", return_value=resp):
+    resps = _tracker_response([_tracker_item("a", "2026-05-19")], include_column=False)
+    with mock.patch.object(rm, "graphql_request", side_effect=resps) as mocked:
         with pytest.raises(rm.StalenessError, match="not found"):
             rm.fetch_remote_last_updated(token="X")
+    # Discovery alone surfaces the missing column — no narrow call.
+    assert mocked.call_count == 1
 
 
 def test_fetch_remote_last_updated_missing_group_fails():
-    resp = _tracker_response([], include_group=False)
-    with mock.patch.object(rm, "graphql_request", return_value=resp):
+    resps = _tracker_response([], include_group=False)
+    with mock.patch.object(rm, "graphql_request", side_effect=resps) as mocked:
         with pytest.raises(rm.StalenessError, match="not found"):
             rm.fetch_remote_last_updated(token="X")
+    assert mocked.call_count == 1
 
 
 def test_fetch_remote_last_updated_bad_date_fails():
-    resp = _tracker_response([_tracker_item("a", "totally-not-a-date")])
-    with mock.patch.object(rm, "graphql_request", return_value=resp):
+    resps = _tracker_response([_tracker_item("a", "totally-not-a-date")])
+    with mock.patch.object(rm, "graphql_request", side_effect=resps):
         with pytest.raises(rm.StalenessError):
+            rm.fetch_remote_last_updated(token="X")
+
+
+def test_fetch_remote_last_updated_all_blank_values():
+    """Items present but Last_Updated cell is blank on every row."""
+    resps = _tracker_response([_tracker_item("a", "")])
+    with mock.patch.object(rm, "graphql_request", side_effect=resps):
+        with pytest.raises(rm.StalenessError, match="no values"):
             rm.fetch_remote_last_updated(token="X")
 
 
@@ -246,7 +292,7 @@ def test_if_stale_remote_newer_triggers_full_pull(patched_paths):
     with mock.patch.object(rm, "graphql_request", side_effect=fake):
         rc = rm.main(["--if-stale"])
     assert rc == 0
-    assert fake.calls["tracker"] == 1
+    assert fake.calls["tracker"] == 2
     assert fake.calls["items"] == 1
     # Sidecar updated to remote ts.
     assert sidecar.read_text(encoding="utf-8").strip() == "2026-05-19T14:30:00Z"
@@ -267,7 +313,7 @@ def test_if_stale_fresh_skips_pull(patched_paths, capsys):
     with mock.patch.object(rm, "graphql_request", side_effect=fake):
         rc = rm.main(["--if-stale"])
     assert rc == 0
-    assert fake.calls["tracker"] == 1
+    assert fake.calls["tracker"] == 2
     assert fake.calls["items"] == 0
     assert fake.calls["introspect"] == 0
     # Sidecar untouched.

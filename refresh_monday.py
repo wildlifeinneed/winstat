@@ -574,26 +574,33 @@ class StalenessError(RuntimeError):
     silently fall through to a full pull."""
 
 
-TRACKER_QUERY = """
+TRACKER_DISCOVERY_QUERY = """
 query ($board_ids: [ID!]) {
   boards(ids: $board_ids) {
     id
-    columns { id title type }
-    groups {
+    columns { id title }
+    groups { id title }
+  }
+}
+"""
+
+TRACKER_ITEMS_QUERY = """
+query ($board_ids: [ID!], $group_ids: [String], $col_ids: [String!], $limit: Int!) {
+  boards(ids: $board_ids) {
+    groups(ids: $group_ids) {
       id
-      title
-      items_page(limit: 100) {
-        cursor
+      items_page(limit: $limit) {
         items {
           id
-          name
-          column_values { id text value type }
+          column_values(ids: $col_ids) { id text value }
         }
       }
     }
   }
 }
 """
+
+TRACKER_ITEMS_LIMIT = 25
 
 
 def _parse_remote_datetime(text: str, value_json: Optional[str]) -> datetime:
@@ -630,16 +637,25 @@ def fetch_remote_last_updated(
     session: Optional[requests.Session] = None,
 ) -> datetime:
     """Query the VolDB_Status tracker board and return MAX(Last_Updated) as
-    a tz-aware UTC datetime. Raises StalenessError if the response is
-    malformed (group missing, column missing, no items, all values
-    unparseable)."""
-    data = graphql_request(
-        TRACKER_QUERY,
+    a tz-aware UTC datetime.
+
+    Two-step to stay under Monday's per-query complexity budget:
+      1. Discovery: flat metadata (columns + groups, no items, no values)
+         to resolve col_id and group_id by title — cheap.
+      2. Narrow fetch: items_page scoped to the resolved group with
+         column_values filtered to the resolved col_id only, limit 25.
+    The earlier single-call shape (all groups x items_page(100) x ALL
+    column_values) cost ~5M complexity per call and tripped 429s.
+
+    Raises StalenessError if the response is malformed (group missing,
+    column missing, no items, all values unparseable)."""
+    disc = graphql_request(
+        TRACKER_DISCOVERY_QUERY,
         variables={"board_ids": [TRACKER_BOARD_ID]},
         token=token,
         session=session,
     )
-    boards = data.get("boards") or []
+    boards = disc.get("boards") or []
     if not boards:
         raise StalenessError(
             f"Tracker board {TRACKER_BOARD_ID} not visible to this token."
@@ -660,19 +676,32 @@ def fetch_remote_last_updated(
         )
 
     groups = board.get("groups") or []
-    target_group = None
+    group_id: Optional[str] = None
     for g in groups:
         if g.get("title") == TRACKER_GROUP_TITLE:
-            target_group = g
+            group_id = g.get("id")
             break
-    if target_group is None:
+    if group_id is None:
         available = sorted(g.get("title") for g in groups if g.get("title"))
         raise StalenessError(
             f"Group {TRACKER_GROUP_TITLE!r} not found on tracker "
             f"board {TRACKER_BOARD_ID}. Available titles: {available}"
         )
 
-    items = (target_group.get("items_page") or {}).get("items") or []
+    data = graphql_request(
+        TRACKER_ITEMS_QUERY,
+        variables={
+            "board_ids": [TRACKER_BOARD_ID],
+            "group_ids": [group_id],
+            "col_ids": [col_id],
+            "limit": TRACKER_ITEMS_LIMIT,
+        },
+        token=token,
+        session=session,
+    )
+    boards2 = data.get("boards") or []
+    groups2 = (boards2[0].get("groups") if boards2 else None) or []
+    items = ((groups2[0].get("items_page") if groups2 else None) or {}).get("items") or []
     if not items:
         raise StalenessError(
             f"Group {TRACKER_GROUP_TITLE!r} on tracker board "
@@ -692,8 +721,8 @@ def fetch_remote_last_updated(
                 break
     if not timestamps:
         raise StalenessError(
-            f"No parseable Last_Updated values across {len(items)} items "
-            f"in group {TRACKER_GROUP_TITLE!r}."
+            f"Last_Updated column has no values in group "
+            f"{TRACKER_GROUP_TITLE!r} (scanned {len(items)} items)."
         )
     return max(timestamps)
 
