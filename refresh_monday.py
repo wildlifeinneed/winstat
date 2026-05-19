@@ -60,7 +60,7 @@ GROUP_ID = "group_mm39mf3n"      # users group only
 # was last refreshed. We query just this board (cheap) before doing the
 # full pull when --if-stale is set.
 TRACKER_BOARD_ID = "6750158385"          # VolDB_Status
-TRACKER_GROUP_TITLE = "VolunteerDB Last Updated"
+TRACKER_GROUP_TITLE = "VolunteerDB Last Update"
 TRACKER_COL_TITLE_LAST_UPDATED = "Last_Updated"
 SIDECAR_REL_PATH = Path("docs") / "data" / ".last_remote_update"
 
