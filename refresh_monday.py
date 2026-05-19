@@ -290,7 +290,7 @@ def discover_column_ids(
 # ---------------------------------------------------------------------------
 
 ITEMS_QUERY = """
-query ($board_ids: [ID!], $group_ids: [String], $limit: Int!, $cursor: String) {
+query ($board_ids: [ID!], $group_ids: [String], $col_ids: [String!], $limit: Int!, $cursor: String) {
   boards(ids: $board_ids) {
     groups(ids: $group_ids) {
       id
@@ -299,7 +299,7 @@ query ($board_ids: [ID!], $group_ids: [String], $limit: Int!, $cursor: String) {
         items {
           id
           name
-          column_values {
+          column_values(ids: $col_ids) {
             id
             text
             value
@@ -318,7 +318,18 @@ def fetch_volunteers(
     token: Optional[str] = None,
     session: Optional[requests.Session] = None,
 ) -> List[Dict[str, Any]]:
-    """Fetch all items in BOARD_ID/GROUP_ID and return a list of raw dicts."""
+    """Fetch all items in BOARD_ID/GROUP_ID and return a list of raw dicts.
+
+    Narrow-fetch: only the County / Roles / Availability column_values are
+    requested (mirrors the tracker query pattern shipped in Phase 1.5) to
+    stay under Monday's per-query complexity budget. Fetching all 17
+    columns on this board tripped the same 429 the tracker query hit.
+    """
+    col_ids = [
+        column_ids[COL_TITLE_COUNTY],
+        column_ids[COL_TITLE_AVAILABILITY],
+        column_ids[COL_TITLE_ROLES],
+    ]
     out: List[Dict[str, Any]] = []
     cursor: Optional[str] = None
     page = 0
@@ -329,6 +340,7 @@ def fetch_volunteers(
             variables={
                 "board_ids": [BOARD_ID],
                 "group_ids": [GROUP_ID],
+                "col_ids": col_ids,
                 "limit": PAGE_LIMIT,
                 "cursor": cursor,
             },

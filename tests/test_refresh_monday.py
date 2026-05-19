@@ -474,3 +474,61 @@ def test_diff_added_removed_changed(capsys):
     assert "- Removed" in out
     assert "Changed: Bucks" in out
     assert "ct_no_rvs" in out
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 fix: narrow volunteer items query
+# ---------------------------------------------------------------------------
+
+def test_volunteer_items_query_uses_narrow_columns():
+    """fetch_volunteers must request column_values filtered to exactly the
+    3 resolved column ids (County / Availability / Roles), not titles, and
+    not all 17 columns on the board."""
+    captured: list = []
+
+    def fake(query, variables=None, token=None, session=None, _retry=True):
+        if "columns" in query and "items_page" not in query:
+            return {
+                "boards": [
+                    {
+                        "id": rm.BOARD_ID,
+                        "name": "Connecteam_Users",
+                        "columns": [
+                            {"id": COLUMN_IDS[rm.COL_TITLE_COUNTY], "title": rm.COL_TITLE_COUNTY, "type": "status"},
+                            {"id": COLUMN_IDS[rm.COL_TITLE_ROLES], "title": rm.COL_TITLE_ROLES, "type": "tags"},
+                            {"id": COLUMN_IDS[rm.COL_TITLE_AVAILABILITY], "title": rm.COL_TITLE_AVAILABILITY, "type": "long_text"},
+                        ],
+                    }
+                ]
+            }
+        captured.append({"query": query, "variables": variables})
+        return {
+            "boards": [
+                {"groups": [{"id": rm.GROUP_ID, "items_page": {"cursor": None, "items": []}}]}
+            ]
+        }
+
+    with mock.patch.object(rm, "graphql_request", side_effect=fake):
+        col_ids = rm.discover_column_ids(
+            [rm.COL_TITLE_COUNTY, rm.COL_TITLE_ROLES, rm.COL_TITLE_AVAILABILITY]
+        )
+        rm.fetch_volunteers(col_ids)
+
+    assert captured, "items_page query was not issued"
+    items_call = captured[0]
+    # Query must use the col_ids variable on column_values
+    assert "$col_ids" in items_call["query"]
+    assert "column_values(ids: $col_ids)" in items_call["query"]
+    # Variables must include exactly the 3 resolved column ids (not titles)
+    sent = items_call["variables"]["col_ids"]
+    assert isinstance(sent, list)
+    assert len(sent) == 3
+    assert set(sent) == {
+        COLUMN_IDS[rm.COL_TITLE_COUNTY],
+        COLUMN_IDS[rm.COL_TITLE_ROLES],
+        COLUMN_IDS[rm.COL_TITLE_AVAILABILITY],
+    }
+    # Sanity: must NOT be the human titles
+    assert rm.COL_TITLE_COUNTY not in sent
+    assert rm.COL_TITLE_ROLES not in sent
+    assert rm.COL_TITLE_AVAILABILITY not in sent
