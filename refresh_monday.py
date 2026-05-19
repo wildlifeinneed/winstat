@@ -54,7 +54,7 @@ MONDAY_API_URL = "https://api.monday.com/v2"
 MONDAY_API_VERSION = "2024-10"
 
 BOARD_ID = "9092079933"          # Connecteam_Users
-GROUP_ID = "group_mm39mf3n"      # users group only
+GROUP_TITLE = "users"            # default 'topics' group on Connecteam_Users
 
 # Phase 1.5 — staleness gate. Tracker board records when the volunteer DB
 # was last refreshed. We query just this board (cheap) before doing the
@@ -247,17 +247,24 @@ query ($board_ids: [ID!]) {
     id
     name
     columns { id title type }
+    groups { id title }
   }
 }
 """
 
 
-def discover_column_ids(
+def discover_board_metadata(
     titles: Sequence[str],
+    group_title: str,
     token: Optional[str] = None,
     session: Optional[requests.Session] = None,
-) -> Dict[str, str]:
-    """Return {title -> column_id} resolved from the board's column metadata."""
+) -> Dict[str, Any]:
+    """Resolve column ids AND the volunteer group id in one introspection call.
+
+    Returns {"column_ids": {title -> column_id}, "group_id": str}. Mirrors
+    the Phase 1.5 tracker pattern: resolve groups by human-visible TITLE
+    rather than baking a stale internal id into source.
+    """
     data = graphql_request(
         INTROSPECT_QUERY,
         variables={"board_ids": [BOARD_ID]},
@@ -267,13 +274,15 @@ def discover_column_ids(
     boards = data.get("boards") or []
     if not boards:
         raise MondayAPIError(f"Board {BOARD_ID} not visible to this token.")
-    columns = boards[0].get("columns") or []
+    board = boards[0]
+
+    columns = board.get("columns") or []
     by_title = {c["title"]: c["id"] for c in columns if c.get("title")}
-    resolved: Dict[str, str] = {}
+    column_ids: Dict[str, str] = {}
     missing: List[str] = []
     for t in titles:
         if t in by_title:
-            resolved[t] = by_title[t]
+            column_ids[t] = by_title[t]
         else:
             missing.append(t)
     if missing:
@@ -281,8 +290,22 @@ def discover_column_ids(
             f"Could not find column titles {missing} on board {BOARD_ID}. "
             f"Available titles: {sorted(by_title.keys())}"
         )
-    logger.info("Resolved column ids: %s", resolved)
-    return resolved
+
+    groups = board.get("groups") or []
+    group_id: Optional[str] = None
+    for g in groups:
+        if g.get("title") == group_title:
+            group_id = g.get("id")
+            break
+    if group_id is None:
+        available = sorted(g.get("title") for g in groups if g.get("title"))
+        raise MondayAPIError(
+            f"Group {group_title!r} not found on board {BOARD_ID}. "
+            f"Available groups: {available}"
+        )
+
+    logger.info("Resolved column ids: %s, group_id: %s", column_ids, group_id)
+    return {"column_ids": column_ids, "group_id": group_id}
 
 
 # ---------------------------------------------------------------------------
@@ -315,10 +338,11 @@ query ($board_ids: [ID!], $group_ids: [String], $col_ids: [String!], $limit: Int
 
 def fetch_volunteers(
     column_ids: Dict[str, str],
+    group_id: str,
     token: Optional[str] = None,
     session: Optional[requests.Session] = None,
 ) -> List[Dict[str, Any]]:
-    """Fetch all items in BOARD_ID/GROUP_ID and return a list of raw dicts.
+    """Fetch all items in BOARD_ID/group_id and return a list of raw dicts.
 
     Narrow-fetch: only the County / Roles / Availability column_values are
     requested (mirrors the tracker query pattern shipped in Phase 1.5) to
@@ -339,7 +363,7 @@ def fetch_volunteers(
             ITEMS_QUERY,
             variables={
                 "board_ids": [BOARD_ID],
-                "group_ids": [GROUP_ID],
+                "group_ids": [group_id],
                 "col_ids": col_ids,
                 "limit": PAGE_LIMIT,
                 "cursor": cursor,
@@ -352,7 +376,7 @@ def fetch_volunteers(
             break
         groups = boards[0].get("groups") or []
         if not groups:
-            logger.warning("Group %s not found on board %s", GROUP_ID, BOARD_ID)
+            logger.warning("Group %s not found on board %s", group_id, BOARD_ID)
             break
         page_block = groups[0].get("items_page") or {}
         items = page_block.get("items") or []
@@ -487,7 +511,10 @@ def aggregate_by_county(volunteers: Iterable[Dict[str, Any]]) -> Dict[str, Dict[
     return final
 
 
-def build_snapshot(volunteers: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
+def build_snapshot(
+    volunteers: Iterable[Dict[str, Any]],
+    group_id: str = "",
+) -> Dict[str, Any]:
     counties = aggregate_by_county(volunteers)
     return {
         "generated_at": datetime.now(timezone.utc)
@@ -495,7 +522,7 @@ def build_snapshot(volunteers: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
         .isoformat()
         .replace("+00:00", "Z"),
         "source_board_id": BOARD_ID,
-        "source_group_id": GROUP_ID,
+        "source_group_id": group_id,
         "availability_keywords": list(AVAILABILITY_KEYWORDS),
         "counties": counties,
     }
@@ -874,14 +901,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
 
     try:
-        column_ids = discover_column_ids(
+        meta = discover_board_metadata(
             [COL_TITLE_COUNTY, COL_TITLE_ROLES, COL_TITLE_AVAILABILITY],
+            GROUP_TITLE,
             token=token,
             session=session,
         )
     except MondayAPIError as exc:
         print(f"ERROR: column discovery failed: {exc}", file=sys.stderr)
         return 3
+
+    column_ids = meta["column_ids"]
+    group_id = meta["group_id"]
 
     if args.introspect:
         print(json.dumps(column_ids, indent=2))
@@ -902,7 +933,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
 
     try:
-        raw_items = fetch_volunteers(column_ids, token=token, session=session)
+        raw_items = fetch_volunteers(column_ids, group_id, token=token, session=session)
     except MondayAPIError as exc:
         print(f"ERROR: fetch failed: {exc}", file=sys.stderr)
         return 4
@@ -913,7 +944,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if rec is not None:
             volunteers.append(rec)
 
-    snapshot = build_snapshot(volunteers)
+    snapshot = build_snapshot(volunteers, group_id=group_id)
 
     out_path = Path(__file__).resolve().parent / OUTPUT_REL_PATH
     existing = load_existing_snapshot(out_path)

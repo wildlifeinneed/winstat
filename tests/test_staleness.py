@@ -82,12 +82,15 @@ def _main_introspect():
                 {"id": COLUMN_IDS[rm.COL_TITLE_ROLES], "title": rm.COL_TITLE_ROLES, "type": "tags"},
                 {"id": COLUMN_IDS[rm.COL_TITLE_AVAILABILITY], "title": rm.COL_TITLE_AVAILABILITY, "type": "long_text"},
             ],
+            "groups": [
+                {"id": "group_abc", "title": rm.GROUP_TITLE},
+            ],
         }]
     }
 
 
 def _main_items(items):
-    return {"boards": [{"groups": [{"id": rm.GROUP_ID, "items_page": {"cursor": None, "items": items}}]}]}
+    return {"boards": [{"groups": [{"id": "group_abc", "items_page": {"cursor": None, "items": items}}]}]}
 
 
 def _make_dispatcher(*, tracker_resp, main_items=None, raise_on_items=False):

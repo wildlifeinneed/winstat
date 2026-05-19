@@ -26,6 +26,9 @@ COLUMN_IDS = {
     rm.COL_TITLE_AVAILABILITY: "long_text__1",
 }
 
+# Resolved id the introspection fixture maps GROUP_TITLE ('users') to.
+RESOLVED_GROUP_ID = "group_abc"
+
 
 def _item(name: str, county: str, roles: str, availability: str = "") -> dict:
     return {
@@ -228,12 +231,12 @@ def test_atomic_write_success(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_snapshot_schema_top_level_keys():
-    snap = rm.build_snapshot([])
+    snap = rm.build_snapshot([], group_id=RESOLVED_GROUP_ID)
     for key in ("generated_at", "source_board_id", "source_group_id",
                 "availability_keywords", "counties"):
         assert key in snap
     assert snap["source_board_id"] == rm.BOARD_ID
-    assert snap["source_group_id"] == rm.GROUP_ID
+    assert snap["source_group_id"] == RESOLVED_GROUP_ID
     assert isinstance(snap["availability_keywords"], list) and snap["availability_keywords"]
 
 
@@ -377,12 +380,16 @@ def _fake_graphql_factory(items):
                     {"id": COLUMN_IDS[rm.COL_TITLE_AVAILABILITY], "title": rm.COL_TITLE_AVAILABILITY, "type": "long_text"},
                     {"id": "name", "title": "Name", "type": "name"},
                 ],
+                "groups": [
+                    {"id": RESOLVED_GROUP_ID, "title": rm.GROUP_TITLE},
+                    {"id": "group_xyz", "title": "archived"},
+                ],
             }
         ]
     }
     items_response = {
         "boards": [
-            {"groups": [{"id": rm.GROUP_ID, "items_page": {"cursor": None, "items": items}}]}
+            {"groups": [{"id": RESOLVED_GROUP_ID, "items_page": {"cursor": None, "items": items}}]}
         ]
     }
 
@@ -408,10 +415,13 @@ def test_end_to_end_with_mocked_api(tmp_path, monkeypatch):
 
     fake = _fake_graphql_factory(items)
     with mock.patch.object(rm, "graphql_request", side_effect=fake):
-        col_ids = rm.discover_column_ids(
-            [rm.COL_TITLE_COUNTY, rm.COL_TITLE_ROLES, rm.COL_TITLE_AVAILABILITY]
+        meta = rm.discover_board_metadata(
+            [rm.COL_TITLE_COUNTY, rm.COL_TITLE_ROLES, rm.COL_TITLE_AVAILABILITY],
+            rm.GROUP_TITLE,
         )
-        raw = rm.fetch_volunteers(col_ids)
+        col_ids = meta["column_ids"]
+        group_id = meta["group_id"]
+        raw = rm.fetch_volunteers(col_ids, group_id)
     assert len(raw) == 5
 
     volunteers = [rm.build_volunteer_record(it, col_ids) for it in raw]
@@ -498,21 +508,25 @@ def test_volunteer_items_query_uses_narrow_columns():
                             {"id": COLUMN_IDS[rm.COL_TITLE_ROLES], "title": rm.COL_TITLE_ROLES, "type": "tags"},
                             {"id": COLUMN_IDS[rm.COL_TITLE_AVAILABILITY], "title": rm.COL_TITLE_AVAILABILITY, "type": "long_text"},
                         ],
+                        "groups": [
+                            {"id": RESOLVED_GROUP_ID, "title": rm.GROUP_TITLE},
+                        ],
                     }
                 ]
             }
         captured.append({"query": query, "variables": variables})
         return {
             "boards": [
-                {"groups": [{"id": rm.GROUP_ID, "items_page": {"cursor": None, "items": []}}]}
+                {"groups": [{"id": RESOLVED_GROUP_ID, "items_page": {"cursor": None, "items": []}}]}
             ]
         }
 
     with mock.patch.object(rm, "graphql_request", side_effect=fake):
-        col_ids = rm.discover_column_ids(
-            [rm.COL_TITLE_COUNTY, rm.COL_TITLE_ROLES, rm.COL_TITLE_AVAILABILITY]
+        meta = rm.discover_board_metadata(
+            [rm.COL_TITLE_COUNTY, rm.COL_TITLE_ROLES, rm.COL_TITLE_AVAILABILITY],
+            rm.GROUP_TITLE,
         )
-        rm.fetch_volunteers(col_ids)
+        rm.fetch_volunteers(meta["column_ids"], meta["group_id"])
 
     assert captured, "items_page query was not issued"
     items_call = captured[0]
@@ -532,3 +546,89 @@ def test_volunteer_items_query_uses_narrow_columns():
     assert rm.COL_TITLE_COUNTY not in sent
     assert rm.COL_TITLE_ROLES not in sent
     assert rm.COL_TITLE_AVAILABILITY not in sent
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 fix: resolve Connecteam_Users group by TITLE (not stale hardcoded id)
+# ---------------------------------------------------------------------------
+
+def test_group_resolved_by_title():
+    """fetch_volunteers must send variables.group_ids=[<resolved id>], where
+    the id comes from the introspection response keyed by GROUP_TITLE — not
+    the title string and not any hardcoded constant."""
+    captured: list = []
+
+    def fake(query, variables=None, token=None, session=None, _retry=True):
+        if "columns" in query and "items_page" not in query:
+            return {
+                "boards": [
+                    {
+                        "id": rm.BOARD_ID,
+                        "name": "Connecteam_Users",
+                        "columns": [
+                            {"id": COLUMN_IDS[rm.COL_TITLE_COUNTY], "title": rm.COL_TITLE_COUNTY, "type": "status"},
+                            {"id": COLUMN_IDS[rm.COL_TITLE_ROLES], "title": rm.COL_TITLE_ROLES, "type": "tags"},
+                            {"id": COLUMN_IDS[rm.COL_TITLE_AVAILABILITY], "title": rm.COL_TITLE_AVAILABILITY, "type": "long_text"},
+                        ],
+                        "groups": [
+                            {"id": "group_abc", "title": "users"},
+                            {"id": "group_xyz", "title": "archived"},
+                        ],
+                    }
+                ]
+            }
+        captured.append({"query": query, "variables": variables})
+        return {
+            "boards": [
+                {"groups": [{"id": "group_abc", "items_page": {"cursor": None, "items": []}}]}
+            ]
+        }
+
+    with mock.patch.object(rm, "graphql_request", side_effect=fake):
+        meta = rm.discover_board_metadata(
+            [rm.COL_TITLE_COUNTY, rm.COL_TITLE_ROLES, rm.COL_TITLE_AVAILABILITY],
+            rm.GROUP_TITLE,
+        )
+        assert meta["group_id"] == "group_abc"
+        rm.fetch_volunteers(meta["column_ids"], meta["group_id"])
+
+    assert captured, "items_page query was not issued"
+    sent_groups = captured[0]["variables"]["group_ids"]
+    assert sent_groups == ["group_abc"]
+    # Must NOT be the title string and must NOT be the old hardcoded id.
+    assert "users" not in sent_groups
+    assert "group_mm39mf3n" not in sent_groups
+
+
+def test_missing_group_title_raises():
+    """If GROUP_TITLE is absent on the board, raise MondayAPIError with the
+    available group titles in the message so an admin can fix it."""
+
+    def fake(query, variables=None, token=None, session=None, _retry=True):
+        return {
+            "boards": [
+                {
+                    "id": rm.BOARD_ID,
+                    "name": "Connecteam_Users",
+                    "columns": [
+                        {"id": COLUMN_IDS[rm.COL_TITLE_COUNTY], "title": rm.COL_TITLE_COUNTY, "type": "status"},
+                        {"id": COLUMN_IDS[rm.COL_TITLE_ROLES], "title": rm.COL_TITLE_ROLES, "type": "tags"},
+                        {"id": COLUMN_IDS[rm.COL_TITLE_AVAILABILITY], "title": rm.COL_TITLE_AVAILABILITY, "type": "long_text"},
+                    ],
+                    "groups": [
+                        {"id": "group_xyz", "title": "archived"},
+                        {"id": "group_qrs", "title": "topics"},
+                    ],
+                }
+            ]
+        }
+
+    with mock.patch.object(rm, "graphql_request", side_effect=fake):
+        with pytest.raises(rm.MondayAPIError) as ei:
+            rm.discover_board_metadata(
+                [rm.COL_TITLE_COUNTY, rm.COL_TITLE_ROLES, rm.COL_TITLE_AVAILABILITY],
+                rm.GROUP_TITLE,
+            )
+    msg = str(ei.value)
+    assert "Available groups:" in msg
+    assert "'users'" in msg or "users" in msg
