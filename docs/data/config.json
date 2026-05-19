@@ -1,0 +1,10 @@
+{
+  "_comment": "Wildlife dispatcher config. marginal_threshold: cards show low-capacity warning + roster when available <= this. escalate_to_game_commission.*_min_available: if available_count for that bucket is < this number, Phase 3 will recommend calling PA Game Commission instead of dispatching a Connecteam task. county_overrides: per-county deep-merge override of any of the above. Defaults are global; per-county keys override only the specified leaves.",
+  "marginal_threshold": 1,
+  "escalate_to_game_commission": {
+    "ct_rvs_capture_min_available": 1,
+    "ct_any_capture_min_available": 1,
+    "courier_transport_min_available": 1
+  },
+  "county_overrides": {}
+}

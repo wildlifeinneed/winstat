@@ -96,7 +96,37 @@ DEFAULT_AVAILABLE_WHEN_BLANK = True
 
 # Marginal threshold: when (county, bucket) available count is <= this,
 # emit the volunteer roster so dispatchers can see who's borderline.
+# This is the baked-in default used when docs/data/config.json is missing
+# or doesn't override marginal_threshold for a given county. Tunable
+# per-county via docs/data/config.json (Phase 2.5).
 MARGINAL_THRESHOLD = 1
+
+# Phase 2.5 — tunable thresholds config (docs/data/config.json).
+CONFIG_REL_PATH = Path("docs") / "data" / "config.json"
+DEFAULT_CONFIG: Dict[str, Any] = {
+    "marginal_threshold": 1,
+    "escalate_to_game_commission": {
+        "ct_rvs_capture_min_available": 1,
+        "ct_any_capture_min_available": 1,
+        "courier_transport_min_available": 1,
+    },
+    "county_overrides": {},
+}
+
+# Canonical PA county list (kept in sync with docs/assets/dispatcher.js).
+PA_COUNTIES = (
+    "Adams", "Allegheny", "Armstrong", "Beaver", "Bedford", "Berks", "Blair",
+    "Bradford", "Bucks", "Butler", "Cambria", "Cameron", "Carbon", "Centre",
+    "Chester", "Clarion", "Clearfield", "Clinton", "Columbia", "Crawford",
+    "Cumberland", "Dauphin", "Delaware", "Elk", "Erie", "Fayette", "Forest",
+    "Franklin", "Fulton", "Greene", "Huntingdon", "Indiana", "Jefferson",
+    "Juniata", "Lackawanna", "Lancaster", "Lawrence", "Lebanon", "Lehigh",
+    "Luzerne", "Lycoming", "McKean", "Mercer", "Mifflin", "Monroe",
+    "Montgomery", "Montour", "Northampton", "Northumberland", "Perry",
+    "Philadelphia", "Pike", "Potter", "Schuylkill", "Snyder", "Somerset",
+    "Sullivan", "Susquehanna", "Tioga", "Union", "Venango", "Warren",
+    "Washington", "Wayne", "Westmoreland", "Wyoming", "York",
+)
 
 # Output file — relative to this script's directory.
 OUTPUT_REL_PATH = Path("docs") / "data" / "county_capacity.json"
@@ -452,6 +482,67 @@ def build_volunteer_record(
 BUCKETS = ("ct_no_rvs", "ct_rvs", "courier")
 
 
+# ---------------------------------------------------------------------------
+# Phase 2.5 — config file (tunable thresholds + per-county overrides)
+# ---------------------------------------------------------------------------
+
+
+def load_config(repo_root: Path) -> Dict[str, Any]:
+    """Load docs/data/config.json relative to repo_root.
+
+    Missing file: log a warning and return {} (callers fall back to
+    DEFAULT_CONFIG via resolve_*). Malformed JSON: re-raise so the caller
+    fails loud — silently swallowing bad config would mask dispatcher
+    misconfiguration.
+    """
+    path = repo_root / CONFIG_REL_PATH
+    if not path.exists():
+        logger.warning("config.json not found at %s; using defaults", path)
+        return {}
+    raw = path.read_text(encoding="utf-8")
+    return json.loads(raw)  # JSONDecodeError propagates up
+
+
+def _warn_unknown_county_overrides(config: Dict[str, Any]) -> None:
+    """Log a warning for any county_overrides key not in PA_COUNTIES.
+
+    Called once per process (cached via a module-level set) so the same
+    misspelling doesn't spam the log on every per-county resolution.
+    """
+    overrides = (config or {}).get("county_overrides") or {}
+    if not isinstance(overrides, dict):
+        return
+    known = set(PA_COUNTIES)
+    for name in overrides:
+        if name in known:
+            continue
+        if name in _warn_unknown_county_overrides._seen:  # type: ignore[attr-defined]
+            continue
+        _warn_unknown_county_overrides._seen.add(name)  # type: ignore[attr-defined]
+        logger.warning("Unknown county in config.county_overrides: %s", name)
+
+
+_warn_unknown_county_overrides._seen = set()  # type: ignore[attr-defined]
+
+
+def resolve_marginal_threshold(config: Dict[str, Any], county: str) -> int:
+    """Resolve the marginal_threshold for a given county.
+
+    Deep-merge rule: start with DEFAULT_CONFIG['marginal_threshold'], then
+    overlay config['marginal_threshold'] (global), then overlay
+    config['county_overrides'][county]['marginal_threshold'] if present.
+    """
+    _warn_unknown_county_overrides(config)
+    threshold = DEFAULT_CONFIG["marginal_threshold"]
+    if isinstance(config, dict):
+        if "marginal_threshold" in config:
+            threshold = config["marginal_threshold"]
+        overrides = (config.get("county_overrides") or {}).get(county) or {}
+        if isinstance(overrides, dict) and "marginal_threshold" in overrides:
+            threshold = overrides["marginal_threshold"]
+    return int(threshold)
+
+
 def volunteer_buckets(v: Dict[str, Any]) -> List[str]:
     buckets: List[str] = []
     if v["has_ct"] and not v["has_rvs"]:
@@ -463,8 +554,16 @@ def volunteer_buckets(v: Dict[str, Any]) -> List[str]:
     return buckets
 
 
-def aggregate_by_county(volunteers: Iterable[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-    """Build the {county: {bucket: {total, available, marginal_volunteers}}} map."""
+def aggregate_by_county(
+    volunteers: Iterable[Dict[str, Any]],
+    config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """Build the {county: {bucket: {total, available, marginal_volunteers}}} map.
+
+    `config` is the parsed docs/data/config.json (or None / {} for defaults).
+    The marginal threshold is resolved per-county so a single county can
+    have a different threshold than the global default.
+    """
     counties: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
     for v in volunteers:
@@ -492,8 +591,10 @@ def aggregate_by_county(volunteers: Iterable[Dict[str, Any]]) -> Dict[str, Dict[
 
     # Finalize: drop _members into marginal_volunteers only when warranted,
     # and ensure all three bucket keys exist for each emitted county.
+    cfg = config or {}
     final: Dict[str, Dict[str, Any]] = {}
     for county, cdata in counties.items():
+        threshold = resolve_marginal_threshold(cfg, county)
         out: Dict[str, Any] = {}
         for b in BUCKETS:
             slot = cdata.get(b)
@@ -501,7 +602,7 @@ def aggregate_by_county(volunteers: Iterable[Dict[str, Any]]) -> Dict[str, Dict[
                 out[b] = {"total": 0, "available": 0, "marginal_volunteers": []}
                 continue
             members = slot.pop("_members", [])
-            if slot["available"] <= MARGINAL_THRESHOLD:
+            if slot["available"] <= threshold:
                 slot["marginal_volunteers"] = members
             else:
                 slot["marginal_volunteers"] = []
@@ -514,8 +615,9 @@ def aggregate_by_county(volunteers: Iterable[Dict[str, Any]]) -> Dict[str, Dict[
 def build_snapshot(
     volunteers: Iterable[Dict[str, Any]],
     group_id: str = "",
+    config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    counties = aggregate_by_county(volunteers)
+    counties = aggregate_by_county(volunteers, config=config)
     return {
         "generated_at": datetime.now(timezone.utc)
         .replace(microsecond=0)
@@ -862,6 +964,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     _setup_logging(args.verbose)
 
+    repo_root = Path(__file__).resolve().parent
+    try:
+        config = load_config(repo_root)
+    except json.JSONDecodeError as exc:
+        print(
+            f"ERROR: malformed {CONFIG_REL_PATH}: {exc}",
+            file=sys.stderr,
+        )
+        return 7
+
     try:
         token = load_token()
     except MondayTokenFormatError as exc:
@@ -944,7 +1056,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if rec is not None:
             volunteers.append(rec)
 
-    snapshot = build_snapshot(volunteers, group_id=group_id)
+    snapshot = build_snapshot(volunteers, group_id=group_id, config=config)
 
     out_path = Path(__file__).resolve().parent / OUTPUT_REL_PATH
     existing = load_existing_snapshot(out_path)

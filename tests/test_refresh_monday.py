@@ -632,3 +632,135 @@ def test_missing_group_title_raises():
     msg = str(ei.value)
     assert "Available groups:" in msg
     assert "'users'" in msg or "users" in msg
+
+
+# ---------------------------------------------------------------------------
+# Phase 2.5 — config file (tunable thresholds + per-county overrides)
+# ---------------------------------------------------------------------------
+
+
+def _ct_only(name, county, avail=""):
+    return _item(name, county, "C&T", avail)
+
+
+def test_resolve_marginal_threshold_default_when_no_config():
+    assert rm.resolve_marginal_threshold({}, "Bucks") == 1
+
+
+def test_resolve_marginal_threshold_global_override():
+    cfg = {"marginal_threshold": 3}
+    assert rm.resolve_marginal_threshold(cfg, "Bucks") == 3
+    assert rm.resolve_marginal_threshold(cfg, "Chester") == 3
+
+
+def test_resolve_marginal_threshold_per_county_override():
+    cfg = {
+        "marginal_threshold": 1,
+        "county_overrides": {"Bucks": {"marginal_threshold": 0}},
+    }
+    assert rm.resolve_marginal_threshold(cfg, "Bucks") == 0
+    # Other counties keep the global.
+    assert rm.resolve_marginal_threshold(cfg, "Chester") == 1
+
+
+def test_resolve_marginal_threshold_county_override_with_only_escalate_falls_through():
+    cfg = {
+        "marginal_threshold": 2,
+        "county_overrides": {
+            "Bucks": {"escalate_to_game_commission": {"ct_any_capture_min_available": 0}}
+        },
+    }
+    # Bucks override has no marginal_threshold → fall through to global.
+    assert rm.resolve_marginal_threshold(cfg, "Bucks") == 2
+
+
+def test_aggregate_uses_global_threshold_three_includes_marginal_for_two():
+    """With threshold=3, a bucket with available=2 should populate marginal_volunteers."""
+    items = [
+        _ct_only("First", "Lehigh", "Mon-Fri"),
+        _ct_only("Second", "Lehigh", "weekends"),
+    ]
+    volunteers = [rm.build_volunteer_record(it, COLUMN_IDS) for it in items]
+    snap = rm.build_snapshot(volunteers, config={"marginal_threshold": 3})
+    bucket = snap["counties"]["Lehigh"]["ct_no_rvs"]
+    assert bucket["available"] == 2
+    assert {m["name"] for m in bucket["marginal_volunteers"]} == {"First", "Second"}
+
+
+def test_aggregate_per_county_override_suppresses_marginal_in_bucks():
+    """Bucks override threshold=0 → no marginal even when available=1.
+    Other counties keep global threshold=1 → marginal still populated."""
+    items = [
+        _ct_only("BucksOnly", "Bucks", "Mon-Fri"),
+        _ct_only("ChesterOnly", "Chester", "Mon-Fri"),
+    ]
+    volunteers = [rm.build_volunteer_record(it, COLUMN_IDS) for it in items]
+    cfg = {
+        "marginal_threshold": 1,
+        "county_overrides": {"Bucks": {"marginal_threshold": 0}},
+    }
+    snap = rm.build_snapshot(volunteers, config=cfg)
+    assert snap["counties"]["Bucks"]["ct_no_rvs"]["available"] == 1
+    assert snap["counties"]["Bucks"]["ct_no_rvs"]["marginal_volunteers"] == []
+    assert snap["counties"]["Chester"]["ct_no_rvs"]["available"] == 1
+    assert (
+        snap["counties"]["Chester"]["ct_no_rvs"]["marginal_volunteers"][0]["name"]
+        == "ChesterOnly"
+    )
+
+
+def test_load_config_missing_warns_and_returns_empty(tmp_path, caplog):
+    # Use an empty repo root — no docs/data/config.json there.
+    with caplog.at_level("WARNING", logger="refresh_monday"):
+        cfg = rm.load_config(tmp_path)
+    assert cfg == {}
+    assert any(
+        "config.json not found" in rec.message for rec in caplog.records
+    )
+
+
+def test_load_config_malformed_raises(tmp_path):
+    cfg_dir = tmp_path / "docs" / "data"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "config.json").write_text("{not valid json", encoding="utf-8")
+    with pytest.raises(json.JSONDecodeError):
+        rm.load_config(tmp_path)
+
+
+def test_load_config_valid_roundtrip(tmp_path):
+    cfg_dir = tmp_path / "docs" / "data"
+    cfg_dir.mkdir(parents=True)
+    payload = {
+        "marginal_threshold": 2,
+        "county_overrides": {"Bucks": {"marginal_threshold": 0}},
+    }
+    (cfg_dir / "config.json").write_text(json.dumps(payload), encoding="utf-8")
+    assert rm.load_config(tmp_path) == payload
+
+
+def test_unknown_county_override_warns_but_does_not_fail(caplog):
+    # Reset the dedup cache so the warning fires for this test.
+    rm._warn_unknown_county_overrides._seen.clear()
+    cfg = {
+        "marginal_threshold": 1,
+        "county_overrides": {"Atlantis": {"marginal_threshold": 5}},
+    }
+    with caplog.at_level("WARNING", logger="refresh_monday"):
+        # Resolve for a real county; the warning should still fire because
+        # the override map is scanned at resolution time.
+        assert rm.resolve_marginal_threshold(cfg, "Bucks") == 1
+    assert any(
+        "Unknown county in config.county_overrides: Atlantis" in rec.message
+        for rec in caplog.records
+    )
+
+
+def test_existing_baseline_threshold_one_still_works():
+    """Sanity: passing config={'marginal_threshold': 1} matches the
+    historical hardcoded behavior — marginal populated when available <= 1."""
+    items = [_ct_only("Solo", "Adams", "Mon-Fri")]
+    volunteers = [rm.build_volunteer_record(it, COLUMN_IDS) for it in items]
+    snap = rm.build_snapshot(volunteers, config={"marginal_threshold": 1})
+    bucket = snap["counties"]["Adams"]["ct_no_rvs"]
+    assert bucket["available"] == 1
+    assert bucket["marginal_volunteers"][0]["name"] == "Solo"

@@ -51,8 +51,57 @@ treatment but with a min-height and uppercase eyebrow `.role` label.
 ## Marginal badge
 
 Use the `.badge` class (amber pill) when a volunteer count is marginal
-(`available <= 1 && total > 0`). The dispatcher attaches/removes it on each
-render — keep this CSS-class-only, no data-attribute toggling.
+(`available <= resolved.marginal_threshold && total > 0`). The dispatcher
+attaches/removes it on each render — keep this CSS-class-only, no
+data-attribute toggling. The threshold itself is tunable per-county via
+`docs/data/config.json` (see below).
+
+## Config file (`docs/data/config.json`)
+
+Single tunable file consumed by both `refresh_monday.py` (Python) and
+`dispatcher.js` (browser). Defines global thresholds plus optional
+per-county overrides. JSON has no comments, so the schema is documented
+here and the shipped file carries a `_comment` key as a human note.
+
+Schema:
+
+- `marginal_threshold` (int): cards show the amber "Marginal" badge and
+  the volunteer roster is included in the snapshot when
+  `available <= marginal_threshold`. Default `1`.
+- `escalate_to_game_commission.*_min_available` (int): Phase 3 will
+  recommend calling PA Game Commission instead of dispatching when the
+  available count for that bucket is `<` this number. Defined here, but
+  **not consumed yet**.
+- `county_overrides` (object, county-name → partial config): deep-merge
+  override of any of the above, keyed by exact county name (must match
+  `PA_COUNTIES`). Unknown county names log a warning and are ignored.
+
+Resolution rule: start from the global keys; if `county_overrides[county]`
+exists, overlay only the keys it specifies. Missing keys fall through.
+Missing config file → baked-in defaults (all `1`). Malformed JSON → fail
+loud (Python exits non-zero; the page shows an inline warning banner and
+falls back to defaults).
+
+Example override (raise the marginal warning to fire when 2 or fewer
+volunteers are available in Bucks):
+
+<!--
+{
+  "marginal_threshold": 1,
+  "escalate_to_game_commission": {
+    "ct_rvs_capture_min_available": 1,
+    "ct_any_capture_min_available": 1,
+    "courier_transport_min_available": 1
+  },
+  "county_overrides": {
+    "Bucks":  { "marginal_threshold": 2 },
+    "Forest": { "marginal_threshold": 0 }
+  }
+}
+-->
+
+(The block above is HTML-comment-wrapped because Markdown will otherwise
+render it as a code block; copy the inner JSON into `config.json`.)
 
 ## Empty state
 
