@@ -122,17 +122,73 @@ class MondayAPIError(RuntimeError):
     pass
 
 
+class MondayTokenFormatError(RuntimeError):
+    """Raised when the token file/env var is present but malformed.
+
+    The exception message MUST NOT include the token value itself —
+    only the source (file path or env var name) — to avoid leaking the
+    secret into terminals, log files, or paste buffers.
+    """
+
+
+# JWT-safe character set: base64url alphabet plus the two `.` separators.
+_JWT_SAFE_RE = re.compile(r"^[A-Za-z0-9._\-]+$")
+
+
+def _validate_token_shape(raw: str, source_desc: str) -> str:
+    """Strip + validate a token value. Returns the stripped token.
+
+    Raises MondayTokenFormatError with an actionable, secret-free message
+    if the value is empty, RTF-wrapped, contains whitespace/control chars,
+    or contains characters outside the JWT-safe set.
+    """
+    stripped = raw.strip()
+    if not stripped:
+        raise MondayTokenFormatError(
+            f"TOKEN FILE FORMAT ERROR: {source_desc} is empty after "
+            f"stripping whitespace."
+        )
+    # RTF wrapper detection — TextEdit on macOS silently saves as RTF.
+    if stripped.startswith("{\\rtf") or stripped.startswith("{\rtf"):
+        raise MondayTokenFormatError(
+            f"TOKEN FILE FORMAT ERROR: {source_desc} appears to be Rich "
+            f"Text Format (RTF), not plain text. Re-save it from a "
+            f"plain-text editor (nano, vim, VS Code) or run: "
+            f"printf %s YOUR_TOKEN > {TOKEN_FILE}"
+        )
+    # Internal whitespace / control chars are never valid in a JWT.
+    for ch in stripped:
+        if ch in ("\n", "\r", "\t") or ord(ch) < 0x20 or ord(ch) == 0x7F:
+            raise MondayTokenFormatError(
+                f"TOKEN FILE FORMAT ERROR: {source_desc} contains "
+                f"embedded whitespace or control characters. Re-save it "
+                f"as a single line of plain text (no newlines, tabs, or "
+                f"spaces inside the token)."
+            )
+    if not _JWT_SAFE_RE.match(stripped):
+        raise MondayTokenFormatError(
+            f"TOKEN FILE FORMAT ERROR: {source_desc} contains characters "
+            f"outside the JWT-safe set [A-Za-z0-9._-]. Re-save it as a "
+            f"single line of plain text containing only the token."
+        )
+    return stripped
+
+
 def load_token(cwd: Optional[Path] = None) -> str:
-    """Read the API token from .monday_token, falling back to env var."""
+    """Read the API token from .monday_token, falling back to env var.
+
+    Validates the token's shape before returning it so malformed inputs
+    (RTF-wrapped files from TextEdit, embedded newlines, etc.) fail with
+    a clear, secret-free error rather than reaching the HTTP layer.
+    """
     cwd = cwd or Path.cwd()
     token_path = cwd / TOKEN_FILE
     if token_path.exists():
-        token = token_path.read_text(encoding="utf-8").strip()
-        if token:
-            return token
-    env_token = os.environ.get(TOKEN_ENV, "").strip()
-    if env_token:
-        return env_token
+        raw = token_path.read_text(encoding="utf-8", errors="replace")
+        return _validate_token_shape(raw, source_desc=str(token_path))
+    env_raw = os.environ.get(TOKEN_ENV, "")
+    if env_raw.strip():
+        return _validate_token_shape(env_raw, source_desc=f"${TOKEN_ENV}")
     raise MondayAuthError(
         "No Monday.com API token found. "
         f"Create {TOKEN_FILE} with your Monday.com API v2 token in the project "
@@ -740,6 +796,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     try:
         token = load_token()
+    except MondayTokenFormatError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 6
     except MondayAuthError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2

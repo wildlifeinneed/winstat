@@ -277,6 +277,90 @@ def test_load_token_missing_raises(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Token format hardening (Phase 1.5)
+# ---------------------------------------------------------------------------
+
+# A realistic JWT-shaped fake token (base64url chars + two dots). Used as a
+# secret-leak canary: it must NEVER appear in stderr on the failure paths.
+_FAKE_JWT = (
+    "eyJhbGciOiJIUzI1NiJ9."
+    "eyJ0aWQiOjEyMzQ1LCJ1aWQiOjY3ODkwLCJpYXQiOjE3MDAwMDAwMDB9."
+    "abcDEFghiJKLmnoPQRstuVWXyz0123456789_-AAAA"
+)
+
+
+def test_load_token_rejects_rtf_wrapper(tmp_path, monkeypatch):
+    monkeypatch.delenv(rm.TOKEN_ENV, raising=False)
+    rtf_blob = (
+        "{\\rtf1\\ansi\\ansicpg1252\\cocoartf2761\n"
+        "\\fonttbl\\f0\\fswiss Helvetica;}\n"
+        f"{{\\f0 {_FAKE_JWT}}}\n"
+        "}"
+    )
+    (tmp_path / rm.TOKEN_FILE).write_text(rtf_blob, encoding="utf-8")
+    with pytest.raises(rm.MondayTokenFormatError) as ei:
+        rm.load_token(cwd=tmp_path)
+    msg = str(ei.value)
+    assert "Rich Text Format" in msg
+    assert "RTF" in msg
+    # Must not leak the token value.
+    assert _FAKE_JWT not in msg
+
+
+def test_load_token_rejects_embedded_newline(tmp_path, monkeypatch):
+    monkeypatch.delenv(rm.TOKEN_ENV, raising=False)
+    bad = _FAKE_JWT[:20] + "\n" + _FAKE_JWT[20:]
+    (tmp_path / rm.TOKEN_FILE).write_text(bad, encoding="utf-8")
+    with pytest.raises(rm.MondayTokenFormatError) as ei:
+        rm.load_token(cwd=tmp_path)
+    assert bad not in str(ei.value)
+    assert _FAKE_JWT[:20] not in str(ei.value)
+
+
+def test_load_token_rejects_embedded_space(tmp_path, monkeypatch):
+    monkeypatch.delenv(rm.TOKEN_ENV, raising=False)
+    bad = _FAKE_JWT[:20] + " " + _FAKE_JWT[20:]
+    (tmp_path / rm.TOKEN_FILE).write_text(bad, encoding="utf-8")
+    with pytest.raises(rm.MondayTokenFormatError) as ei:
+        rm.load_token(cwd=tmp_path)
+    assert bad not in str(ei.value)
+
+
+def test_load_token_rejects_empty_file(tmp_path, monkeypatch):
+    monkeypatch.delenv(rm.TOKEN_ENV, raising=False)
+    (tmp_path / rm.TOKEN_FILE).write_text("   \n\t\n", encoding="utf-8")
+    with pytest.raises(rm.MondayTokenFormatError):
+        rm.load_token(cwd=tmp_path)
+
+
+def test_load_token_accepts_valid_jwt_with_trailing_newline(tmp_path, monkeypatch):
+    monkeypatch.delenv(rm.TOKEN_ENV, raising=False)
+    (tmp_path / rm.TOKEN_FILE).write_text(_FAKE_JWT + "\n", encoding="utf-8")
+    assert rm.load_token(cwd=tmp_path) == _FAKE_JWT
+
+
+def test_load_token_env_rejects_rtf(tmp_path, monkeypatch):
+    monkeypatch.setenv(rm.TOKEN_ENV, "{\\rtf1\\ansi " + _FAKE_JWT + "}")
+    with pytest.raises(rm.MondayTokenFormatError) as ei:
+        rm.load_token(cwd=tmp_path)
+    assert _FAKE_JWT not in str(ei.value)
+
+
+def test_main_exits_6_on_rtf_token(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv(rm.TOKEN_ENV, raising=False)
+    monkeypatch.chdir(tmp_path)
+    rtf_blob = "{\\rtf1\\ansi " + _FAKE_JWT + "}"
+    (tmp_path / rm.TOKEN_FILE).write_text(rtf_blob, encoding="utf-8")
+    rc = rm.main([])
+    assert rc == 6
+    err = capsys.readouterr().err
+    assert "TOKEN FILE FORMAT ERROR" in err
+    assert "Rich Text Format" in err
+    # Critical: the token value must never appear in stderr.
+    assert _FAKE_JWT not in err
+
+
+# ---------------------------------------------------------------------------
 # Mocked end-to-end: fetch + build via mocked GraphQL
 # ---------------------------------------------------------------------------
 
