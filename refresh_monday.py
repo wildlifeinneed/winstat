@@ -13,6 +13,8 @@ Usage:
   python3 refresh_monday.py --diff --dry-run
   python3 refresh_monday.py --introspect
   python3 refresh_monday.py --verbose
+  python3 refresh_monday.py --if-stale
+  python3 refresh_monday.py --if-stale --dry-run
 
 Token resolution order:
   1. .monday_token file in the current working directory (gitignored).
@@ -53,6 +55,14 @@ MONDAY_API_VERSION = "2024-10"
 
 BOARD_ID = "9092079933"          # Connecteam_Users
 GROUP_ID = "group_mm39mf3n"      # users group only
+
+# Phase 1.5 — staleness gate. Tracker board records when the volunteer DB
+# was last refreshed. We query just this board (cheap) before doing the
+# full pull when --if-stale is set.
+TRACKER_BOARD_ID = "6750158385"          # VolDB_Status
+TRACKER_GROUP_TITLE = "VolunteerDB Last Updated"
+TRACKER_COL_TITLE_LAST_UPDATED = "Last_Updated"
+SIDECAR_REL_PATH = Path("docs") / "data" / ".last_remote_update"
 
 # Human-visible column titles we care about. The script resolves these to
 # their concrete column IDs at runtime via the boards.columns query, so a
@@ -499,6 +509,188 @@ def print_diff(old: Optional[Dict[str, Any]], new: Dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Phase 1.5 — staleness gate (tracker board + sidecar)
+# ---------------------------------------------------------------------------
+
+class StalenessError(RuntimeError):
+    """Raised when the tracker-board response is malformed (no items, missing
+    column, unparseable date). Causes --if-stale to fail loud rather than
+    silently fall through to a full pull."""
+
+
+TRACKER_QUERY = """
+query ($board_ids: [ID!]) {
+  boards(ids: $board_ids) {
+    id
+    columns { id title type }
+    groups {
+      id
+      title
+      items_page(limit: 100) {
+        cursor
+        items {
+          id
+          name
+          column_values { id text value type }
+        }
+      }
+    }
+  }
+}
+"""
+
+
+def _parse_remote_datetime(text: str, value_json: Optional[str]) -> datetime:
+    """Parse a Monday date+time column into a tz-aware UTC datetime.
+
+    Tries the JSON `value` first ({"date": "YYYY-MM-DD", "time": "HH:MM:SS"})
+    and falls back to the human `text` ("YYYY-MM-DD HH:MM:SS" or
+    "YYYY-MM-DD"). Monday returns these in UTC.
+    """
+    if value_json:
+        try:
+            v = json.loads(value_json)
+            if isinstance(v, dict) and v.get("date"):
+                date_part = v["date"]
+                time_part = v.get("time") or "00:00:00"
+                dt = datetime.strptime(f"{date_part} {time_part}", "%Y-%m-%d %H:%M:%S")
+                return dt.replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError, json.JSONDecodeError):
+            pass
+    if text:
+        t = text.strip()
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(t, fmt).replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+    raise StalenessError(
+        f"Unparseable Last_Updated value (text={text!r}, value={value_json!r})"
+    )
+
+
+def fetch_remote_last_updated(
+    token: Optional[str] = None,
+    session: Optional[requests.Session] = None,
+) -> datetime:
+    """Query the VolDB_Status tracker board and return MAX(Last_Updated) as
+    a tz-aware UTC datetime. Raises StalenessError if the response is
+    malformed (group missing, column missing, no items, all values
+    unparseable)."""
+    data = graphql_request(
+        TRACKER_QUERY,
+        variables={"board_ids": [TRACKER_BOARD_ID]},
+        token=token,
+        session=session,
+    )
+    boards = data.get("boards") or []
+    if not boards:
+        raise StalenessError(
+            f"Tracker board {TRACKER_BOARD_ID} not visible to this token."
+        )
+    board = boards[0]
+
+    columns = board.get("columns") or []
+    col_id: Optional[str] = None
+    for c in columns:
+        if c.get("title") == TRACKER_COL_TITLE_LAST_UPDATED:
+            col_id = c.get("id")
+            break
+    if not col_id:
+        available = sorted(c.get("title") for c in columns if c.get("title"))
+        raise StalenessError(
+            f"Column {TRACKER_COL_TITLE_LAST_UPDATED!r} not found on tracker "
+            f"board {TRACKER_BOARD_ID}. Available titles: {available}"
+        )
+
+    groups = board.get("groups") or []
+    target_group = None
+    for g in groups:
+        if g.get("title") == TRACKER_GROUP_TITLE:
+            target_group = g
+            break
+    if target_group is None:
+        available = sorted(g.get("title") for g in groups if g.get("title"))
+        raise StalenessError(
+            f"Group {TRACKER_GROUP_TITLE!r} not found on tracker "
+            f"board {TRACKER_BOARD_ID}. Available titles: {available}"
+        )
+
+    items = (target_group.get("items_page") or {}).get("items") or []
+    if not items:
+        raise StalenessError(
+            f"Group {TRACKER_GROUP_TITLE!r} on tracker board "
+            f"{TRACKER_BOARD_ID} has zero items; cannot determine "
+            f"Last_Updated."
+        )
+
+    timestamps: List[datetime] = []
+    for it in items:
+        for cv in it.get("column_values") or []:
+            if cv.get("id") == col_id:
+                text = (cv.get("text") or "").strip()
+                value_json = cv.get("value")
+                if not text and not value_json:
+                    continue  # blank cell — skip, but don't fail yet
+                timestamps.append(_parse_remote_datetime(text, value_json))
+                break
+    if not timestamps:
+        raise StalenessError(
+            f"No parseable Last_Updated values across {len(items)} items "
+            f"in group {TRACKER_GROUP_TITLE!r}."
+        )
+    return max(timestamps)
+
+
+def _format_iso_z(dt: datetime) -> str:
+    """Format a tz-aware datetime as ISO8601 UTC with Z suffix, no microseconds."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    dt = dt.astimezone(timezone.utc).replace(microsecond=0)
+    return dt.isoformat().replace("+00:00", "Z")
+
+
+def read_sidecar(path: Path) -> Optional[datetime]:
+    """Return the parsed sidecar timestamp, or None if missing/empty.
+
+    Unparseable contents raise StalenessError so callers can decide whether
+    to surface or swallow."""
+    if not path.exists():
+        return None
+    raw = path.read_text(encoding="utf-8").strip()
+    if not raw:
+        return None
+    text = raw.replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError as exc:
+        raise StalenessError(
+            f"Sidecar {path} contains unparseable timestamp: {raw!r} ({exc})"
+        )
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def atomic_write_sidecar(path: Path, dt: datetime) -> None:
+    """Write the timestamp as a single ISO8601-Z line, atomically."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(
+        prefix=path.name + ".", suffix=".tmp", dir=str(path.parent)
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(_format_iso_z(dt) + "\n")
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -531,6 +723,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         help="Print the resolved column id mapping for the configured titles and exit.",
     )
     parser.add_argument("--verbose", action="store_true", help="DEBUG logging.")
+    parser.add_argument(
+        "--if-stale",
+        action="store_true",
+        help=(
+            "Cheap pre-check: query the VolDB_Status tracker board only. "
+            "If the remote Last_Updated is newer than the sidecar "
+            "timestamp (or sidecar is missing), proceed with full pull "
+            "and update the sidecar on success. Otherwise print 'fresh, "
+            "skipping' to stderr and exit 0."
+        ),
+    )
     args = parser.parse_args(argv)
 
     _setup_logging(args.verbose)
@@ -542,6 +745,33 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 2
 
     session = requests.Session()
+
+    sidecar_path = Path(__file__).resolve().parent / SIDECAR_REL_PATH
+    remote_ts: Optional[datetime] = None
+
+    if args.if_stale:
+        try:
+            remote_ts = fetch_remote_last_updated(token=token, session=session)
+        except (MondayAPIError, StalenessError) as exc:
+            print(f"ERROR: staleness check failed: {exc}", file=sys.stderr)
+            return 5
+        try:
+            local_ts = read_sidecar(sidecar_path)
+        except StalenessError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 5
+        if local_ts is not None and remote_ts <= local_ts:
+            print(
+                f"fresh, skipping (remote={_format_iso_z(remote_ts)} "
+                f"local={_format_iso_z(local_ts)})",
+                file=sys.stderr,
+            )
+            return 0
+        logger.info(
+            "stale: remote=%s local=%s — proceeding with full pull",
+            _format_iso_z(remote_ts),
+            _format_iso_z(local_ts) if local_ts else "<missing>",
+        )
 
     try:
         column_ids = discover_column_ids(
@@ -556,6 +786,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.introspect:
         print(json.dumps(column_ids, indent=2))
         return 0
+
+    # If we didn't already fetch remote_ts via --if-stale, do it now so we
+    # can stamp the sidecar with the actual remote timestamp after a
+    # successful pull. (Bare run still proceeds even if this fails — we
+    # only fail loud on --if-stale; otherwise we log the warning and
+    # skip the sidecar update.)
+    if remote_ts is None:
+        try:
+            remote_ts = fetch_remote_last_updated(token=token, session=session)
+        except (MondayAPIError, StalenessError) as exc:
+            logger.warning(
+                "Tracker board lookup failed (sidecar will not be updated): %s",
+                exc,
+            )
 
     try:
         raw_items = fetch_volunteers(column_ids, token=token, session=session)
@@ -583,6 +827,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     else:
         atomic_write_json(out_path, snapshot)
         logger.info("Wrote %s", out_path)
+        if remote_ts is not None:
+            atomic_write_sidecar(sidecar_path, remote_ts)
+            logger.info(
+                "Updated sidecar %s -> %s",
+                sidecar_path,
+                _format_iso_z(remote_ts),
+            )
 
     matched = len(volunteers)
     n_counties = len(snapshot["counties"])
