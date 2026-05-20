@@ -54,7 +54,8 @@ MONDAY_API_URL = "https://api.monday.com/v2"
 MONDAY_API_VERSION = "2024-10"
 
 BOARD_ID = "9092079933"          # Connecteam_Users
-GROUP_TITLE = "users"            # default 'topics' group on Connecteam_Users
+GROUP_TITLES = ["users", "non-users"]  # groups to fetch volunteers from
+GROUP_TITLE = GROUP_TITLES[0]    # back-compat alias
 
 # Phase 1.5 — staleness gate. Tracker board records when the volunteer DB
 # was last refreshed. We query just this board (cheap) before doing the
@@ -321,16 +322,20 @@ query ($board_ids: [ID!]) {
 
 def discover_board_metadata(
     titles: Sequence[str],
-    group_title: str,
+    group_titles: "str | Sequence[str]",
     token: Optional[str] = None,
     session: Optional[requests.Session] = None,
 ) -> Dict[str, Any]:
-    """Resolve column ids AND the volunteer group id in one introspection call.
+    """Resolve column ids AND volunteer group id(s) in one introspection call.
 
-    Returns {"column_ids": {title -> column_id}, "group_id": str}. Mirrors
-    the Phase 1.5 tracker pattern: resolve groups by human-visible TITLE
-    rather than baking a stale internal id into source.
+    ``group_titles`` may be a single string or a list of strings.
+
+    Returns {"column_ids": {title -> column_id}, "group_ids": {title -> group_id}}.
+    For back-compat, also includes "group_id" set to the first resolved id.
     """
+    if isinstance(group_titles, str):
+        group_titles = [group_titles]
+
     data = graphql_request(
         INTROSPECT_QUERY,
         variables={"board_ids": [BOARD_ID]},
@@ -358,20 +363,24 @@ def discover_board_metadata(
         )
 
     groups = board.get("groups") or []
-    group_id: Optional[str] = None
-    for g in groups:
-        if g.get("title") == group_title:
-            group_id = g.get("id")
-            break
-    if group_id is None:
-        available = sorted(g.get("title") for g in groups if g.get("title"))
+    groups_by_title = {g.get("title"): g.get("id") for g in groups if g.get("title")}
+    resolved_groups: Dict[str, str] = {}
+    missing_groups: List[str] = []
+    for gt in group_titles:
+        if gt in groups_by_title:
+            resolved_groups[gt] = groups_by_title[gt]
+        else:
+            missing_groups.append(gt)
+    if missing_groups:
+        available = sorted(groups_by_title.keys())
         raise MondayAPIError(
-            f"Group {group_title!r} not found on board {BOARD_ID}. "
+            f"Group(s) {missing_groups!r} not found on board {BOARD_ID}. "
             f"Available groups: {available}"
         )
 
-    logger.info("Resolved column ids: %s, group_id: %s", column_ids, group_id)
-    return {"column_ids": column_ids, "group_id": group_id}
+    logger.info("Resolved column ids: %s, group_ids: %s", column_ids, resolved_groups)
+    first_group_id = resolved_groups[group_titles[0]]
+    return {"column_ids": column_ids, "group_ids": resolved_groups, "group_id": first_group_id}
 
 
 # ---------------------------------------------------------------------------
@@ -562,7 +571,8 @@ def is_available(
 
 
 def build_volunteer_record(
-    item: Dict[str, Any], column_ids: Dict[str, str]
+    item: Dict[str, Any], column_ids: Dict[str, str],
+    connecteam_user: bool = True,
 ) -> Optional[Dict[str, Any]]:
     """Convert a raw Monday item to a normalized volunteer dict.
 
@@ -588,6 +598,7 @@ def build_volunteer_record(
         "has_rvs": "RVS" in role_set,
         "has_courier": "Courier" in role_set,
         "available": is_available(availability_text),
+        "connecteam_user": connecteam_user,
     }
 
 
@@ -701,6 +712,7 @@ def aggregate_by_county(
             slot["_members"].append(
                 {
                     "availability_note": v["availability_text"],
+                    "connecteam_user": v.get("connecteam_user", True),
                 }
             )
 
@@ -1130,7 +1142,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         meta = discover_board_metadata(
             [COL_TITLE_COUNTY, COL_TITLE_ROLES, COL_TITLE_AVAILABILITY],
-            GROUP_TITLE,
+            GROUP_TITLES,
             token=token,
             session=session,
         )
@@ -1139,7 +1151,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 3
 
     column_ids = meta["column_ids"]
-    group_id = meta["group_id"]
+    group_ids = meta["group_ids"]  # {title: group_id}
 
     if args.introspect:
         print(json.dumps(column_ids, indent=2))
@@ -1159,19 +1171,26 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 exc,
             )
 
-    try:
-        raw_items = fetch_volunteers(column_ids, group_id, token=token, session=session)
-    except MondayAPIError as exc:
-        print(f"ERROR: fetch failed: {exc}", file=sys.stderr)
-        return 4
-
+    # Fetch volunteers from each group, tagging with connecteam_user
+    all_raw_items: List[Dict[str, Any]] = []
     volunteers: List[Dict[str, Any]] = []
-    for item in raw_items:
-        rec = build_volunteer_record(item, column_ids)
-        if rec is not None:
-            volunteers.append(rec)
+    for group_title, gid in group_ids.items():
+        is_connecteam = (group_title == "users")
+        try:
+            raw_items = fetch_volunteers(column_ids, gid, token=token, session=session)
+        except MondayAPIError as exc:
+            print(f"ERROR: fetch failed for group {group_title!r}: {exc}", file=sys.stderr)
+            return 4
+        logger.info("Group %r: %d raw items fetched", group_title, len(raw_items))
+        all_raw_items.extend(raw_items)
+        for item in raw_items:
+            rec = build_volunteer_record(item, column_ids, connecteam_user=is_connecteam)
+            if rec is not None:
+                volunteers.append(rec)
 
-    snapshot = build_snapshot(volunteers, group_id=group_id, config=config)
+    snapshot = build_snapshot(
+        volunteers, group_id=",".join(group_ids.values()), config=config
+    )
 
     out_path = Path(__file__).resolve().parent / OUTPUT_REL_PATH
     existing = load_existing_snapshot(out_path)
@@ -1196,7 +1215,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     matched = len(volunteers)
     n_counties = len(snapshot["counties"])
     print(
-        f"{len(raw_items)} volunteers fetched, {matched} matched roles, "
+        f"{len(all_raw_items)} volunteers fetched, {matched} matched roles, "
         f"{n_counties} counties with capacity",
         file=sys.stderr,
     )

@@ -253,7 +253,7 @@ def test_marginal_populated_when_available_one():
     bucket = snap["counties"]["Adams"]["ct_no_rvs"]
     assert bucket["available"] == 1
     assert bucket["marginal_volunteers"] == [
-        {"availability_note": "Mon-Fri"}
+        {"availability_note": "Mon-Fri", "connecteam_user": True}
     ]
     # Phase 4a: volunteer name MUST NOT be present in the JSON output.
     for mv in bucket["marginal_volunteers"]:
@@ -456,8 +456,19 @@ def test_main_exits_6_on_rtf_token(tmp_path, monkeypatch, capsys):
 # Mocked end-to-end: fetch + build via mocked GraphQL
 # ---------------------------------------------------------------------------
 
-def _fake_graphql_factory(items):
-    """Return a fake graphql_request that handles introspect + items_page calls."""
+def _fake_graphql_factory(items, groups=None):
+    """Return a fake graphql_request that handles introspect + items_page calls.
+
+    ``groups`` is a list of {"id": ..., "title": ...} dicts for the board.
+    If not provided, defaults to the single "users" group for back-compat.
+    ``items`` may be a flat list (served for any group) or a dict keyed by
+    group_id for multi-group tests.
+    """
+    if groups is None:
+        groups = [
+            {"id": RESOLVED_GROUP_ID, "title": rm.GROUP_TITLE},
+            {"id": "group_xyz", "title": "archived"},
+        ]
     introspect_response = {
         "boards": [
             {
@@ -469,23 +480,26 @@ def _fake_graphql_factory(items):
                     {"id": COLUMN_IDS[rm.COL_TITLE_AVAILABILITY], "title": rm.COL_TITLE_AVAILABILITY, "type": "long_text"},
                     {"id": "name", "title": "Name", "type": "name"},
                 ],
-                "groups": [
-                    {"id": RESOLVED_GROUP_ID, "title": rm.GROUP_TITLE},
-                    {"id": "group_xyz", "title": "archived"},
-                ],
+                "groups": groups,
             }
-        ]
-    }
-    items_response = {
-        "boards": [
-            {"groups": [{"id": RESOLVED_GROUP_ID, "items_page": {"cursor": None, "items": items}}]}
         ]
     }
 
     def fake(query, variables=None, token=None, session=None, _retry=True):
         if "columns" in query and "items_page" not in query:
             return introspect_response
-        return items_response
+        # Determine which group was requested
+        requested_gids = (variables or {}).get("group_ids", [])
+        gid = requested_gids[0] if requested_gids else RESOLVED_GROUP_ID
+        if isinstance(items, dict):
+            group_items = items.get(gid, [])
+        else:
+            group_items = items
+        return {
+            "boards": [
+                {"groups": [{"id": gid, "items_page": {"cursor": None, "items": group_items}}]}
+            ]
+        }
 
     return fake
 
@@ -859,3 +873,76 @@ def test_existing_baseline_threshold_one_still_works():
     assert bucket["available"] == 1
     assert bucket["marginal_volunteers"][0]["availability_note"] == "Mon-Fri"
     assert "name" not in bucket["marginal_volunteers"][0]
+
+
+# ---------------------------------------------------------------------------
+# Multi-group fetch: users + non-users merged with connecteam_user tag
+# ---------------------------------------------------------------------------
+
+NONUSER_GROUP_ID = "group_nonusers"
+
+
+def test_multi_group_fetch_merges_and_tags_connecteam_user():
+    """Volunteers from 'users' and 'non-users' groups are merged into a
+    single pool, correctly tagged with connecteam_user, and aggregated
+    together in county counts."""
+    users_items = [
+        _item("Alice CT", "Bucks", "C&T", "Mon-Fri"),
+        _item("Bob Dispatch", "Bucks", "Dispatch", ""),  # filtered
+    ]
+    nonusers_items = [
+        _item("Charlie Courier", "Bucks", "Courier", "weekends"),
+        _item("Dana CT+RVS", "Chester", "C&T, RVS", "Does not use Connecteam"),
+    ]
+
+    groups = [
+        {"id": RESOLVED_GROUP_ID, "title": "users"},
+        {"id": NONUSER_GROUP_ID, "title": "non-users"},
+    ]
+    items_by_group = {
+        RESOLVED_GROUP_ID: users_items,
+        NONUSER_GROUP_ID: nonusers_items,
+    }
+    fake = _fake_graphql_factory(items_by_group, groups=groups)
+
+    with mock.patch.object(rm, "graphql_request", side_effect=fake):
+        meta = rm.discover_board_metadata(
+            [rm.COL_TITLE_COUNTY, rm.COL_TITLE_ROLES, rm.COL_TITLE_AVAILABILITY],
+            rm.GROUP_TITLES,
+        )
+        col_ids = meta["column_ids"]
+        group_ids_map = meta["group_ids"]
+
+    # Fetch + build for each group
+    volunteers = []
+    with mock.patch.object(rm, "graphql_request", side_effect=fake):
+        for title, gid in group_ids_map.items():
+            is_connecteam = (title == "users")
+            raw = rm.fetch_volunteers(col_ids, gid)
+            for item in raw:
+                rec = rm.build_volunteer_record(item, col_ids, connecteam_user=is_connecteam)
+                if rec is not None:
+                    volunteers.append(rec)
+
+    # 3 qualify (Bob filtered out)
+    assert len(volunteers) == 3
+
+    # Check tagging
+    alice = next(v for v in volunteers if v["name"] == "Alice CT")
+    assert alice["connecteam_user"] is True
+    charlie = next(v for v in volunteers if v["name"] == "Charlie Courier")
+    assert charlie["connecteam_user"] is False
+    dana = next(v for v in volunteers if v["name"] == "Dana CT+RVS")
+    assert dana["connecteam_user"] is False
+
+    # Aggregation merges both groups
+    snap = rm.build_snapshot(volunteers)
+    bucks = snap["counties"]["Bucks"]
+    assert bucks["ct_no_rvs"]["total"] == 1  # Alice
+    assert bucks["courier"]["total"] == 1    # Charlie
+    chester = snap["counties"]["Chester"]
+    assert chester["ct_rvs"]["total"] == 1   # Dana
+
+    # connecteam_user propagates to marginal_volunteers
+    assert bucks["ct_no_rvs"]["marginal_volunteers"][0]["connecteam_user"] is True
+    assert bucks["courier"]["marginal_volunteers"][0]["connecteam_user"] is False
