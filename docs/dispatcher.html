@@ -149,6 +149,19 @@
     }
     @media (max-width: 640px) {
       .cards-grid { grid-template-columns: 1fr; }
+      .cap-card {
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        min-height: 0;
+        padding: 10px 14px;
+      }
+      .cap-card .role { font-size: 11px; }
+      .cap-card .num { font-size: 22px; }
+      .cap-card .num .total { font-size: 17px; }
+      .cap-card .sub { display: none; }
+      .cap-card .badge { align-self: center; }
     }
 
     .cap-card {
@@ -430,7 +443,7 @@
   <section class="panel">
     <div class="form-row">
       <div>
-        <label class="field-label">Animal is RVS?</label>
+        <label class="field-label">RVS Animal?</label>
         <div class="radio-group" id="rvs-group">
           <label><input type="radio" name="rvs" value="yes" /> Yes</label>
           <label><input type="radio" name="rvs" value="no" checked /> No</label>
