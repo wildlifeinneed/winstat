@@ -135,7 +135,7 @@
         rec.reasoning.push('Recommended: dispatch a C&T volunteer via Connecteam.');
         // Choose actual bucket: prefer ct_no_rvs to save RVS volunteers.
         var chosen = (ctNoRvsAvail > 0) ? 'ct_no_rvs' : 'ct_rvs';
-        return enrichMarginal(rec, capacity, chosen, cfg);
+        return enrichMarginal(rec, capacity, chosen, cfg, ctAnyAvail);
       }
       rec.action = 'call_pa_game_comm';
       rec.reasoning.push('No C&T volunteers available - ask the finder to call PA Game Commission.');

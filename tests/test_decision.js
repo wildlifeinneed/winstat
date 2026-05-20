@@ -102,10 +102,28 @@ var cases = [
               marginal_volunteers_len: 2 }
   },
   {
-    name: 'C3. capture+non-rvs prefers ct_no_rvs bucket for marginal lookup',
+    name: 'C3. capture+non-rvs, ct_no_rvs=1 + ct_rvs=3 -> combined ct_any=4, NOT marginal',
     capacity: cap(
       bk(1,1,[{availability_note:'wkends'}]),
       bk(3,3,[]),
+      bk(0,0)),
+    rvs: false, issue: 'capture', cfg: DEFAULTS,
+    expect: { action: 'connecteam_task', target: 'ct_any', marginal: false }
+  },
+  {
+    name: 'C4. capture+non-rvs, ct_no_rvs=1 + ct_rvs=1 -> combined ct_any=2, NOT marginal (user regression)',
+    capacity: cap(
+      bk(1,1,[{availability_note:'wk'}]),
+      bk(1,1,[{availability_note:'eves'}]),
+      bk(0,0)),
+    rvs: false, issue: 'capture', cfg: DEFAULTS,
+    expect: { action: 'connecteam_task', target: 'ct_any', marginal: false }
+  },
+  {
+    name: 'C5. capture+non-rvs, ct_no_rvs=1 + ct_rvs=0 -> combined ct_any=1, marginal',
+    capacity: cap(
+      bk(1,1,[{availability_note:'wk'}]),
+      bk(1,0),
       bk(0,0)),
     rvs: false, issue: 'capture', cfg: DEFAULTS,
     expect: { action: 'connecteam_task', target: 'ct_any', marginal: true,
