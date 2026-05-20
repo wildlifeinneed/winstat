@@ -77,7 +77,7 @@
     rec.marginal = isMarginal;
     rec.marginal_volunteers = isMarginal ? bucketMarginalRoster(capacity, chosenBucket) : [];
     if (isMarginal) {
-      rec.reasoning.push('Low capacity warning: only ' + avail + ' available; consider calling backup.');
+      rec.reasoning.push('Low capacity warning: only ' + avail + ' available; consider calling PA Game Commission.');
     }
     return rec;
   }
