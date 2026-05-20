@@ -229,15 +229,96 @@
     /* ─── Modal / placeholder ───────────────────────────────── */
     .rec-output {
       margin-top: 14px;
-      padding: 14px 16px;
-      background: var(--green-light);
-      border: 1px dashed var(--green);
-      border-radius: 8px;
+      padding: 14px 16px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
       font-size: 14px;
-      color: var(--green-dark);
+      color: var(--text);
       display: none;
+      max-height: 60vh;
+      overflow-y: auto;
+      position: relative;
     }
     .rec-output.show { display: block; }
+
+    .rec-dismiss {
+      position: absolute;
+      top: 8px;
+      right: 10px;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-family: inherit;
+      font-size: 12px;
+      padding: 3px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .rec-dismiss:hover { background: var(--bg); color: var(--text); }
+
+    .rec-action {
+      font-family: 'Bitter', Georgia, serif;
+      font-size: 18px;
+      font-weight: 700;
+      padding: 10px 12px;
+      border-radius: 8px;
+      margin: 4px 60px 12px 0;
+    }
+    .rec-action.go {
+      background: var(--green-light);
+      color: var(--green-deep);
+      border-left: 4px solid var(--green);
+    }
+    .rec-action.escalate {
+      background: var(--amber-light);
+      color: #7a4900;
+      border-left: 4px solid var(--amber);
+    }
+    .rec-action.unknown {
+      background: #ececec;
+      color: #444;
+      border-left: 4px solid var(--text-light);
+    }
+
+    .rec-target {
+      font-size: 13.5px;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+    .rec-target strong { color: var(--text); }
+
+    .rec-marginal {
+      background: var(--amber-light);
+      border: 1px solid #f0c070;
+      border-left: 4px solid var(--amber);
+      padding: 10px 12px;
+      border-radius: 8px;
+      margin-bottom: 12px;
+    }
+    .rec-marginal-header {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--amber);
+      margin-bottom: 6px;
+    }
+    .rec-marginal ul { list-style: disc; padding-left: 20px; font-size: 13.5px; }
+    .rec-marginal li { margin-bottom: 3px; }
+    .rec-marginal em { color: var(--text-muted); font-size: 12.5px; }
+
+    .rec-reasoning-header {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .rec-reasoning ol { padding-left: 20px; font-size: 13.5px; color: var(--text); }
+    .rec-reasoning li { margin-bottom: 3px; }
 
     .empty-msg {
       font-size: 12.5px;
@@ -323,9 +404,7 @@
 
     <button id="recommend-btn" class="btn-primary" type="button">Get Recommendation</button>
 
-    <div id="rec-output" class="rec-output" role="status" aria-live="polite">
-      Phase 3 will fill this in.
-    </div>
+    <div id="rec-output" class="rec-output" role="status" aria-live="polite"></div>
   </section>
 </main>
 
@@ -334,6 +413,7 @@
   <p>Wildlife In Need PA · Dispatcher (internal tool)</p>
 </footer>
 
+<script src="assets/decision.js"></script>
 <script src="assets/dispatcher.js"></script>
 </body>
 </html>

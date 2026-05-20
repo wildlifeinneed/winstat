@@ -182,11 +182,95 @@
     }
   }
 
-  function onRecommendClick() {
-    // Stub — Phase 3 will implement.
-    console.log('recommend() not yet implemented');
+  var TARGET_LABELS = {
+    ct_rvs:    'C&T (RVS)',
+    ct_no_rvs: 'C&T (no RVS)',
+    ct_any:    'C&T (any)',
+    courier:   'Courier'
+  };
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+
+  function renderRecommendation(rec) {
+    var actionMeta = (window.WildlifeDecision &&
+                      window.WildlifeDecision.ACTIONS &&
+                      window.WildlifeDecision.ACTIONS[rec.action]) || null;
+    var label = actionMeta ? actionMeta.label : rec.action;
+    var tone  = actionMeta ? actionMeta.tone  : 'unknown';
+    var targetLabel = rec.target ? (TARGET_LABELS[rec.target] || rec.target) : 'n/a';
+
+    var html = '';
+    html += '<button type="button" class="rec-dismiss" id="rec-dismiss" aria-label="Dismiss">Dismiss</button>';
+    html += '<div class="rec-action ' + tone + '">' + escapeHtml(label) + '</div>';
+    html += '<div class="rec-target">Target role: <strong>' + escapeHtml(targetLabel) + '</strong></div>';
+
+    if (rec.marginal && rec.marginal_volunteers && rec.marginal_volunteers.length) {
+      html += '<div class="rec-marginal">';
+      html += '<div class="rec-marginal-header">Low capacity</div>';
+      html += '<ul>';
+      rec.marginal_volunteers.forEach(function (v) {
+        var note = v.availability_note ? ' — <em>' + escapeHtml(v.availability_note) + '</em>' : '';
+        html += '<li>' + escapeHtml(v.name || 'Unknown') + note + '</li>';
+      });
+      html += '</ul></div>';
+    } else if (rec.marginal) {
+      html += '<div class="rec-marginal"><div class="rec-marginal-header">Low capacity</div>' +
+              '<p style="font-size:13px;">No marginal-volunteer roster recorded for this bucket.</p></div>';
+    }
+
+    if (rec.reasoning && rec.reasoning.length) {
+      html += '<div class="rec-reasoning"><div class="rec-reasoning-header">Reasoning</div><ol>';
+      rec.reasoning.forEach(function (r) { html += '<li>' + escapeHtml(r) + '</li>'; });
+      html += '</ol></div>';
+    }
+
     var out = $('#rec-output');
-    out.classList.toggle('show');
+    out.innerHTML = html;
+    out.className = 'rec-output show tone-' + tone;
+
+    var dismiss = document.getElementById('rec-dismiss');
+    if (dismiss) {
+      dismiss.addEventListener('click', function () {
+        out.classList.remove('show');
+        out.innerHTML = '';
+      });
+    }
+  }
+
+  function onRecommendClick() {
+    var out = $('#rec-output');
+    var county = $('#county').value;
+    if (!county) {
+      out.className = 'rec-output show tone-unknown';
+      out.innerHTML = '<button type="button" class="rec-dismiss" id="rec-dismiss">Dismiss</button>' +
+                      '<div class="rec-action unknown">Select a county first.</div>';
+      var d = document.getElementById('rec-dismiss');
+      if (d) d.addEventListener('click', function () {
+        out.classList.remove('show'); out.innerHTML = '';
+      });
+      return;
+    }
+
+    if (typeof window.WildlifeDecision === 'undefined' ||
+        typeof window.WildlifeDecision.recommend !== 'function') {
+      console.error('decision.js not loaded');
+      return;
+    }
+
+    var counties = (state.snapshot && state.snapshot.counties) || {};
+    var capacity = counties[county] || null;
+    var rvsRadio = document.querySelector('input[name="rvs"]:checked');
+    var issueRadio = document.querySelector('input[name="issue"]:checked');
+    var animalRvs = rvsRadio ? (rvsRadio.value === 'yes') : false;
+    var issue = issueRadio ? issueRadio.value : 'capture';
+
+    var resolved = resolveForCounty(state.config, county);
+    var rec = window.WildlifeDecision.recommend(capacity, animalRvs, issue, resolved);
+    renderRecommendation(rec);
   }
 
   function loadSnapshot() {

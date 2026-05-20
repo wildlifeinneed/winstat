@@ -118,8 +118,27 @@ modifier for degraded state ("Snapshot not available — run refresh_monday.py")
 ## Modal / output placeholder
 
 Phase 2 ships a simple `.rec-output` div that toggles `.show` rather than a true
-modal. Phase 3 may upgrade this to a focus-trapped dialog — if it does, document
-the new pattern here and refactor any other tool pages that adopt it.
+modal. Phase 3 keeps the same div approach (no `<dialog>`) but styles it as a
+modal-card; see "Recommendation card" below.
+
+## Recommendation card (Phase 3)
+
+The Phase 3 decision engine renders into the existing `#rec-output` div as a
+self-contained card with a Dismiss button. Action tone drives the top banner:
+
+| Tone       | Class                | Background      | Accent border    |
+|------------|----------------------|-----------------|------------------|
+| `go`       | `.rec-action.go`       | `--green-light` | `--green`        |
+| `escalate` | `.rec-action.escalate` | `--amber-light` | `--amber`        |
+| `unknown`  | `.rec-action.unknown`  | `#ececec`       | `--text-light`   |
+
+The marginal subsection (`.rec-marginal`) reuses the amber tokens — same palette
+as the `.badge` pill so "marginal" reads consistently across the page. Inside it,
+volunteer names are plain text and `availability_note` is `<em>`-italicized in
+`--text-muted`. The reasoning subsection (`.rec-reasoning`) is an `<ol>` of short
+bullets in past-tense or imperative voice (e.g. "Capture + RVS animal -> RVS-capable
+C&T required."). Card scrolls vertically (`max-height: 60vh; overflow-y: auto`)
+when the marginal roster is long.
 
 ## What lives where
 
