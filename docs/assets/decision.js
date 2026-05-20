@@ -68,8 +68,10 @@
     });
   }
 
-  function enrichMarginal(rec, capacity, chosenBucket, cfg) {
-    var avail = bucketAvail(capacity, chosenBucket);
+  function enrichMarginal(rec, capacity, chosenBucket, cfg, overrideAvail) {
+    var avail = (typeof overrideAvail === 'number')
+      ? overrideAvail
+      : bucketAvail(capacity, chosenBucket);
     var total = bucketTotal(capacity, chosenBucket);
     var isMarginal = (avail <= cfg.marginal_threshold) && (total > 0);
     rec.marginal = isMarginal;
@@ -151,12 +153,12 @@
           rec.reasoning.push(courierAvail + ' courier(s) + ' + ctAnyAvail + ' C&T(s) available for transport.');
         }
         rec.reasoning.push('Recommended: dispatch a courier via Connecteam.');
-        return enrichMarginal(rec, capacity, 'courier', cfg);
+        return enrichMarginal(rec, capacity, 'courier', cfg, transportPool);
       }
       rec.target = 'ct_any';
       rec.reasoning.push('No couriers available; dispatching C&T for transport.');
       var chosenT = (ctNoRvsAvail > 0) ? 'ct_no_rvs' : 'ct_rvs';
-      return enrichMarginal(rec, capacity, chosenT, cfg);
+      return enrichMarginal(rec, capacity, chosenT, cfg, transportPool);
     }
     rec.action = 'call_pa_game_comm';
     rec.reasoning.push('No courier or C&T transport capacity available - ask the finder to transport the animal themselves, or call PA Game Commission.');

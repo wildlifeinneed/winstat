@@ -118,12 +118,12 @@ var cases = [
     expect: { action: 'connecteam_task', target: 'ct_rvs', marginal: false }
   },
   {
-    name: 'D4. transport, courier=1 + ct_any=3, threshold=2 -> prefer courier (combined pool)',
+    name: 'D4. transport, courier=1 + ct_any=3, threshold=2 -> prefer courier (combined pool healthy)',
     capacity: cap(bk(2,2), bk(2,1), bk(1,1)),
     rvs: false, issue: 'transport',
     cfg: { marginal_threshold: 1, ct_rvs_capture_min_available: 1,
            ct_any_capture_min_available: 1, courier_transport_min_available: 2 },
-    expect: { action: 'connecteam_task', target: 'courier', marginal: true }
+    expect: { action: 'connecteam_task', target: 'courier', marginal: false }
   },
   {
     name: 'D5. transport, courier=0 + ct_no_rvs=1 + ct_rvs=1, threshold=2 -> ct_any, ct_no_rvs preferred',
@@ -131,8 +131,7 @@ var cases = [
     rvs: false, issue: 'transport',
     cfg: { marginal_threshold: 1, ct_rvs_capture_min_available: 1,
            ct_any_capture_min_available: 1, courier_transport_min_available: 2 },
-    expect: { action: 'connecteam_task', target: 'ct_any', marginal: true,
-              marginal_volunteers_len: 1 }
+    expect: { action: 'connecteam_task', target: 'ct_any', marginal: false }
   },
   {
     name: 'D6. transport, courier=0 + ct_any=0, threshold=1 -> game comm',
@@ -145,6 +144,19 @@ var cases = [
     capacity: cap(bk(0,0), bk(0,0), bk(3,2)),
     rvs: false, issue: 'transport', cfg: DEFAULTS,
     expect: { action: 'connecteam_task', target: 'courier', marginal: false }
+  },
+  {
+    name: 'D8. Bedford-shape: courier=1 + ct_rvs=2, threshold=1 -> courier NOT marginal (combined pool=3)',
+    capacity: cap(bk(0,0), bk(2,2), bk(1,1,[{availability_note:'Contact for avail'}])),
+    rvs: false, issue: 'transport', cfg: DEFAULTS,
+    expect: { action: 'connecteam_task', target: 'courier', marginal: false }
+  },
+  {
+    name: 'D9. transport, courier=1 + ct_any=0, threshold=1 -> courier marginal (combined pool=1)',
+    capacity: cap(bk(1,0), bk(1,0), bk(1,1,[{availability_note:'eves'}])),
+    rvs: false, issue: 'transport', cfg: DEFAULTS,
+    expect: { action: 'connecteam_task', target: 'courier', marginal: true,
+              marginal_volunteers_len: 1 }
   }
 ];
 
