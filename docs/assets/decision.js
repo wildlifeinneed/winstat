@@ -92,8 +92,8 @@
 
     // A. Missing capacity
     if (!capacity) {
-      rec.action = 'tbd_escalate';
-      rec.reasoning = ['No volunteer data for this county - escalate to supervisor.'];
+      rec.action = 'call_pa_game_comm';
+      rec.reasoning = ['No volunteer data for this county - call PA Game Commission.'];
       return rec;
     }
 
@@ -102,7 +102,7 @@
     // E. Unknown issue
     if (issueNorm !== 'capture' && issueNorm !== 'transport') {
       rec.action = 'tbd_escalate';
-      rec.reasoning = ['Unmapped issue type: ' + String(issue)];
+      rec.reasoning = ['Issue type not recognized - select Capture or Transport.'];
       return rec;
     }
 
@@ -118,14 +118,11 @@
         if (ctRvsAvail >= cfg.ct_rvs_capture_min_available) {
           rec.action = 'connecteam_task';
           rec.target = 'ct_rvs';
-          rec.reasoning.push('ct_rvs.available=' + ctRvsAvail +
-            ' meets threshold (>= ' + cfg.ct_rvs_capture_min_available + ').');
           rec.reasoning.push('Recommended: dispatch a C&T+RVS volunteer via Connecteam.');
           return enrichMarginal(rec, capacity, 'ct_rvs', cfg);
         }
         rec.action = 'call_pa_game_comm';
-        rec.reasoning.push('ct_rvs.available=' + ctRvsAvail +
-          ' below threshold (' + cfg.ct_rvs_capture_min_available + '); escalate to PA Game Commission.');
+        rec.reasoning.push('No RVS-capable C&T volunteers currently available - call PA Game Commission.');
         return rec;
       }
       // C. Capture + non-RVS animal
@@ -133,16 +130,13 @@
       if (ctAnyAvail >= cfg.ct_any_capture_min_available) {
         rec.action = 'connecteam_task';
         rec.target = 'ct_any';
-        rec.reasoning.push('ct_any.available=' + ctAnyAvail +
-          ' meets threshold (>= ' + cfg.ct_any_capture_min_available + ').');
         rec.reasoning.push('Recommended: dispatch a C&T volunteer via Connecteam.');
         // Choose actual bucket: prefer ct_no_rvs to save RVS volunteers.
         var chosen = (ctNoRvsAvail > 0) ? 'ct_no_rvs' : 'ct_rvs';
         return enrichMarginal(rec, capacity, chosen, cfg);
       }
       rec.action = 'call_pa_game_comm';
-      rec.reasoning.push('ct_any.available=' + ctAnyAvail +
-        ' below threshold (' + cfg.ct_any_capture_min_available + '); escalate to PA Game Commission.');
+      rec.reasoning.push('No C&T volunteers currently available - call PA Game Commission.');
       return rec;
     }
 
@@ -151,22 +145,18 @@
     if (courierAvail >= cfg.courier_transport_min_available) {
       rec.action = 'connecteam_task';
       rec.target = 'courier';
-      rec.reasoning.push('courier.available=' + courierAvail +
-        ' meets threshold (>= ' + cfg.courier_transport_min_available + ').');
       rec.reasoning.push('Recommended: dispatch a courier via Connecteam.');
       return enrichMarginal(rec, capacity, 'courier', cfg);
     }
     if (ctAnyAvail >= cfg.ct_any_capture_min_available) {
       rec.action = 'connecteam_task';
       rec.target = 'ct_any';
-      rec.reasoning.push('courier empty, falling back to C&T volunteers for transport.');
-      rec.reasoning.push('ct_any.available=' + ctAnyAvail +
-        ' meets fallback threshold (>= ' + cfg.ct_any_capture_min_available + ').');
+      rec.reasoning.push('Courier unavailable; falling back to C&T volunteers for transport.');
       var chosenT = (ctNoRvsAvail > 0) ? 'ct_no_rvs' : 'ct_rvs';
       return enrichMarginal(rec, capacity, chosenT, cfg);
     }
     rec.action = 'call_pa_game_comm';
-    rec.reasoning.push('No courier or C&T capacity available; escalate to PA Game Commission.');
+    rec.reasoning.push('No courier or C&T capacity available; call PA Game Commission.');
     return rec;
   }
 

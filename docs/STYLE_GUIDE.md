@@ -132,17 +132,23 @@ self-contained card with a Dismiss button. Action tone drives the top banner:
 | `escalate` | `.rec-action.escalate` | `--amber-light` | `--amber`        |
 | `unknown`  | `.rec-action.unknown`  | `#ececec`       | `--text-light`   |
 
-The marginal subsection (`.rec-marginal`) reuses the amber tokens — same palette
-as the `.badge` pill so "marginal" reads consistently across the page. Each
+The marginal subsection (`.rec-marginal`) reuses the amber tokens. Each
 entry is a single `<li>` rendering only the volunteer's `availability_note`
-italicized in `--text-muted` — **volunteer names are never rendered** (and are
-no longer present in `data/county_capacity.json` as of Phase 4a, so the JSON
-is safe to publish via GH Pages). If a roster entry has no note, the bullet
-shows `<em>(no availability info)</em>`. The reasoning subsection
-(`.rec-reasoning`) is an `<ol>` of short bullets in past-tense or imperative
-voice (e.g. "Capture + RVS animal -> RVS-capable C&T required."). Card
-scrolls vertically (`max-height: 60vh; overflow-y: auto`) when the marginal
-roster is long.
+italicized in `--text-muted` — **volunteer names are never rendered** (and
+are no longer in `data/county_capacity.json` as of Phase 4a). Missing notes
+fall back to `<em>(no availability info)</em>`.
+
+The reasoning subsection (`.rec-reasoning`) is an `<ol>` of short bullets
+in **user-language only** (e.g. "Recommended: dispatch a C&T+RVS volunteer
+via Connecteam."). No threshold math (`ct_rvs.available=N`) — removed in
+Phase 4d. Zero-volunteer cases (including missing capacity) produce a
+`call_pa_game_comm` action with friendly wording like "No RVS-capable C&T
+volunteers currently available - call PA Game Commission."
+
+A persistent `.finder-fallback-note` sits directly below the Get
+Recommendation button and is **always visible**: "If no Volunteer contacts
+FINDER within 2 hours FINDER should call PA Game Commission (833 742 4868
+or 833 742 9453)" — both numbers as `tel:` links, muted italic.
 
 ## What lives where
 

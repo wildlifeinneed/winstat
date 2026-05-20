@@ -226,6 +226,21 @@
     .btn-primary:hover { background: var(--green-dark); }
     .btn-primary:disabled { background: var(--text-light); cursor: not-allowed; }
 
+    .finder-fallback-note {
+      margin-top: 10px;
+      padding: 8px 2px;
+      max-width: 560px;
+      font-size: 13px;
+      font-style: italic;
+      color: #666;
+      line-height: 1.45;
+    }
+    .finder-fallback-note a {
+      color: #666;
+      text-decoration: underline;
+    }
+    .finder-fallback-note a:hover { color: var(--green-dark); }
+
     /* ─── Modal / placeholder ───────────────────────────────── */
     .rec-output {
       margin-top: 14px;
@@ -436,6 +451,10 @@
     </div>
 
     <button id="recommend-btn" class="btn-primary" type="button">Get Recommendation</button>
+
+    <p class="finder-fallback-note">
+      If no Volunteer contacts FINDER within 2 hours FINDER should call PA Game Commission (<a href="tel:8337424868">833 742 4868</a> or <a href="tel:8337429453">833 742 9453</a>)
+    </p>
 
     <div id="rec-output" class="rec-output" role="status" aria-live="polite"></div>
   </section>

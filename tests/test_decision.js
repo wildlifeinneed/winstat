@@ -31,9 +31,9 @@ var DEFAULTS = {
 
 var cases = [
   {
-    name: 'A. missing capacity -> tbd_escalate',
+    name: 'A. missing capacity -> call_pa_game_comm',
     capacity: undefined, rvs: true, issue: 'capture', cfg: DEFAULTS,
-    expect: { action: 'tbd_escalate', target: null, marginal: false }
+    expect: { action: 'call_pa_game_comm', target: null, marginal: false }
   },
   {
     name: 'B1. capture+rvs, ct_rvs.available=1, marginal',
@@ -138,8 +138,60 @@ cases.forEach(function (c) {
 var fallbackRec = recommend(
   cap(bk(2,2), bk(0,0), bk(1,0)), true, 'transport', DEFAULTS);
 assert.ok(fallbackRec.reasoning.some(function (r) {
-  return r.indexOf('courier empty') !== -1;
-}), 'transport fallback reasoning should mention courier empty');
+  return r.indexOf('Courier unavailable') !== -1;
+}), 'transport fallback reasoning should mention courier unavailable');
+passed++;
+
+// Phase 4d: zero-capacity (all buckets present, all available=0) cases
+// should produce a friendly call_pa_game_comm message — not threshold math.
+var zeroCapRvs = recommend(
+  cap(bk(2,0), bk(2,0), bk(2,0)), true, 'capture', DEFAULTS);
+assert.strictEqual(zeroCapRvs.action, 'call_pa_game_comm',
+  'zero-cap RVS capture -> call_pa_game_comm');
+assert.ok(zeroCapRvs.reasoning.some(function (r) {
+  return r.indexOf('No RVS-capable C&T volunteers currently available') !== -1;
+}), 'zero-cap RVS capture should use friendly wording');
+passed++;
+
+var zeroCapNonRvs = recommend(
+  cap(bk(2,0), bk(2,0), bk(2,0)), false, 'capture', DEFAULTS);
+assert.strictEqual(zeroCapNonRvs.action, 'call_pa_game_comm',
+  'zero-cap non-RVS capture -> call_pa_game_comm');
+assert.ok(zeroCapNonRvs.reasoning.some(function (r) {
+  return r.indexOf('No C&T volunteers currently available') !== -1;
+}), 'zero-cap non-RVS capture should use friendly wording');
+passed++;
+
+// Phase 4d: missing-capacity case now routes to call_pa_game_comm.
+var missingRec = recommend(undefined, true, 'capture', DEFAULTS);
+assert.strictEqual(missingRec.action, 'call_pa_game_comm',
+  'missing capacity -> call_pa_game_comm');
+assert.ok(missingRec.reasoning[0].indexOf('call PA Game Commission') !== -1,
+  'missing capacity reasoning should mention calling PA Game Commission');
+passed++;
+
+// Phase 4d: regression guard — reasoning must never contain threshold math
+// (substrings like "ct_rvs.available=", "ct_any.available=", "courier.available=").
+var thresholdRegex = /\.available\s*=/;
+var sampleConfigs = [
+  cap(bk(0,0), bk(1,1), bk(0,0)),
+  cap(bk(0,0), bk(0,0), bk(0,0)),
+  cap(bk(5,3), bk(0,0), bk(0,0)),
+  cap(bk(1,0), bk(1,0), bk(0,0)),
+  cap(bk(0,0), bk(0,0), bk(3,2)),
+  cap(bk(2,2), bk(0,0), bk(1,0)),
+  cap(bk(1,0), bk(1,0), bk(1,0))
+];
+var combos = [[true,'capture'], [false,'capture'], [true,'transport'], [false,'transport']];
+sampleConfigs.forEach(function (capFix) {
+  combos.forEach(function (combo) {
+    var r = recommend(capFix, combo[0], combo[1], DEFAULTS);
+    r.reasoning.forEach(function (line) {
+      assert.ok(!thresholdRegex.test(line),
+        'reasoning must not contain threshold math, got: ' + line);
+    });
+  });
+});
 passed++;
 
 // Phase 4a: defensive PII strip — even if a stale county_capacity.json
