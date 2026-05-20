@@ -148,7 +148,7 @@ volunteers currently available - call PA Game Commission."
 A persistent `.finder-fallback-note` sits directly below the Get
 Recommendation button and is **always visible**: "If no Volunteer contacts
 FINDER within 2 hours FINDER should call PA Game Commission (833 742 4868
-or 833 742 9453)" — both numbers as `tel:` links, muted italic.
+or 833 742 9453)" — plain text, no `tel:` links (FINDER dials, not dispatcher).
 
 ## What lives where
 
