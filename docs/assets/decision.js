@@ -122,7 +122,7 @@
           return enrichMarginal(rec, capacity, 'ct_rvs', cfg);
         }
         rec.action = 'call_pa_game_comm';
-        rec.reasoning.push('No RVS-capable C&T volunteers currently available - call PA Game Commission.');
+        rec.reasoning.push('No RVS-capable C&T volunteers available - ask the finder to call PA Game Commission.');
         return rec;
       }
       // C. Capture + non-RVS animal
@@ -136,7 +136,7 @@
         return enrichMarginal(rec, capacity, chosen, cfg);
       }
       rec.action = 'call_pa_game_comm';
-      rec.reasoning.push('No C&T volunteers currently available - call PA Game Commission.');
+      rec.reasoning.push('No C&T volunteers available - ask the finder to call PA Game Commission.');
       return rec;
     }
 
@@ -159,7 +159,7 @@
       return enrichMarginal(rec, capacity, chosenT, cfg);
     }
     rec.action = 'call_pa_game_comm';
-    rec.reasoning.push('No courier or C&T transport capacity available - call PA Game Commission.');
+    rec.reasoning.push('No courier or C&T transport capacity available - ask the finder to transport the animal themselves, or call PA Game Commission.');
     return rec;
   }
 

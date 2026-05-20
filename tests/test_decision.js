@@ -178,7 +178,7 @@ var zeroCapRvs = recommend(
 assert.strictEqual(zeroCapRvs.action, 'call_pa_game_comm',
   'zero-cap RVS capture -> call_pa_game_comm');
 assert.ok(zeroCapRvs.reasoning.some(function (r) {
-  return r.indexOf('No RVS-capable C&T volunteers currently available') !== -1;
+  return r.indexOf('No RVS-capable C&T volunteers available - ask the finder to call PA Game Commission') !== -1;
 }), 'zero-cap RVS capture should use friendly wording');
 passed++;
 
@@ -187,7 +187,7 @@ var zeroCapNonRvs = recommend(
 assert.strictEqual(zeroCapNonRvs.action, 'call_pa_game_comm',
   'zero-cap non-RVS capture -> call_pa_game_comm');
 assert.ok(zeroCapNonRvs.reasoning.some(function (r) {
-  return r.indexOf('No C&T volunteers currently available') !== -1;
+  return r.indexOf('No C&T volunteers available - ask the finder to call PA Game Commission') !== -1;
 }), 'zero-cap non-RVS capture should use friendly wording');
 passed++;
 
