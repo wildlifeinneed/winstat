@@ -116,6 +116,35 @@ var cases = [
     capacity: cap(bk(0,0), bk(2,2), bk(0,0)),
     rvs: true, issue: 'capture', cfg: null,
     expect: { action: 'connecteam_task', target: 'ct_rvs', marginal: false }
+  },
+  {
+    name: 'D4. transport, courier=1 + ct_any=3, threshold=2 -> prefer courier (combined pool)',
+    capacity: cap(bk(2,2), bk(2,1), bk(1,1)),
+    rvs: false, issue: 'transport',
+    cfg: { marginal_threshold: 1, ct_rvs_capture_min_available: 1,
+           ct_any_capture_min_available: 1, courier_transport_min_available: 2 },
+    expect: { action: 'connecteam_task', target: 'courier', marginal: true }
+  },
+  {
+    name: 'D5. transport, courier=0 + ct_no_rvs=1 + ct_rvs=1, threshold=2 -> ct_any, ct_no_rvs preferred',
+    capacity: cap(bk(1,1,[{availability_note:'wk'}]), bk(1,1), bk(0,0)),
+    rvs: false, issue: 'transport',
+    cfg: { marginal_threshold: 1, ct_rvs_capture_min_available: 1,
+           ct_any_capture_min_available: 1, courier_transport_min_available: 2 },
+    expect: { action: 'connecteam_task', target: 'ct_any', marginal: true,
+              marginal_volunteers_len: 1 }
+  },
+  {
+    name: 'D6. transport, courier=0 + ct_any=0, threshold=1 -> game comm',
+    capacity: cap(bk(0,0), bk(0,0), bk(0,0)),
+    rvs: false, issue: 'transport', cfg: DEFAULTS,
+    expect: { action: 'call_pa_game_comm', target: null, marginal: false }
+  },
+  {
+    name: 'D7. transport, courier=2 + ct_any=0, threshold=1 -> courier (regression)',
+    capacity: cap(bk(0,0), bk(0,0), bk(3,2)),
+    rvs: false, issue: 'transport', cfg: DEFAULTS,
+    expect: { action: 'connecteam_task', target: 'courier', marginal: false }
   }
 ];
 
@@ -134,12 +163,12 @@ cases.forEach(function (c) {
   passed++;
 });
 
-// Spot-check transport-fallback reasoning trace contains the courier-empty note.
+// Spot-check transport C&T-dispatch reasoning trace contains the no-courier note.
 var fallbackRec = recommend(
   cap(bk(2,2), bk(0,0), bk(1,0)), true, 'transport', DEFAULTS);
 assert.ok(fallbackRec.reasoning.some(function (r) {
-  return r.indexOf('Courier unavailable') !== -1;
-}), 'transport fallback reasoning should mention courier unavailable');
+  return r.indexOf('No couriers available') !== -1;
+}), 'transport C&T dispatch reasoning should mention no couriers available');
 passed++;
 
 // Phase 4d: zero-capacity (all buckets present, all available=0) cases

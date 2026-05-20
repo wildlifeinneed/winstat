@@ -140,23 +140,26 @@
       return rec;
     }
 
-    // D. Transport (animalRvs ignored for routing)
-    rec.reasoning.push('Transport request - courier preferred (animal RVS status not used for routing).');
-    if (courierAvail >= cfg.courier_transport_min_available) {
+    // D. Transport - couriers preferred; C&T volunteers also eligible for transport runs.
+    rec.reasoning.push('Transport request - couriers preferred; C&T volunteers also eligible for transport runs.');
+    var transportPool = courierAvail + ctAnyAvail;
+    if (transportPool >= cfg.courier_transport_min_available) {
       rec.action = 'connecteam_task';
-      rec.target = 'courier';
-      rec.reasoning.push('Recommended: dispatch a courier via Connecteam.');
-      return enrichMarginal(rec, capacity, 'courier', cfg);
-    }
-    if (ctAnyAvail >= cfg.ct_any_capture_min_available) {
-      rec.action = 'connecteam_task';
+      if (courierAvail > 0) {
+        rec.target = 'courier';
+        if (ctAnyAvail > 0) {
+          rec.reasoning.push(courierAvail + ' courier(s) + ' + ctAnyAvail + ' C&T(s) available for transport.');
+        }
+        rec.reasoning.push('Recommended: dispatch a courier via Connecteam.');
+        return enrichMarginal(rec, capacity, 'courier', cfg);
+      }
       rec.target = 'ct_any';
-      rec.reasoning.push('Courier unavailable; falling back to C&T volunteers for transport.');
+      rec.reasoning.push('No couriers available; dispatching C&T for transport.');
       var chosenT = (ctNoRvsAvail > 0) ? 'ct_no_rvs' : 'ct_rvs';
       return enrichMarginal(rec, capacity, chosenT, cfg);
     }
     rec.action = 'call_pa_game_comm';
-    rec.reasoning.push('No courier or C&T capacity available; call PA Game Commission.');
+    rec.reasoning.push('No courier or C&T transport capacity available - call PA Game Commission.');
     return rec;
   }
 
