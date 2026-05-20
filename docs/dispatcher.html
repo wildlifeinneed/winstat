@@ -338,6 +338,35 @@
     .site-footer .footer-logo {
       width: 44px; height: auto; margin: 0 auto 8px; display: block; opacity: .9;
     }
+
+    /* ─── Feature status strip (under header) ─────────────────── */
+    .status-strip {
+      padding: 9px 16px;
+      text-align: center;
+      font-size: 13px;
+      line-height: 1.35;
+      border-bottom: 1px solid transparent;
+    }
+    .status-strip strong {
+      display: inline-block;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      font-size: 11.5px;
+      margin-right: 8px;
+      padding: 2px 9px;
+      border-radius: 999px;
+      vertical-align: 1px;
+    }
+    .status-strip.live         { background: var(--green-light); color: var(--green-dark); border-bottom-color: #c8e6d2; }
+    .status-strip.live strong  { background: var(--green); color: #fff; }
+    .status-strip.beta         { background: var(--amber-light); color: #7a4900; border-bottom-color: #f0c070; }
+    .status-strip.beta strong  { background: var(--amber); color: #fff; }
+    .status-strip.construction         { background: var(--red-light); color: var(--red); border-bottom-color: #f0b8b0; }
+    .status-strip.construction strong  { background: var(--red); color: #fff; }
+    @media (max-width: 480px) {
+      .status-strip { font-size: 12px; padding: 7px 12px; }
+      .status-strip .sub { display: block; margin-top: 2px; }
+    }
   </style>
 </head>
 <body>
@@ -354,6 +383,10 @@
     </div>
   </div>
 </header>
+
+<div class="status-strip construction" role="status">
+  <strong>Under Construction</strong><span class="sub">Preview build — not yet ready for production use.</span>
+</div>
 
 <div id="refresh-banner" class="refresh-banner">Loading snapshot…</div>
 

@@ -147,3 +147,14 @@ when the marginal roster is long.
 - Shared images live in `assets/` (currently just `winlogo.jpg`).
 - Generated data lives in `data/` and is produced by `refresh_monday.py`.
   The browser must never call the Monday API directly.
+
+## Feature status badges
+
+Each feature has a maturity label as a pill (`.status-badge`) in its
+`index.html` tool-card and a strip (`.status-strip`) under `.site-header` — update both plus the row below to promote.
+
+| Feature             | Label          | Class           | Tone                             |
+|---------------------|----------------|-----------------|----------------------------------|
+| Equipment Transfers | `LIVE`         | `.live`         | `--green-light` / `--green-dark` |
+| Facility Status     | `Beta Testing` | `.beta`         | `--amber-light` / `#7a4900`      |
+| Dispatcher Action   | `Construction` | `.construction` | `--red-light` / `--red`          |
