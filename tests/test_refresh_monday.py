@@ -171,8 +171,11 @@ def test_marginal_populated_when_available_one():
     bucket = snap["counties"]["Adams"]["ct_no_rvs"]
     assert bucket["available"] == 1
     assert bucket["marginal_volunteers"] == [
-        {"name": "Only One", "availability_note": "Mon-Fri"}
+        {"availability_note": "Mon-Fri"}
     ]
+    # Phase 4a: volunteer name MUST NOT be present in the JSON output.
+    for mv in bucket["marginal_volunteers"]:
+        assert "name" not in mv
 
 
 def test_marginal_empty_when_available_two_or_more():
@@ -198,7 +201,11 @@ def test_marginal_populated_when_zero_available():
     bucket = snap["counties"]["York"]["courier"]
     assert bucket["total"] == 2
     assert bucket["available"] == 0
-    assert {m["name"] for m in bucket["marginal_volunteers"]} == {"Out A", "Out B"}
+    # Phase 4a: marginal_volunteers no longer carries volunteer names.
+    notes = sorted(m["availability_note"] for m in bucket["marginal_volunteers"])
+    assert notes == ["inactive", "on vacation"]
+    for mv in bucket["marginal_volunteers"]:
+        assert "name" not in mv
 
 
 # ---------------------------------------------------------------------------
@@ -438,7 +445,10 @@ def test_end_to_end_with_mocked_api(tmp_path, monkeypatch):
     assert bucks["ct_rvs"]["available"] == 1
     assert bucks["courier"]["total"] == 1
     assert bucks["courier"]["available"] == 0  # 'on vacation' keyword
-    assert bucks["courier"]["marginal_volunteers"][0]["name"] == "Charlie Courier"
+    # Phase 4a: marginal_volunteers carries availability_note only (no name).
+    assert bucks["courier"]["marginal_volunteers"][0]["availability_note"] == \
+        "on vacation until June"
+    assert "name" not in bucks["courier"]["marginal_volunteers"][0]
 
     chester = snap["counties"]["Chester"]
     assert chester["courier"]["total"] == 1
@@ -684,7 +694,10 @@ def test_aggregate_uses_global_threshold_three_includes_marginal_for_two():
     snap = rm.build_snapshot(volunteers, config={"marginal_threshold": 3})
     bucket = snap["counties"]["Lehigh"]["ct_no_rvs"]
     assert bucket["available"] == 2
-    assert {m["name"] for m in bucket["marginal_volunteers"]} == {"First", "Second"}
+    notes = {m["availability_note"] for m in bucket["marginal_volunteers"]}
+    assert notes == {"Mon-Fri", "weekends"}
+    for mv in bucket["marginal_volunteers"]:
+        assert "name" not in mv
 
 
 def test_aggregate_per_county_override_suppresses_marginal_in_bucks():
@@ -703,10 +716,9 @@ def test_aggregate_per_county_override_suppresses_marginal_in_bucks():
     assert snap["counties"]["Bucks"]["ct_no_rvs"]["available"] == 1
     assert snap["counties"]["Bucks"]["ct_no_rvs"]["marginal_volunteers"] == []
     assert snap["counties"]["Chester"]["ct_no_rvs"]["available"] == 1
-    assert (
-        snap["counties"]["Chester"]["ct_no_rvs"]["marginal_volunteers"][0]["name"]
-        == "ChesterOnly"
-    )
+    chester_mv = snap["counties"]["Chester"]["ct_no_rvs"]["marginal_volunteers"]
+    assert chester_mv[0]["availability_note"] == "Mon-Fri"
+    assert "name" not in chester_mv[0]
 
 
 def test_load_config_missing_warns_and_returns_empty(tmp_path, caplog):
@@ -763,4 +775,5 @@ def test_existing_baseline_threshold_one_still_works():
     snap = rm.build_snapshot(volunteers, config={"marginal_threshold": 1})
     bucket = snap["counties"]["Adams"]["ct_no_rvs"]
     assert bucket["available"] == 1
-    assert bucket["marginal_volunteers"][0]["name"] == "Solo"
+    assert bucket["marginal_volunteers"][0]["availability_note"] == "Mon-Fri"
+    assert "name" not in bucket["marginal_volunteers"][0]

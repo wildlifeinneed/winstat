@@ -37,7 +37,7 @@ var cases = [
   },
   {
     name: 'B1. capture+rvs, ct_rvs.available=1, marginal',
-    capacity: cap(bk(0,0), bk(1,1,[{name:'A',availability_note:'M-F'}]), bk(0,0)),
+    capacity: cap(bk(0,0), bk(1,1,[{availability_note:'M-F'}]), bk(0,0)),
     rvs: true, issue: 'capture', cfg: DEFAULTS,
     expect: { action: 'connecteam_task', target: 'ct_rvs', marginal: true,
               marginal_volunteers_len: 1 }
@@ -94,7 +94,7 @@ var cases = [
   },
   {
     name: 'Marginal threshold bumped: ct_rvs.available=2, marg_threshold=3 -> marginal',
-    capacity: cap(bk(0,0), bk(5,2,[{name:'X',availability_note:'wknds'},{name:'Y',availability_note:'eves'}]), bk(0,0)),
+    capacity: cap(bk(0,0), bk(5,2,[{availability_note:'wknds'},{availability_note:'eves'}]), bk(0,0)),
     rvs: true, issue: 'capture',
     cfg: { marginal_threshold: 3, ct_rvs_capture_min_available: 1,
            ct_any_capture_min_available: 1, courier_transport_min_available: 1 },
@@ -104,7 +104,7 @@ var cases = [
   {
     name: 'C3. capture+non-rvs prefers ct_no_rvs bucket for marginal lookup',
     capacity: cap(
-      bk(1,1,[{name:'NoRvsPerson',availability_note:'wkends'}]),
+      bk(1,1,[{availability_note:'wkends'}]),
       bk(3,3,[]),
       bk(0,0)),
     rvs: false, issue: 'capture', cfg: DEFAULTS,
@@ -140,6 +140,23 @@ var fallbackRec = recommend(
 assert.ok(fallbackRec.reasoning.some(function (r) {
   return r.indexOf('courier empty') !== -1;
 }), 'transport fallback reasoning should mention courier empty');
+passed++;
+
+// Phase 4a: defensive PII strip — even if a stale county_capacity.json
+// still includes a `name` field on a marginal_volunteer, recommend() must
+// NOT pass it through to the modal payload.
+var staleCap = cap(
+  bk(0,0),
+  bk(1,1,[{name:'Krouse', availability_note:'Contact for avail'}]),
+  bk(0,0));
+var staleRec = recommend(staleCap, true, 'capture', DEFAULTS);
+assert.strictEqual(staleRec.marginal, true, 'stale fixture should be marginal');
+assert.strictEqual(staleRec.marginal_volunteers.length, 1,
+  'stale fixture should yield one marginal volunteer entry');
+assert.ok(!('name' in staleRec.marginal_volunteers[0]),
+  'recommend() must strip volunteer `name` from marginal_volunteers');
+assert.strictEqual(staleRec.marginal_volunteers[0].availability_note,
+  'Contact for avail', 'availability_note must be preserved verbatim');
 passed++;
 
 console.log('OK: ' + passed + ' tests passed');

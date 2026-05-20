@@ -57,7 +57,15 @@
   function bucketMarginalRoster(capacity, key) {
     var b = capacity && capacity[key];
     if (!b || !Array.isArray(b.marginal_volunteers)) return [];
-    return b.marginal_volunteers.slice();
+    // Defensive PII strip: even if a stale county_capacity.json still
+    // carries volunteer `name` fields, never let them reach the modal.
+    return b.marginal_volunteers.map(function (mv) {
+      var out = {};
+      if (mv && typeof mv.availability_note !== 'undefined') {
+        out.availability_note = mv.availability_note;
+      }
+      return out;
+    });
   }
 
   function enrichMarginal(rec, capacity, chosenBucket, cfg) {

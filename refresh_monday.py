@@ -584,7 +584,6 @@ def aggregate_by_county(
                 slot["available"] += 1
             slot["_members"].append(
                 {
-                    "name": v["name"],
                     "availability_note": v["availability_text"],
                 }
             )

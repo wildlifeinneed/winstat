@@ -1,0 +1,968 @@
+{
+  "availability_keywords": [
+    "vacation",
+    "out",
+    "inactive",
+    "unavailable",
+    "leave",
+    "away",
+    "on hold",
+    "extended",
+    "hiatus"
+  ],
+  "counties": {
+    "Allegheny": {
+      "courier": {
+        "available": 11,
+        "marginal_volunteers": [],
+        "total": 11
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_rvs": {
+        "available": 5,
+        "marginal_volunteers": [],
+        "total": 5
+      }
+    },
+    "Armstrong": {
+      "courier": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail every other Sat, most Sun, & some weekend evenings"
+          }
+        ],
+        "total": 1
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      }
+    },
+    "Beaver": {
+      "courier": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Weekdays, Weekends"
+          }
+        ],
+        "total": 1
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      }
+    },
+    "Bedford": {
+      "courier": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Contact for avail"
+          }
+        ],
+        "total": 1
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_rvs": {
+        "available": 2,
+        "marginal_volunteers": [],
+        "total": 2
+      }
+    },
+    "Berks": {
+      "courier": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Mon-Thurs after 5PM; varies Fri & Sat; Sun after 1PM"
+          }
+        ],
+        "total": 1
+      },
+      "ct_no_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Call/text for avail, schedule varies,"
+          }
+        ],
+        "total": 1
+      },
+      "ct_rvs": {
+        "available": 3,
+        "marginal_volunteers": [],
+        "total": 3
+      }
+    },
+    "Blair": {
+      "courier": {
+        "available": 4,
+        "marginal_volunteers": [],
+        "total": 4
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail 7am-3pm: Mon, Thurs & Fri, All day Sat; Works in Clearfield Tues, Wed: Avail 7am - 3pm"
+          }
+        ],
+        "total": 1
+      }
+    },
+    "Bucks": {
+      "courier": {
+        "available": 2,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Mostly avail evenings & weekends, Sometimes weekdays;"
+          },
+          {
+            "availability_note": "Avail late afternoon weekdays & weekends"
+          }
+        ],
+        "total": 2
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Any day except Mon, Covers Bucks, Montgomery Co"
+          }
+        ],
+        "total": 1
+      }
+    },
+    "Butler": {
+      "courier": {
+        "available": 3,
+        "marginal_volunteers": [],
+        "total": 3
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Weekends only, Limit calls to Butler/Moraine area, Raptors & opossums only. Out of area often."
+          }
+        ],
+        "total": 1
+      },
+      "ct_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Varies"
+          }
+        ],
+        "total": 1
+      }
+    },
+    "Cameron": {
+      "courier": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Weekdays & Weekends"
+          }
+        ],
+        "total": 1
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      }
+    },
+    "Carbon": {
+      "courier": {
+        "available": 2,
+        "marginal_volunteers": [],
+        "total": 2
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Weekdays & Weekends; prefers to avoid nighttime driving"
+          }
+        ],
+        "total": 1
+      }
+    },
+    "Centre": {
+      "courier": {
+        "available": 5,
+        "marginal_volunteers": [],
+        "total": 5
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_rvs": {
+        "available": 3,
+        "marginal_volunteers": [],
+        "total": 3
+      }
+    },
+    "Chester": {
+      "courier": {
+        "available": 2,
+        "marginal_volunteers": [],
+        "total": 2
+      },
+      "ct_no_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Call for avail, Birds only"
+          }
+        ],
+        "total": 1
+      },
+      "ct_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      }
+    },
+    "Columbia": {
+      "courier": {
+        "available": 2,
+        "marginal_volunteers": [],
+        "total": 2
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      }
+    },
+    "Crawford": {
+      "courier": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Weekdays & Weekends"
+          }
+        ],
+        "total": 1
+      }
+    },
+    "Cumberland": {
+      "courier": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Mon after 4PM, Fri after 4PM, Weekends"
+          }
+        ],
+        "total": 1
+      },
+      "ct_no_rvs": {
+        "available": 2,
+        "marginal_volunteers": [],
+        "total": 2
+      },
+      "ct_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail after 5PM but varies Mon, Wed, Thurs; Avail varies weekends, Avail Fri 5PM-8PM"
+          }
+        ],
+        "total": 1
+      }
+    },
+    "Dauphin": {
+      "courier": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Weekends, can vary"
+          }
+        ],
+        "total": 1
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      }
+    },
+    "Delaware": {
+      "courier": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail days/times limited & variable"
+          }
+        ],
+        "total": 1
+      },
+      "ct_no_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Wed 12PM-8PM, Thur 2PM-8PM, Sun 2PM-6PM, Avail Random evenings Mon, Tues, Fri, & Sat, Unavail 5/12 \u2013 5/21"
+          }
+        ],
+        "total": 1
+      },
+      "ct_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      }
+    },
+    "Erie": {
+      "courier": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_no_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Mon-Thurs After 5 PM, See if avail anytime"
+          }
+        ],
+        "total": 1
+      },
+      "ct_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      }
+    },
+    "Fayette": {
+      "courier": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail varies"
+          }
+        ],
+        "total": 1
+      }
+    },
+    "Huntingdon": {
+      "courier": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_no_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail after 4PM weekdays & most weekend afternoons/evenings"
+          }
+        ],
+        "total": 1
+      },
+      "ct_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Mon 8AM-12PM, Thur 8AM-12PM, Try cell phone, then house,"
+          }
+        ],
+        "total": 1
+      }
+    },
+    "Indiana": {
+      "courier": {
+        "available": 2,
+        "marginal_volunteers": [],
+        "total": 2
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      }
+    },
+    "Lackawanna": {
+      "courier": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail 8/12-8/18, 8/26-8/28, 9/9-9/14"
+          }
+        ],
+        "total": 1
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      }
+    },
+    "Lancaster": {
+      "courier": {
+        "available": 3,
+        "marginal_volunteers": [],
+        "total": 3
+      },
+      "ct_no_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Mon-Thur after 5pm, Any time Fri & Weekends; May be avail for urgent daytime calls in Lancaster, unavail until further notice"
+          }
+        ],
+        "total": 1
+      },
+      "ct_rvs": {
+        "available": 3,
+        "marginal_volunteers": [],
+        "total": 3
+      }
+    },
+    "Lawrence": {
+      "courier": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Weekdays after 4PM & Weekends"
+          }
+        ],
+        "total": 1
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      }
+    },
+    "Lebanon": {
+      "courier": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_no_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail 24/7, select tasks - Raptors, Waterfowl/Water Birds; Covers Adams, Dauphin, Franklin, Lancaster, Lebanon, York Co. Unavail until further notice"
+          }
+        ],
+        "total": 1
+      },
+      "ct_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      }
+    },
+    "Lehigh": {
+      "courier": {
+        "available": 2,
+        "marginal_volunteers": [],
+        "total": 2
+      },
+      "ct_no_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Contact for avail"
+          }
+        ],
+        "total": 1
+      },
+      "ct_rvs": {
+        "available": 2,
+        "marginal_volunteers": [],
+        "total": 2
+      }
+    },
+    "Luzerne": {
+      "courier": {
+        "available": 2,
+        "marginal_volunteers": [],
+        "total": 2
+      },
+      "ct_no_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail after 5PM Mon, Tues, & Fri; Sat, after 2PM Sun"
+          }
+        ],
+        "total": 1
+      },
+      "ct_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Mon, Tues, Fri, Sat, Sun"
+          }
+        ],
+        "total": 1
+      }
+    },
+    "Lycoming": {
+      "courier": {
+        "available": 5,
+        "marginal_volunteers": [],
+        "total": 5
+      },
+      "ct_no_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail 11AM-6PM Daily"
+          }
+        ],
+        "total": 1
+      },
+      "ct_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Weekdays"
+          }
+        ],
+        "total": 1
+      }
+    },
+    "Mercer": {
+      "courier": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_no_rvs": {
+        "available": 2,
+        "marginal_volunteers": [],
+        "total": 2
+      },
+      "ct_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      }
+    },
+    "Monroe": {
+      "courier": {
+        "available": 2,
+        "marginal_volunteers": [],
+        "total": 2
+      },
+      "ct_no_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail variable; no nighttime tasks, Reptile/Raptor/Bat within 1 hr, others local to Stroudsburg only, No waterfowl or adult raccoons"
+          }
+        ],
+        "total": 1
+      },
+      "ct_rvs": {
+        "available": 2,
+        "marginal_volunteers": [],
+        "total": 2
+      }
+    },
+    "Montgomery": {
+      "courier": {
+        "available": 3,
+        "marginal_volunteers": [],
+        "total": 3
+      },
+      "ct_no_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail limited"
+          }
+        ],
+        "total": 1
+      },
+      "ct_rvs": {
+        "available": 3,
+        "marginal_volunteers": [],
+        "total": 3
+      }
+    },
+    "Northampton": {
+      "courier": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Weekends, schedule varies but flexible"
+          }
+        ],
+        "total": 1
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Works 8AM-4PM can leave work sometimes. Otherwise avail"
+          }
+        ],
+        "total": 1
+      },
+      "ct_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Contact for avail, Covers Monroe & Northhampton Co, Unavail 6/7 - 6/21"
+          }
+        ],
+        "total": 1
+      }
+    },
+    "Northumberland": {
+      "courier": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Weekdays & Weekends"
+          }
+        ],
+        "total": 1
+      },
+      "ct_no_rvs": {
+        "available": 2,
+        "marginal_volunteers": [],
+        "total": 2
+      },
+      "ct_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "M-F after 4PM, Sat & Sun all day"
+          }
+        ],
+        "total": 1
+      }
+    },
+    "Perry": {
+      "courier": {
+        "available": 2,
+        "marginal_volunteers": [],
+        "total": 2
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Varies, Covers Cumberland, Dauphin, Juniata, Perry Co, Starting 5/13 Transports only until further notice"
+          }
+        ],
+        "total": 1
+      }
+    },
+    "Philadelphia": {
+      "courier": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Weekday after 2:30pm, Weekends"
+          }
+        ],
+        "total": 1
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      }
+    },
+    "Pike": {
+      "courier": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail varies Weekdays & Weekends, Covers parts of Lackawana, Pike, Monroe, Wayne Co, Resides in Lords Valley, Unavail 5/19-5/23, 5/29-5/31"
+          }
+        ],
+        "total": 1
+      }
+    },
+    "Schuylkill": {
+      "courier": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Weekdays 5PM-10PM, Avail Varies Weekends"
+          }
+        ],
+        "total": 1
+      },
+      "ct_no_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Fri, Sat & Sun 4PM-8PM"
+          }
+        ],
+        "total": 1
+      },
+      "ct_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Weekdays & Weekends"
+          }
+        ],
+        "total": 1
+      }
+    },
+    "Somerset": {
+      "courier": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Weekdays, Sun"
+          }
+        ],
+        "total": 1
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      }
+    },
+    "Tioga": {
+      "courier": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_no_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Contact for avail"
+          }
+        ],
+        "total": 1
+      },
+      "ct_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      }
+    },
+    "Venango": {
+      "courier": {
+        "available": 3,
+        "marginal_volunteers": [],
+        "total": 3
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      }
+    },
+    "Washington": {
+      "courier": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_no_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Weekdays after 6PM, Sat after 1P & Sun"
+          }
+        ],
+        "total": 1
+      },
+      "ct_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Contact for Avail"
+          }
+        ],
+        "total": 1
+      }
+    },
+    "Westmoreland": {
+      "courier": {
+        "available": 2,
+        "marginal_volunteers": [],
+        "total": 2
+      },
+      "ct_no_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail after 5PM Mon-Thurs; Sat, before 6PM Sun"
+          }
+        ],
+        "total": 1
+      },
+      "ct_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Unavail Tues; Avail 11am-8pm all other days"
+          }
+        ],
+        "total": 1
+      }
+    },
+    "York": {
+      "courier": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Weekends only-limited avail"
+          }
+        ],
+        "total": 1
+      },
+      "ct_no_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail (days vary) Mon, Tues, Wed, Sat, Sun; Evenings on workdays"
+          }
+        ],
+        "total": 1
+      },
+      "ct_rvs": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail limited, Varies"
+          }
+        ],
+        "total": 1
+      }
+    }
+  },
+  "generated_at": "2026-05-20T00:45:54Z",
+  "source_board_id": "9092079933",
+  "source_group_id": "topics"
+}

@@ -133,12 +133,16 @@ self-contained card with a Dismiss button. Action tone drives the top banner:
 | `unknown`  | `.rec-action.unknown`  | `#ececec`       | `--text-light`   |
 
 The marginal subsection (`.rec-marginal`) reuses the amber tokens — same palette
-as the `.badge` pill so "marginal" reads consistently across the page. Inside it,
-volunteer names are plain text and `availability_note` is `<em>`-italicized in
-`--text-muted`. The reasoning subsection (`.rec-reasoning`) is an `<ol>` of short
-bullets in past-tense or imperative voice (e.g. "Capture + RVS animal -> RVS-capable
-C&T required."). Card scrolls vertically (`max-height: 60vh; overflow-y: auto`)
-when the marginal roster is long.
+as the `.badge` pill so "marginal" reads consistently across the page. Each
+entry is a single `<li>` rendering only the volunteer's `availability_note`
+italicized in `--text-muted` — **volunteer names are never rendered** (and are
+no longer present in `data/county_capacity.json` as of Phase 4a, so the JSON
+is safe to publish via GH Pages). If a roster entry has no note, the bullet
+shows `<em>(no availability info)</em>`. The reasoning subsection
+(`.rec-reasoning`) is an `<ol>` of short bullets in past-tense or imperative
+voice (e.g. "Capture + RVS animal -> RVS-capable C&T required."). Card
+scrolls vertically (`max-height: 60vh; overflow-y: auto`) when the marginal
+roster is long.
 
 ## What lives where
 

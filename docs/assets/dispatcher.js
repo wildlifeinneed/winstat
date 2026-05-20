@@ -213,8 +213,12 @@
       html += '<div class="rec-marginal-header">Low capacity</div>';
       html += '<ul>';
       rec.marginal_volunteers.forEach(function (v) {
-        var note = v.availability_note ? ' — <em>' + escapeHtml(v.availability_note) + '</em>' : '';
-        html += '<li>' + escapeHtml(v.name || 'Unknown') + note + '</li>';
+        var note = v && v.availability_note ? String(v.availability_note) : '';
+        if (note) {
+          html += '<li><em>' + escapeHtml(note) + '</em></li>';
+        } else {
+          html += '<li><em>(no availability info)</em></li>';
+        }
       });
       html += '</ul></div>';
     } else if (rec.marginal) {
