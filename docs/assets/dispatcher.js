@@ -201,12 +201,13 @@
                       window.WildlifeDecision.ACTIONS[rec.action]) || null;
     var label = actionMeta ? actionMeta.label : rec.action;
     var tone  = actionMeta ? actionMeta.tone  : 'unknown';
-    var targetLabel = rec.target ? (TARGET_LABELS[rec.target] || rec.target) : 'n/a';
-
     var html = '';
     html += '<button type="button" class="rec-dismiss" id="rec-dismiss" aria-label="Dismiss">Dismiss</button>';
     html += '<div class="rec-action ' + tone + '">' + escapeHtml(label) + '</div>';
-    html += '<div class="rec-target">Target role: <strong>' + escapeHtml(targetLabel) + '</strong></div>';
+    if (rec.target) {
+      var targetLabel = TARGET_LABELS[rec.target] || rec.target;
+      html += '<div class="rec-target">Target role: <strong>' + escapeHtml(targetLabel) + '</strong></div>';
+    }
 
     if (rec.marginal && rec.marginal_volunteers && rec.marginal_volunteers.length) {
       html += '<div class="rec-marginal">';
