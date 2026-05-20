@@ -36,7 +36,7 @@ import re
 import sys
 import tempfile
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -82,7 +82,11 @@ AVAILABILITY_KEYWORDS = [
     "vacation",
     "out",
     "inactive",
-    "unavailable",
+    # "unavail" is a substring of both "Unavail" (shorthand) and
+    # "Unavailable" (long form), so this single entry catches both. The
+    # positive token "available" does NOT contain "unavail", so positive
+    # shorthand still passes the denylist.
+    "unavail",
     "leave",
     "away",
     "on hold",
@@ -93,6 +97,38 @@ AVAILABILITY_DENYLIST_RE = re.compile(
     r"|".join(AVAILABILITY_KEYWORDS), re.IGNORECASE
 )
 DEFAULT_AVAILABLE_WHEN_BLANK = True
+
+# Date-range parser for temporary unavailability clauses appended to a
+# volunteer's normal schedule. Matches "Unavail" or "Unavailable" followed
+# by one or more M/D dates or M/D-M/D ranges, comma-separated. Supports
+# ASCII hyphen, en-dash (U+2013), and em-dash (U+2014) as range separator.
+# Examples:
+#   "Unavail 5/12"
+#   "Unavail 5/12-5/21"
+#   "Unavail 5/12 - 5/21"
+#   "Unavail 8/12-8/18, 8/26-8/28, 9/9-9/14"
+# Limitation: M/D is parsed using today.year; year-wrap cases (e.g. today
+# = Dec 28 with range 1/5-1/12) are NOT handled — the late-December range
+# would resolve to the current year, not next, and may incorrectly read
+# as "in the past". Acceptable for the dispatcher use case where ranges
+# are short and entered close to their start date.
+UNAVAIL_DATE_CLAUSE_RE = re.compile(
+    r"\bunavail(?:able)?\b\s*"
+    r"\d{1,2}/\d{1,2}"
+    r"(?:\s*[-\u2013\u2014]\s*\d{1,2}/\d{1,2})?"
+    r"(?:\s*,\s*\d{1,2}/\d{1,2}"
+    r"(?:\s*[-\u2013\u2014]\s*\d{1,2}/\d{1,2})?)*",
+    re.IGNORECASE,
+)
+# Secondary scan for "Unavail TBD" / "Unavail later" style markers — the
+# date-clause regex above won't match these (no digits) so they fall
+# through to the keyword denylist (correctly treated as unavailable),
+# but we emit a warning so the Monday entry can be cleaned up.
+_UNAVAIL_TBD_RE = re.compile(
+    r"\bunavail(?:able)?\b\s+(tbd|tba|later)\b",
+    re.IGNORECASE,
+)
+_MD_TOKEN_RE = re.compile(r"(\d{1,2})/(\d{1,2})")
 
 # Marginal threshold: when (county, bucket) available count is <= this,
 # emit the volunteer roster so dispatchers can see who's borderline.
@@ -438,11 +474,91 @@ def parse_roles(text: str) -> List[str]:
     return [t.strip() for t in text.split(",") if t.strip()]
 
 
-def is_available(availability_text: str) -> bool:
-    """True if volunteer is considered available for dispatch right now."""
+def _evaluate_unavail_date_clauses(
+    text: str, today: date
+) -> Tuple[str, bool]:
+    """Parse 'Unavail M/D[-M/D][, ...]' clauses and decide vs. `today`.
+
+    Returns ``(cleaned_text, currently_unavailable)``:
+      * If ``today`` falls inside ANY parsed range → ``currently_unavailable``
+        is True and the original text is returned unchanged (caller
+        short-circuits to unavailable).
+      * Otherwise all successfully-parsed clauses are stripped from the
+        text so the surrounding schedule prose (e.g. "Avail Weekends.")
+        can be re-checked against the keyword denylist without the
+        residual "unavail" keyword tripping it.
+      * If a clause matches the regex but a date fails ``date()``
+        construction (e.g. month=13), the clause is left in place and a
+        warning is logged — the keyword denylist will then conservatively
+        treat the volunteer as unavailable.
+    """
+    spans_to_strip: List[Tuple[int, int]] = []
+    for m in UNAVAIL_DATE_CLAUSE_RE.finditer(text):
+        clause = m.group(0)
+        pairs: List[Tuple[date, date]] = []
+        parse_ok = True
+        for chunk in clause.split(","):
+            mds = _MD_TOKEN_RE.findall(chunk)
+            if not mds:
+                continue
+            try:
+                start = date(today.year, int(mds[0][0]), int(mds[0][1]))
+                if len(mds) >= 2:
+                    end = date(today.year, int(mds[1][0]), int(mds[1][1]))
+                else:
+                    end = start
+            except ValueError as exc:
+                logger.warning(
+                    "Could not parse Unavail date clause %r: %s — "
+                    "treating volunteer as unavailable.",
+                    clause,
+                    exc,
+                )
+                parse_ok = False
+                break
+            if end < start:
+                start, end = end, start
+            pairs.append((start, end))
+        if not parse_ok or not pairs:
+            continue  # leave clause in place so keyword denylist catches it
+        if any(s <= today <= e for s, e in pairs):
+            return text, True
+        spans_to_strip.append(m.span())
+
+    # Non-date markers like "Unavail TBD" — warn but leave in place.
+    for m in _UNAVAIL_TBD_RE.finditer(text):
+        logger.warning(
+            "Unparseable Unavail clause %r in availability text; "
+            "treating volunteer as unavailable.",
+            m.group(0),
+        )
+
+    if not spans_to_strip:
+        return text, False
+    cleaned = text
+    for start, end in reversed(spans_to_strip):
+        cleaned = cleaned[:start] + cleaned[end:]
+    return cleaned, False
+
+
+def is_available(
+    availability_text: str, today: Optional[date] = None
+) -> bool:
+    """True if volunteer is considered available for dispatch right now.
+
+    ``today`` is injected for testability; production callers leave it
+    as None and the function uses ``date.today()``.
+    """
     if not availability_text or not availability_text.strip():
         return DEFAULT_AVAILABLE_WHEN_BLANK
-    return not bool(AVAILABILITY_DENYLIST_RE.search(availability_text))
+    if today is None:
+        today = date.today()
+    cleaned, currently_unavail = _evaluate_unavail_date_clauses(
+        availability_text, today
+    )
+    if currently_unavail:
+        return False
+    return not bool(AVAILABILITY_DENYLIST_RE.search(cleaned))
 
 
 def build_volunteer_record(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from datetime import date
 from pathlib import Path
 from unittest import mock
 
@@ -125,6 +126,87 @@ def test_courier_plus_rvs_counts_in_courier_bucket():
 )
 def test_availability_keyword(text, expected_available):
     assert rm.is_available(text) is expected_available
+
+
+# ---------------------------------------------------------------------------
+# 3b. "unavail" shorthand + date-range parsing (today-aware)
+# ---------------------------------------------------------------------------
+
+def test_unavail_shorthand_alone_marks_unavailable():
+    # Plain "Unavail" with no surrounding schedule — must not be counted
+    # as available just because the long-form "unavailable" isn't present.
+    assert rm.is_available("Unavail") is False
+
+
+def test_unavailable_long_form_still_unavailable():
+    # Backwards-compat: existing "Unavailable until June" pattern must
+    # keep working (the new "unavail" substring catches it).
+    assert rm.is_available("Unavailable until June") is False
+
+
+def test_buried_unavail_until_further_notice_marks_unavailable():
+    # The buried-bug case from production: positive schedule followed by
+    # ", unavail until further notice". Old code missed it because
+    # "unavailable" is not a substring of "unavail".
+    text = "Avail Sat & Sun, unavail until further notice"
+    assert rm.is_available(text) is False
+
+
+def test_unavail_date_range_today_inside_marks_unavailable():
+    text = "Avail Mon-Fri 5PM. Unavail 6/1-6/7"
+    assert rm.is_available(text, today=date(2026, 6, 3)) is False
+
+
+def test_unavail_date_range_today_outside_marks_available():
+    # Clause is stripped → "Avail Mon-Fri 5PM. " has no denylist match.
+    text = "Avail Mon-Fri 5PM. Unavail 6/1-6/7"
+    assert rm.is_available(text, today=date(2026, 5, 15)) is True
+
+
+def test_unavail_multiple_ranges_inside_one_of_them():
+    text = "Unavail 8/12-8/18, 8/26-8/28, 9/9-9/14"
+    assert rm.is_available(text, today=date(2026, 8, 27)) is False
+
+
+def test_unavail_multiple_ranges_between_ranges_marks_available():
+    text = "Unavail 8/12-8/18, 8/26-8/28, 9/9-9/14"
+    assert rm.is_available(text, today=date(2026, 8, 22)) is True
+
+
+def test_unavail_endash_separator_marks_unavailable():
+    # En-dash with surrounding spaces, as actually written in Monday.
+    text = "Avail Weekends. Unavail 5/12 \u2013 5/21"
+    assert rm.is_available(text, today=date(2026, 5, 15)) is False
+
+
+def test_unavail_single_date_on_that_day_marks_unavailable():
+    text = "Avail Weekends. Unavail 5/12"
+    assert rm.is_available(text, today=date(2026, 5, 12)) is False
+
+
+def test_unavail_single_date_off_that_day_marks_available():
+    text = "Avail Weekends. Unavail 5/12"
+    assert rm.is_available(text, today=date(2026, 5, 13)) is True
+
+
+def test_unavail_tbd_falls_back_to_keyword_with_warning(caplog):
+    # Malformed (non-date) marker: defensive fallback — volunteer
+    # treated as unavailable, and a warning is emitted to stderr so
+    # the Monday entry can be cleaned up.
+    text = "Avail Weekends. Unavail TBD"
+    with caplog.at_level("WARNING", logger="refresh_monday"):
+        result = rm.is_available(text, today=date(2026, 5, 20))
+    assert result is False
+    assert any(
+        "Unparseable Unavail clause" in rec.message for rec in caplog.records
+    )
+
+
+def test_positive_available_substring_no_false_unavail():
+    # Sanity: "Available weekdays" must NOT be flagged by the new
+    # "unavail" keyword. The substring check confirms "available" does
+    # not contain "unavail".
+    assert rm.is_available("Available weekdays") is True
 
 
 # ---------------------------------------------------------------------------

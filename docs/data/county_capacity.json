@@ -3,7 +3,7 @@
     "vacation",
     "out",
     "inactive",
-    "unavailable",
+    "unavail",
     "leave",
     "away",
     "on hold",
@@ -244,8 +244,18 @@
         "total": 0
       },
       "ct_rvs": {
-        "available": 3,
-        "marginal_volunteers": [],
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail varies. Usually avail Tues-Fri, Weekends & Mon after noon, Unavail until further notice"
+          },
+          {
+            "availability_note": "Avail All Week except Unavail Mon 7AM-3PM, Wed 7AM-3PM"
+          },
+          {
+            "availability_note": "Prefer Weekdays & before 4:30PM,"
+          }
+        ],
         "total": 3
       }
     },
@@ -365,7 +375,7 @@
         "total": 1
       },
       "ct_no_rvs": {
-        "available": 1,
+        "available": 0,
         "marginal_volunteers": [
           {
             "availability_note": "Avail Wed 12PM-8PM, Thur 2PM-8PM, Sun 2PM-6PM, Avail Random evenings Mon, Tues, Fri, & Sat, Unavail 5/12 \u2013 5/21"
@@ -491,7 +501,7 @@
         "total": 3
       },
       "ct_no_rvs": {
-        "available": 1,
+        "available": 0,
         "marginal_volunteers": [
           {
             "availability_note": "Avail Mon-Thur after 5pm, Any time Fri & Weekends; May be avail for urgent daytime calls in Lancaster, unavail until further notice"
@@ -533,7 +543,7 @@
         "total": 0
       },
       "ct_no_rvs": {
-        "available": 1,
+        "available": 0,
         "marginal_volunteers": [
           {
             "availability_note": "Avail 24/7, select tasks - Raptors, Waterfowl/Water Birds; Covers Adams, Dauphin, Franklin, Lancaster, Lebanon, York Co. Unavail until further notice"
@@ -651,8 +661,15 @@
         "total": 1
       },
       "ct_rvs": {
-        "available": 2,
-        "marginal_volunteers": [],
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail before 6PM Mon, Thur, Fri, Sat & Sun ; 1PM-6PM Tue & Wed; Will drive up to 1 hour from Effort"
+          },
+          {
+            "availability_note": "Avail Mon, Tues, Thur, Weekends. Avail varies Wed & Fri , 5/1-9/30 Unavail Weekends"
+          }
+        ],
         "total": 2
       }
     },
@@ -785,7 +802,7 @@
         "total": 0
       },
       "ct_rvs": {
-        "available": 1,
+        "available": 0,
         "marginal_volunteers": [
           {
             "availability_note": "Avail varies Weekdays & Weekends, Covers parts of Lackawana, Pike, Monroe, Wayne Co, Resides in Lords Valley, Unavail 5/19-5/23, 5/29-5/31"
@@ -923,7 +940,7 @@
         "total": 1
       },
       "ct_rvs": {
-        "available": 1,
+        "available": 0,
         "marginal_volunteers": [
           {
             "availability_note": "Unavail Tues; Avail 11am-8pm all other days"
@@ -962,7 +979,7 @@
       }
     }
   },
-  "generated_at": "2026-05-20T12:18:05Z",
+  "generated_at": "2026-05-20T13:06:41Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics"
 }
