@@ -95,7 +95,7 @@
     // A. Missing capacity
     if (!capacity) {
       rec.action = 'call_pa_game_comm';
-      rec.reasoning = ['No volunteer data for this county - call PA Game Commission.'];
+      rec.reasoning = ['No volunteers in this county - ask the finder to call PA Game Commission.'];
       return rec;
     }
 
