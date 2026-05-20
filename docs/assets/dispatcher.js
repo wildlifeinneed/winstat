@@ -18,8 +18,8 @@
   ];
 
   var ROLES = [
-    { key: 'ct_no_rvs', label: 'C&T (no RVS)' },
-    { key: 'ct_rvs',    label: 'C&T (with RVS)' },
+    { key: 'ct_no_rvs', label: 'C&T' },
+    { key: 'ct_rvs',    label: 'RVS C&T' },
     { key: 'courier',   label: 'Courier' }
   ];
 
@@ -183,8 +183,8 @@
   }
 
   var TARGET_LABELS = {
-    ct_rvs:    'C&T (RVS)',
-    ct_no_rvs: 'C&T (no RVS)',
+    ct_rvs:    'RVS C&T',
+    ct_no_rvs: 'C&T',
     ct_any:    'C&T (any)',
     courier:   'Courier'
   };
