@@ -20,5 +20,4 @@ venv/
 
 # Local-only scraper utility (not served by the website)
 refresh_facilities.py
-requirements.txt
 pa_wildlife_rehab_facilities.csv
