@@ -140,14 +140,7 @@
     "Bucks": {
       "courier": {
         "available": 2,
-        "marginal_volunteers": [
-          {
-            "availability_note": "Mostly avail evenings & weekends, Sometimes weekdays;"
-          },
-          {
-            "availability_note": "Avail late afternoon weekdays & weekends"
-          }
-        ],
+        "marginal_volunteers": [],
         "total": 2
       },
       "ct_no_rvs": {
@@ -979,7 +972,7 @@
       }
     }
   },
-  "generated_at": "2026-05-20T13:06:41Z",
+  "generated_at": "2026-05-20T13:15:50Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics"
 }
