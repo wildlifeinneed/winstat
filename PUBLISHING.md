@@ -140,6 +140,42 @@ python3 refresh_monday.py
    that the marginal-roster card's `availability_note` text reflects the new
    data.
 
+### Automatic daily refresh (GitHub Actions)
+
+A scheduled workflow at `.github/workflows/refresh.yml` runs
+`refresh_monday.py --if-stale` once a day on GitHub's servers, so you don't
+have to remember to do it from your Mac. If the Monday `VolDB_Status` tracker
+hasn't moved, the workflow exits quietly without committing anything; if it
+has, the bot user `wildlife-dispatcher-bot` commits the new
+`docs/data/county_capacity.json` (and `.last_remote_update`) straight to
+`main` and GitHub Pages picks it up within a minute or two.
+
+**When it runs:** every day at **10:00 UTC** — that's 6:00 AM Eastern during
+EDT (March–November) and 5:00 AM Eastern during EST. GitHub cron is UTC-only,
+so the local hour drifts by one across the daylight-saving boundary.
+
+**One-time setup (you have to do this in the GitHub web UI):**
+
+1. Go to <https://github.com/mjpierzga/winstats> → **Settings** → **Secrets
+   and variables** → **Actions** → **New repository secret**.
+2. Name: `MONDAY_TOKEN`. Value: paste the same token string from your local
+   `.monday_token` file (the one that starts with `eyJ…`).
+3. Save. Until this secret exists, the workflow will fail every morning with
+   an auth error and GitHub will email you about it.
+
+**Run it on demand:** GitHub repo → **Actions** tab → **Refresh wildlife
+capacity snapshot** (left sidebar) → **Run workflow** button → pick `main` →
+**Run workflow**. Takes ~30 seconds.
+
+**See what it did:** same Actions tab → click the most recent run → expand
+the **Refresh capacity snapshot** and **Commit + push if changed** steps to
+read the logs. If a run failed, GitHub emails the repo owner by default.
+
+**Pause it:** comment out (or delete) the `schedule:` block in
+`.github/workflows/refresh.yml`. The `workflow_dispatch:` button still works
+for manual runs, and the Mac playbook above still works for instant
+refreshes any time.
+
 ### Threshold tuning (when to escalate to PA Game Commission)
 
 The dispatcher decides whether to recommend a Connecteam task or escalate to

@@ -1,0 +1,55 @@
+# Scheduled refresh of docs/data/county_capacity.json from Monday.com.
+#
+# Cron is 10:00 UTC daily. That maps to 06:00 America/New_York during EDT
+# (Mar-Nov) and 05:00 during EST (Nov-Mar). GitHub Actions cron runs in
+# UTC only, so the wall-clock time in PA shifts by an hour twice a year.
+# If you want it pinned to "always 6am Eastern", you'd need two cron
+# entries gated by month — not worth the complexity right now.
+name: Refresh wildlife capacity snapshot
+
+on:
+  schedule:
+    - cron: '0 10 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Refresh capacity snapshot
+        env:
+          MONDAY_API_TOKEN: ${{ secrets.MONDAY_TOKEN }}
+        run: |
+          python3 refresh_monday.py --if-stale
+
+      - name: Commit + push if changed
+        run: |
+          if git diff --quiet docs/data/county_capacity.json docs/data/.last_remote_update; then
+            echo "No changes — Monday tracker not advanced. Skipping commit."
+            exit 0
+          fi
+          git config user.name  "wildlife-dispatcher-bot"
+          git config user.email "dispatcher-bot@users.noreply.github.com"
+          git add docs/data/county_capacity.json docs/data/.last_remote_update
+          ts="$(date -u +'%Y-%m-%d %H:%M UTC')"
+          git commit -m "Auto-refresh capacity snapshot (${ts})"
+          git push
