@@ -243,7 +243,7 @@
     },
     "Centre": {
       "courier": {
-        "available": 7,
+        "available": 8,
         "marginal_volunteers": [],
         "total": 8
       },
@@ -415,10 +415,10 @@
         "total": 1
       },
       "ct_no_rvs": {
-        "available": 0,
+        "available": 1,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail Wed 12PM-8PM, Thur 2PM-8PM, Sun 2PM-6PM, Avail Random evenings Mon, Tues, Fri, & Sat, Unavail 5/12 \u2013 5/21",
+            "availability_note": "Avail Wed 12PM-8PM, Thur 2PM-8PM, Sun 2PM-6PM, Avail Random evenings Mon, Tues, Fri, & Sat",
             "connecteam_user": true
           }
         ],
@@ -816,7 +816,7 @@
         "available": 1,
         "marginal_volunteers": [
           {
-            "availability_note": "Contact for avail, Covers Monroe & Northhampton Co, Unavail 6/7 - 6/21",
+            "availability_note": "Contact for avail, Covers Monroe & Northhampton Co, Unavail 6/6 - 6/17",
             "connecteam_user": true
           }
         ],
@@ -860,7 +860,7 @@
         "available": 1,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail Varies, Covers Cumberland, Dauphin, Juniata, Perry Co, Starting 5/13 Transports only until further notice",
+            "availability_note": "Avail Varies, Covers Cumberland, Dauphin, Juniata, Perry Co, 5/26-5/31 Transport only",
             "connecteam_user": true
           }
         ],
@@ -901,10 +901,10 @@
         "total": 0
       },
       "ct_rvs": {
-        "available": 0,
+        "available": 1,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail varies Weekdays & Weekends, Covers parts of Lackawana, Pike, Monroe, Wayne Co, Resides in Lords Valley, Unavail 5/19-5/23, 5/29-5/31",
+            "availability_note": "Avail varies Weekdays & Weekends, Covers parts of Lackawana, Pike, Monroe, Wayne Co, Resides in Lords Valley, Unavail 5/29-5/31",
             "connecteam_user": true
           }
         ],
@@ -1113,7 +1113,7 @@
       }
     }
   },
-  "generated_at": "2026-05-21T12:50:25Z",
+  "generated_at": "2026-05-25T13:34:56Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
