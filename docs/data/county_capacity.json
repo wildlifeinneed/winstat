@@ -23,7 +23,7 @@
         "total": 0
       },
       "ct_rvs": {
-        "available": 5,
+        "available": 4,
         "marginal_volunteers": [],
         "total": 5
       }
@@ -608,10 +608,10 @@
         "total": 0
       },
       "ct_no_rvs": {
-        "available": 0,
+        "available": 1,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail 24/7, select tasks - Raptors, Waterfowl/Water Birds; Covers Adams, Dauphin, Franklin, Lancaster, Lebanon, York Co. Unavail until further notice",
+            "availability_note": "Avail 24/7, select tasks - Raptors, Waterfowl/Water Birds; Birds: Dauphin, Lancaster, Lebanon;  Raptors only: Cumberland, York",
             "connecteam_user": true
           }
         ],
@@ -640,9 +640,14 @@
         "total": 1
       },
       "ct_rvs": {
-        "available": 2,
-        "marginal_volunteers": [],
-        "total": 2
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Weekdays after 5PM, Weekends",
+            "connecteam_user": true
+          }
+        ],
+        "total": 1
       }
     },
     "Luzerne": {
@@ -945,6 +950,16 @@
     },
     "Somerset": {
       "courier": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_rvs": {
         "available": 1,
         "marginal_volunteers": [
           {
@@ -953,16 +968,6 @@
           }
         ],
         "total": 1
-      },
-      "ct_no_rvs": {
-        "available": 0,
-        "marginal_volunteers": [],
-        "total": 0
-      },
-      "ct_rvs": {
-        "available": 0,
-        "marginal_volunteers": [],
-        "total": 0
       }
     },
     "Tioga": {
@@ -1113,7 +1118,7 @@
       }
     }
   },
-  "generated_at": "2026-05-25T13:34:56Z",
+  "generated_at": "2026-05-28T13:58:14Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
