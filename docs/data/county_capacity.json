@@ -23,7 +23,7 @@
         "total": 0
       },
       "ct_rvs": {
-        "available": 4,
+        "available": 5,
         "marginal_volunteers": [],
         "total": 5
       }
@@ -190,7 +190,7 @@
         "available": 1,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail Varies",
+            "availability_note": "Avail Varies, Unavail 6/11-6/17",
             "connecteam_user": true
           }
         ],
@@ -253,21 +253,8 @@
         "total": 0
       },
       "ct_rvs": {
-        "available": 1,
-        "marginal_volunteers": [
-          {
-            "availability_note": "Avail varies. Usually avail Tues-Fri, Weekends & Mon after noon, Unavail until further notice",
-            "connecteam_user": true
-          },
-          {
-            "availability_note": "Avail All Week except Unavail Mon 7AM-3PM, Wed 7AM-3PM",
-            "connecteam_user": true
-          },
-          {
-            "availability_note": "Prefer Weekdays & before 4:30PM,",
-            "connecteam_user": true
-          }
-        ],
+        "available": 2,
+        "marginal_volunteers": [],
         "total": 3
       }
     },
@@ -870,7 +857,7 @@
         "available": 1,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail Varies, Covers Cumberland, Dauphin, Juniata, Perry Co, 5/26-5/31 Transport only",
+            "availability_note": "Avail Varies, Covers Cumberland, Dauphin, Juniata, Perry Co",
             "connecteam_user": true
           }
         ],
@@ -911,10 +898,10 @@
         "total": 0
       },
       "ct_rvs": {
-        "available": 0,
+        "available": 1,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail varies Weekdays & Weekends, Covers parts of Lackawana, Pike, Monroe, Wayne Co, Resides in Lords Valley, Unavail 5/29-5/31",
+            "availability_note": "Avail varies Weekdays & Weekends, Covers parts of Lackawana, Pike, Monroe, Wayne Co, Resides in Lords Valley",
             "connecteam_user": true
           }
         ],
@@ -1123,7 +1110,7 @@
       }
     }
   },
-  "generated_at": "2026-05-31T11:43:43Z",
+  "generated_at": "2026-06-02T14:14:24Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
