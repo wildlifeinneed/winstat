@@ -768,19 +768,14 @@
     },
     "Montgomery": {
       "courier": {
-        "available": 3,
+        "available": 2,
         "marginal_volunteers": [],
-        "total": 3
+        "total": 2
       },
       "ct_no_rvs": {
-        "available": 1,
-        "marginal_volunteers": [
-          {
-            "availability_note": "Avail limited",
-            "connecteam_user": true
-          }
-        ],
-        "total": 1
+        "available": 2,
+        "marginal_volunteers": [],
+        "total": 2
       },
       "ct_rvs": {
         "available": 3,
@@ -1110,7 +1105,7 @@
       }
     }
   },
-  "generated_at": "2026-06-02T14:14:24Z",
+  "generated_at": "2026-06-05T12:43:07Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
