@@ -197,6 +197,7 @@ REHAB_COL_IDS = {
     "longitude": "text_mkqqrt6e",
     "open_closed": "color_mkv6xbc",
     "website": "text_mkv8njgj",
+    "availability": "text_mkqqgq94",
 }
 
 # Area Coordinators board. The county->area map stays in counties.xlsx
@@ -786,11 +787,15 @@ def _parse_float(text: str) -> Optional[float]:
 def build_rehabber_record(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Convert a raw RehabDB item to a PUBLIC-safe rehabber dict.
 
-    Emits ONLY the 6 public fields {rehab_name, lat, lon, county,
-    open_closed, website} (lat/lon as floats). Rows missing a parseable
-    lat OR lon are skipped with a logged warning. The rehab_name falls back
-    to the item name (rehabber's last name) when the dedicated column is
-    blank, so the record is still identifiable.
+    Emits ONLY the 7 public fields {rehab_name, lat, lon, county,
+    open_closed, website, availability} (lat/lon as floats). The
+    ``availability`` field is the raw 'Availability' cell text carried through
+    verbatim (the M/P/RVS key letters the dispatcher reads) — NOT parsed,
+    normalized, or interpreted here; empty string when blank. It is
+    facility-level key letters only, so it introduces no volunteer PII. Rows
+    missing a parseable lat OR lon are skipped with a logged warning. The
+    rehab_name falls back to the item name (rehabber's last name) when the
+    dedicated column is blank, so the record is still identifiable.
     """
     rehab_name = _column_text(item, REHAB_COL_IDS["rehab_name"])
     if not rehab_name:
@@ -815,6 +820,7 @@ def build_rehabber_record(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "county": _column_text(item, REHAB_COL_IDS["county"]),
         "open_closed": _column_text(item, REHAB_COL_IDS["open_closed"]),
         "website": _column_text(item, REHAB_COL_IDS["website"]),
+        "availability": _column_text(item, REHAB_COL_IDS["availability"]),
     }
 
 

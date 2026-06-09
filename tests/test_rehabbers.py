@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT))
 import refresh_monday as rm  # noqa: E402
 
 
-PUBLIC_FIELDS = {"rehab_name", "lat", "lon", "county", "open_closed", "website"}
+PUBLIC_FIELDS = {"rehab_name", "lat", "lon", "county", "open_closed", "website", "availability"}
 
 
 def _rehab_item(
@@ -36,6 +36,7 @@ def _rehab_item(
     longitude="-75.3413",
     open_closed="Open",
     website="https://example.org",
+    availability="M/P/RVS",
 ) -> dict:
     """Build a raw RehabDB item with all REHAB_COL_IDS columns populated."""
     c = rm.REHAB_COL_IDS
@@ -53,6 +54,7 @@ def _rehab_item(
             {"id": c["longitude"], "text": longitude, "value": None, "type": "text"},
             {"id": c["open_closed"], "text": open_closed, "value": None, "type": "color"},
             {"id": c["website"], "text": website, "value": None, "type": "text"},
+            {"id": c["availability"], "text": availability, "value": None, "type": "text"},
         ],
     }
 
@@ -70,6 +72,7 @@ def test_field_mapping_full_record():
             longitude="-75.25",
             open_closed="Open",
             website="https://owlhaven.example",
+            availability="M/P",
         )
     )
     assert rec == {
@@ -79,6 +82,7 @@ def test_field_mapping_full_record():
         "county": "Bucks",
         "open_closed": "Open",
         "website": "https://owlhaven.example",
+        "availability": "M/P",
     }
 
 
@@ -129,6 +133,26 @@ def test_open_closed_label_closed():
 def test_open_closed_blank_preserved_as_empty():
     rec = rm.build_rehabber_record(_rehab_item(open_closed=""))
     assert rec["open_closed"] == ""
+
+
+# ---------------------------------------------------------------------------
+# 3b. availability raw passthrough (no parsing / normalization)
+# ---------------------------------------------------------------------------
+
+def test_availability_raw_text_carried_through_verbatim():
+    rec = rm.build_rehabber_record(_rehab_item(availability="M/P/RVS"))
+    assert rec["availability"] == "M/P/RVS"
+
+
+def test_availability_not_normalized():
+    # Mixed-case / spacing preserved exactly — the dispatcher reads the letters.
+    rec = rm.build_rehabber_record(_rehab_item(availability=" m / p "))
+    assert rec["availability"] == "m / p"
+
+
+def test_availability_blank_preserved_as_empty():
+    rec = rm.build_rehabber_record(_rehab_item(availability=""))
+    assert rec["availability"] == ""
 
 
 # ---------------------------------------------------------------------------

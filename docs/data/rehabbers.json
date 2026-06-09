@@ -1,5 +1,6 @@
 [
   {
+    "availability": "Adams County Wildlife Care  M",
     "county": "Adams",
     "lat": 39.7441916,
     "lon": -77.08958142,
@@ -8,6 +9,7 @@
     "website": ""
   },
   {
+    "availability": "Humane Animal Rescue Wildlife Center\nM,P,R, RA RVS, END",
     "county": "Allegheny",
     "lat": 40.48956576,
     "lon": -79.83627971,
@@ -16,6 +18,7 @@
     "website": "https://humaneanimalrescue.org/wildlife/"
   },
   {
+    "availability": "Cricket Wildlife Center\nM,P,R RVS",
     "county": "Berks",
     "lat": 40.45022368,
     "lon": -75.65123213,
@@ -24,6 +27,7 @@
     "website": ""
   },
   {
+    "availability": "Pennsylvania Bat Conservation & Rehabilitation\nBats only RVS, END",
     "county": "Berks",
     "lat": 40.516196,
     "lon": -75.635442,
@@ -32,6 +36,7 @@
     "website": "http://pabatrescue.org/"
   },
   {
+    "availability": "AARK Wildlife Rehab. & Education Center, Inc. \nM,P,R, RA RVS, END",
     "county": "Bucks",
     "lat": 40.34433678,
     "lon": -75.19757803,
@@ -40,6 +45,7 @@
     "website": "http://www.aark.org/"
   },
   {
+    "availability": "Wildbird Recovery, Inc. P,R; NOTE: Communicate w/ WR through Michelle Pepitone (415-244-8211, call or text message)",
     "county": "Butler",
     "lat": 40.70334544,
     "lon": -79.9565371,
@@ -48,6 +54,7 @@
     "website": "http://www.wildbirdrecovery.org/"
   },
   {
+    "availability": "Carbon County Environmental Education Center \nM,P,R, RA END",
     "county": "Carbon",
     "lat": 40.81921449,
     "lon": -75.86117672,
@@ -56,6 +63,7 @@
     "website": "http://www.carboneec.org/"
   },
   {
+    "availability": "Centre Wildlife Care\nM,P,R, RA RVS, END",
     "county": "Centre",
     "lat": 40.8258278,
     "lon": -78.0138835,
@@ -64,6 +72,7 @@
     "website": "http://www.wildaboutanimals.net/"
   },
   {
+    "availability": "Diamond Rock Wildlife Rehabilitation Clinic\nBats only RVS, END\nClosed to new intakes starting 3/24/25",
     "county": "Chester",
     "lat": 40.07779585,
     "lon": -75.49591555,
@@ -72,6 +81,7 @@
     "website": "http://www.diamondrockwildlife.org/"
   },
   {
+    "availability": "Tamarack Wildlife Center \nM,P,R, RA END",
     "county": "Crawford",
     "lat": 41.74787983,
     "lon": -80.11477266,
@@ -80,6 +90,7 @@
     "website": "http://www.tamarackwildlife.org/"
   },
   {
+    "availability": "Dauphin County Wildlife Center, M, RVS, Specializing in skunks, woodchucks & mustelids (no fawns or raccoons)",
     "county": "Dauphin",
     "lat": 40.574863,
     "lon": -76.689338,
@@ -88,6 +99,7 @@
     "website": ""
   },
   {
+    "availability": "Acorn Acres Wildlife Rehabilitation M, END, Specializing in squirrels, woodchucks and rabbits, By appt only",
     "county": "Lancaster",
     "lat": 40.03119728,
     "lon": -76.35977236,
@@ -96,6 +108,7 @@
     "website": "https://acornacreswr.com/"
   },
   {
+    "availability": "Raven Ridge Wildlife Center\nM, R, RVS, END",
     "county": "Lancaster",
     "lat": 39.99389,
     "lon": -76.470836,
@@ -104,6 +117,7 @@
     "website": "http://ravenridgewildlifecenter.com/"
   },
   {
+    "availability": "Episode 4 Wildlife Rehab Center\nM",
     "county": "Luzerne",
     "lat": 41.266151,
     "lon": -76.064347,
@@ -112,6 +126,7 @@
     "website": ""
   },
   {
+    "availability": "Good Samaritan Wildlife  M",
     "county": "Lycoming",
     "lat": 41.212043,
     "lon": -77.177549,
@@ -120,6 +135,7 @@
     "website": "https://goodsamaritanwildlife.com/"
   },
   {
+    "availability": "Pocono Wildlife Rehab. Center M,P,R, RA RVS, END, fawn specialist (Jessica Metzgar) 570-979-1363",
     "county": "Monroe",
     "lat": 40.91479951,
     "lon": -75.2699995,
@@ -128,6 +144,7 @@
     "website": "http://poconowildlife.com/"
   },
   {
+    "availability": "Philadelphia Metro Wildlife Center\nM,P,R, RA RVS, END",
     "county": "Montgomery",
     "lat": 40.17430149,
     "lon": -75.35255435,
@@ -136,6 +153,7 @@
     "website": "http://phillywildlife.org/"
   },
   {
+    "availability": "Temporarily closed, will help over the phone M,P",
     "county": "Montour",
     "lat": 40.98232955,
     "lon": -76.57421952,
@@ -144,6 +162,7 @@
     "website": ""
   },
   {
+    "availability": "Schuylkill Wildlife Rehabilitation Center M,P,R,RA",
     "county": "Philadelphia",
     "lat": 40.05359038,
     "lon": -75.24722926,
@@ -152,6 +171,7 @@
     "website": ""
   },
   {
+    "availability": "Helping Hands Wildlife Center\nM, RVS, END",
     "county": "Schuylkill",
     "lat": 40.65563176,
     "lon": -76.15349896,
@@ -160,6 +180,7 @@
     "website": "http://helpinghandswildlifecenter.org/"
   },
   {
+    "availability": "Red Creek Wildlife Center M, P, R, RA, RVS, END Education programs & training 570 739-7111",
     "county": "Schuylkill",
     "lat": 40.5988406,
     "lon": -76.20065507,
@@ -168,6 +189,7 @@
     "website": "https://redcreekwildlifecenter.com/"
   },
   {
+    "availability": "T&D Cats of the World P, END; NOTE: Communicate w/ T&D through Mark Catalano (203-540-9559, text message)",
     "county": "Snyder",
     "lat": 40.8559893,
     "lon": -77.0769238,
@@ -176,6 +198,7 @@
     "website": ""
   },
   {
+    "availability": "Forest Friends M, RVS (will take fawns)",
     "county": "Westmoreland",
     "lat": 40.18400205,
     "lon": -79.520376,
@@ -184,6 +207,7 @@
     "website": ""
   },
   {
+    "availability": "Wildlife Works, Inc.\nM,P,R, RA, END (no fox, coyote)",
     "county": "Westmoreland",
     "lat": 40.2404709,
     "lon": -79.58422005,
@@ -192,6 +216,7 @@
     "website": "https://www.wildlifeworksinc.org/"
   },
   {
+    "availability": "West Shore Wildlife Center\nM,P,R, RA RVS,END",
     "county": "York",
     "lat": 40.06268038,
     "lon": -76.85254406,
