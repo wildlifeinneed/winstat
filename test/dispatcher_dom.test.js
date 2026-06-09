@@ -1428,7 +1428,72 @@ async function runStaleCountyMode() {
   console.log('PASS: county-mode recommendation is flagged stale on Issue/RVS change (no auto-recompute); re-click clears it + renders fresh.');
 }
 
+// ── Help / User Manual: the dispatcher header carries a link to the in-app
+//    viewer (help.html). Guards that dispatchers can reach the manual. ───────
+async function runHelpLink() {
+  const { window } = loadDom();
+  const doc = window.document;
+  await flush(window);
+
+  const link = doc.getElementById('help-link');
+  assert.ok(link, 'dispatcher header has a #help-link');
+  assert.strictEqual(link.getAttribute('href'), 'help.html',
+    'Help link points to the in-app manual viewer (help.html)');
+  assert.ok(/manual|help/i.test(link.textContent || ''),
+    'Help link is clearly labeled (got "' + (link.textContent || '') + '")');
+
+  console.log('PASS: dispatcher header links to the User Manual viewer (help.html).');
+}
+
+// ── help.html viewer: loads the VENDORED marked renderer + the file:// fallback
+//    copy of the manual and renders the manual heading. Confirms the in-app
+//    viewer renders formatted markdown (not raw) with NO network dependency. ──
+async function runHelpViewerRenders() {
+  const HELP_HTML = path.join(DOCS, 'help.html');
+  const MARKED_JS = path.join(DOCS, 'assets', 'vendor', 'marked.min.js');
+  const MANUAL_JS = path.join(DOCS, 'assets', 'manual.js');
+
+  // Vendored renderer must be committed in-repo (no CDN). Assert it exists and
+  // help.html references the in-repo path, never an external host.
+  assert.ok(fs.existsSync(MARKED_JS), 'vendored marked.min.js is committed in assets/vendor/');
+  assert.ok(fs.existsSync(MANUAL_JS), 'generated manual.js (file:// fallback) is committed');
+  const helpSrc = fs.readFileSync(HELP_HTML, 'utf8');
+  assert.ok(helpSrc.indexOf('assets/vendor/marked.min.js') !== -1,
+    'help.html loads the vendored renderer from assets/vendor/');
+  assert.ok(!/<script[^>]+src=["']https?:\/\//i.test(helpSrc),
+    'help.html has NO external <script src> (offline / no third-party calls)');
+
+  // Render on the file:// path: marked + the embedded manual copy, fire the
+  // inline viewer script, and assert the manual heading rendered as real HTML.
+  const html = fs.readFileSync(HELP_HTML, 'utf8');
+  const dom = new JSDOM(html, {
+    runScripts: 'outside-only',
+    url: 'file:///repo/docs/help.html',
+  });
+  const w = dom.window;
+  w.eval(fs.readFileSync(MARKED_JS, 'utf8'));
+  w.eval(fs.readFileSync(MANUAL_JS, 'utf8'));
+  Array.prototype.slice.call(w.document.querySelectorAll('script'))
+    .filter(function (s) { return !s.src; })
+    .forEach(function (s) { w.eval(s.textContent); });
+  await new Promise(function (r) { w.setTimeout(r, 30); });
+
+  const manual = w.document.getElementById('manual');
+  const h1 = manual.querySelector('h1');
+  assert.ok(h1, 'viewer renders a top-level heading (formatted, not raw markdown)');
+  assert.ok(/manual/i.test(h1.textContent || ''),
+    'rendered heading is the manual title (got "' + (h1.textContent || '') + '")');
+  assert.ok(manual.querySelectorAll('h2').length >= 3,
+    'viewer renders the manual sections as <h2> headings');
+  assert.ok(manual.innerHTML.indexOf('load-err') === -1,
+    'viewer shows no load error on the file:// fallback path');
+
+  console.log('PASS: help.html renders the manual heading via the vendored renderer (file:// fallback, no network).');
+}
+
 async function run() {
+  await runHelpLink();
+  await runHelpViewerRenders();
   await runAddressMode();
   await runTier1Coordinator();
   await runTier2ContextList();
@@ -1450,7 +1515,7 @@ async function run() {
   await runRehabNoOrigin();
   await runStaleAddressMode();
   await runStaleCountyMode();
-  console.log('\nALL DOM TESTS PASSED (21 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (23 scenarios).');
 }
 
 run().then(function () {

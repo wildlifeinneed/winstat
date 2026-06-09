@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<!-- Dispatcher User Manual viewer. Renders docs/USER_MANUAL.md (the single
+     editable source) with a VENDORED markdown library (assets/vendor/marked.min.js)
+     — no CDN / no network call. On https or a local server it fetch()es the .md
+     directly. On file:// (where browsers block fetch of a sibling file) it falls
+     back to the auto-generated assets/manual.js, so the page works offline. -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wildlife In Need PA — Dispatcher User Manual</title>
+  <meta name="description" content="User manual for the Wildlife In Need PA dispatcher console." />
+  <meta name="theme-color" content="#154d2a" />
+  <link rel="icon" type="image/jpeg" href="assets/winlogo.jpg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Bitter:wght@600;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --green:       #1e6b3a;
+      --green-dark:  #154d2a;
+      --green-deep:  #0e3a1f;
+      --green-light: #e8f5ed;
+      --amber:       #d4730a;
+      --amber-light: #fff3e0;
+      --red:         #c0392b;
+      --red-light:   #fdecea;
+      --bg:          #f5f2ec;
+      --surface:     #ffffff;
+      --border:      #e2dcd4;
+      --text:        #1a1a1a;
+      --text-muted:  #6b6560;
+      --text-light:  #9e9892;
+      --radius:      10px;
+      --shadow:      0 1px 3px rgba(0,0,0,.08), 0 2px 8px rgba(0,0,0,.06);
+      --transition:  0.18s ease;
+    }
+
+    body {
+      font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ─── Header (matches dispatcher.html) ───────────────────── */
+    .site-header {
+      background: var(--green-dark);
+      color: #fff;
+      padding: 20px 16px 18px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.25);
+    }
+    .home-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12.5px;
+      color: rgba(255,255,255,.8);
+      text-decoration: none;
+      margin-bottom: 10px;
+      transition: color var(--transition);
+    }
+    .home-link:hover { color: #fff; text-decoration: underline; }
+    .header-inner { max-width: 760px; margin: 0 auto; }
+    .header-row { display: flex; align-items: center; gap: 14px; }
+    .header-icon {
+      flex-shrink: 0;
+      width: 60px; height: 60px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .header-icon img { max-width: 100%; max-height: 100%; display: block; filter: drop-shadow(0 2px 4px rgba(0,0,0,.35)); }
+    .header-text h1 {
+      font-family: 'Bitter', Georgia, serif;
+      font-size: clamp(18px, 4vw, 24px);
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      line-height: 1.2;
+    }
+    .header-text p { font-size: 12.5px; opacity: 0.78; margin-top: 3px; }
+
+    main { max-width: 760px; margin: 0 auto; padding: 18px 16px 48px; }
+
+    .doc {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px 30px;
+      box-shadow: var(--shadow);
+    }
+    @media (max-width: 560px) { .doc { padding: 20px 18px; } }
+
+    /* ─── Rendered markdown typography (matches palette) ─────── */
+    .doc h1 {
+      font-family: 'Bitter', Georgia, serif;
+      font-size: 26px;
+      font-weight: 700;
+      color: var(--green-deep);
+      line-height: 1.2;
+      margin: 0 0 6px;
+    }
+    .doc h2 {
+      font-family: 'Bitter', Georgia, serif;
+      font-size: 19px;
+      font-weight: 700;
+      color: var(--green-deep);
+      margin: 28px 0 8px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    .doc h3 {
+      font-family: 'Bitter', Georgia, serif;
+      font-size: 15.5px;
+      font-weight: 700;
+      color: var(--green-dark);
+      margin: 18px 0 6px;
+    }
+    .doc p { margin: 8px 0; }
+    .doc ul, .doc ol { margin: 8px 0 8px; padding-left: 24px; }
+    .doc li { margin: 4px 0; }
+    .doc li > ul, .doc li > ol { margin: 4px 0; }
+    .doc strong { font-weight: 700; color: var(--text); }
+    .doc a { color: var(--green); text-decoration: underline; }
+    .doc a:hover { color: var(--green-dark); }
+    .doc hr { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+    .doc code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 13px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 1px 5px;
+    }
+    .doc blockquote {
+      margin: 12px 0;
+      padding: 10px 14px;
+      background: var(--amber-light);
+      border-left: 4px solid var(--amber);
+      border-radius: 8px;
+      color: #7a4900;
+      font-size: 14px;
+    }
+    .doc blockquote p { margin: 4px 0; }
+
+    .load-msg { font-size: 13.5px; color: var(--text-muted); font-style: italic; }
+    .load-err {
+      background: var(--red-light);
+      border: 1px solid #f0b8b0;
+      border-left: 4px solid var(--red);
+      color: var(--red);
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 13.5px;
+    }
+
+    .site-footer {
+      background: #0a2915;
+      color: rgba(255,255,255,.6);
+      padding: 22px 16px;
+      text-align: center;
+      font-size: 12.5px;
+    }
+    .site-footer .footer-logo { width: 44px; height: auto; margin: 0 auto 8px; display: block; opacity: .9; }
+  </style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-inner">
+    <a class="home-link" href="dispatcher.html">← Back to Dispatcher</a>
+    <div class="header-row">
+      <div class="header-icon"><img src="assets/winlogo.jpg" alt="Wildlife In Need PA logo" /></div>
+      <div class="header-text">
+        <h1>Dispatcher User Manual</h1>
+        <p>How to route a wildlife report to the right volunteer or action.</p>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <article class="doc" id="manual">
+    <p class="load-msg" id="load-msg">Loading manual…</p>
+  </article>
+</main>
+
+<footer class="site-footer">
+  <img class="footer-logo" src="assets/winlogo.jpg" alt="Wildlife In Need PA" />
+  <p>Wildlife In Need PA · Dispatcher (internal tool)</p>
+</footer>
+
+<!-- Vendored markdown renderer — committed in-repo, NO CDN / network call. -->
+<script src="assets/vendor/marked.min.js"></script>
+<!-- file:// fallback copy of the manual (auto-generated from USER_MANUAL.md). -->
+<script src="assets/manual.js"></script>
+<script>
+(function () {
+  'use strict';
+  var target = document.getElementById('manual');
+
+  function render(md) {
+    var html = (window.marked && typeof window.marked.parse === 'function')
+      ? window.marked.parse(md)
+      : (window.marked ? window.marked(md) : null);
+    if (html == null) {
+      target.innerHTML = '<div class="load-err">Markdown renderer failed to load.</div>';
+      return;
+    }
+    target.innerHTML = html;
+    // Open external links in a new tab; keep in-repo anchors in place.
+    var links = target.querySelectorAll('a[href^="http"]');
+    for (var i = 0; i < links.length; i++) {
+      links[i].setAttribute('target', '_blank');
+      links[i].setAttribute('rel', 'noopener');
+    }
+    document.title = 'Wildlife In Need PA — Dispatcher User Manual';
+  }
+
+  function fallback() {
+    if (window.WildlifeManual && typeof window.WildlifeManual.markdown === 'string') {
+      render(window.WildlifeManual.markdown);
+    } else {
+      target.innerHTML = '<div class="load-err">Could not load the manual. ' +
+        'Open this page over http(s), or run <code>node tools/build_manual.js</code> ' +
+        'to regenerate the offline copy.</div>';
+    }
+  }
+
+  // Prefer the live source of truth (USER_MANUAL.md) over https / local server.
+  // file:// fetch of a sibling is blocked by the browser, so fall back to the
+  // embedded copy in that case.
+  var canFetch = (location.protocol === 'http:' || location.protocol === 'https:') &&
+                 typeof fetch === 'function';
+  if (canFetch) {
+    fetch('USER_MANUAL.md', { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+      .then(function (md) { render(md); })
+      .catch(function () { fallback(); });
+  } else {
+    fallback();
+  }
+})();
+</script>
+</body>
+</html>
