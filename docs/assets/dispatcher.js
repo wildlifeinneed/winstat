@@ -426,29 +426,25 @@
       });
   }
 
-  // Closest PUBLIC rehabber (prefers OPEN). Mirrors dispatch_core.find_closest_rehabber.
-  // Returns {rehab_name, distance_mi, open_closed, website, is_closed} or null.
+  // Closest PUBLIC rehabber by straight-line distance. Open/closed is NOT
+  // used: the dispatcher org does not keep that Monday field current (real-time
+  // status lives in a separate beta app), so it is not in the dataset and is
+  // not consulted here. Returns {rehab_name, distance_mi, website} or null.
   function findClosestRehabber(lat, lon) {
     var list = state.rehabbers || [];
-    var bestOpen = null, bestOpenD = Infinity;
     var bestAny = null, bestAnyD = Infinity;
     for (var i = 0; i < list.length; i++) {
       var rec = list[i];
       if (!rec || typeof rec.lat !== 'number' || typeof rec.lon !== 'number') continue;
       var d = haversineMiles(lat, lon, rec.lat, rec.lon);
-      var oc = String(rec.open_closed || '');
-      var isOpen = oc.trim().toLowerCase() === 'open';
       var cand = {
         rehab_name: String(rec.rehab_name || ''),
         distance_mi: d,
-        open_closed: oc,
-        website: String(rec.website || ''),
-        is_closed: !isOpen
+        website: String(rec.website || '')
       };
       if (d < bestAnyD) { bestAnyD = d; bestAny = cand; }
-      if (isOpen && d < bestOpenD) { bestOpenD = d; bestOpen = cand; }
     }
-    return bestOpen || bestAny;
+    return bestAny;
   }
 
   // Rank the public rehabbers by straight-line (haversine) distance from an
@@ -1009,11 +1005,9 @@
         var site = closest.website
           ? ' (<a href="' + escapeHtml(closest.website) + '" target="_blank" rel="noopener">' + T2.rehabberWebsiteLabel + '</a>)'
           : '';
-        var tone = closest.is_closed ? 'warn' : 'neutral';
-        var closedNote = closest.is_closed ? T2.rehabberClosedNote : '';
-        actions.push(actionLine(tone, '⌂', fmt(T2.closestRehabber, {
+        actions.push(actionLine('neutral', '⌂', fmt(T2.closestRehabber, {
           name: escapeHtml(closest.rehab_name),
-          dist: dist, site: site, closedNote: closedNote
+          dist: dist, site: site
         })));
       }
     }

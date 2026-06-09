@@ -153,11 +153,11 @@
       needLabelCapture: 'C&T / RVS C&T',
       // No-qualified escalation (no leniency handled). {radius}, {phone}.
       noQualifiedEscalate: 'No qualified volunteers within {radius} mi — ask the finder to call <strong>PA Game Commission</strong>: {phone}.',
-      // Closest-rehabber suggestion. {name}, {dist}, {site} (computed link or ''),
-      // {closedNote} (computed or '').
-      closestRehabber: 'Transport to closest rehabber: <strong>{name}</strong> (~{dist} mi){site}.{closedNote}',
+      // Closest-rehabber suggestion. {name}, {dist}, {site} (computed link or '').
+      // Open/closed is NOT surfaced (the org does not keep that field current),
+      // so there is no closed/confirm note here.
+      closestRehabber: 'Transport to closest rehabber: <strong>{name}</strong> (~{dist} mi){site}.',
       rehabberWebsiteLabel: 'website',
-      rehabberClosedNote: ' <strong>Nearest is not marked OPEN — confirm before transport.</strong>',
       // ── Nearest-rehabber top-3 panel (dispatcher.js renderNearestRehabbers) ──
       // Header shown above the ranked list. {count} = how many rows shown (1-3).
       rehabHeader: 'Nearest rehabbers ({count})',
@@ -173,7 +173,7 @@
       // Per-row phone link label (rendered as a tel: link when present).
       rehabPhoneLabel: 'call {phone}',
       // Shown in place of the phone link when the facility has no phone on file.
-      rehabPhoneMissing: 'no phone on file',
+      rehabPhoneMissing: '----',
       // Link text for a rehabber website (only rendered when a website exists).
       rehabWebsiteLabel: 'website',
       // On-demand reveal control. The list is hidden by default after a lookup;

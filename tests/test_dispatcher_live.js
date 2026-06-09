@@ -334,6 +334,39 @@ function testRehabOnDemandWiring() {
     'reveal handler does not call nearestRehabbers again (no duplicate ranking)');
 }
 
+// The closest-rehabber recommendation must NOT depend on Monday open/closed
+// (that field is going away). Verified at the source level against the
+// committed findClosestRehabber + messages.js so it cannot silently regress.
+function testClosestRehabberNoOpenClosed() {
+  console.log('\n[rehab] closest-rehabber recommendation drops all open/closed logic');
+  const fn = extractFunction('findClosestRehabber');
+  assert(!/open_closed|is_open|is_closed/.test(fn),
+    'findClosestRehabber references no open/closed fields');
+  assert(!/bestOpen|isOpen/.test(fn),
+    'findClosestRehabber has no open-preference branch');
+
+  const msgs = fs.readFileSync(
+    path.join(__dirname, '..', 'docs', 'assets', 'messages.js'), 'utf8');
+  assert(!/rehabberClosedNote/.test(msgs),
+    'messages.js no longer defines the dead rehabberClosedNote key');
+  assert(!/closedNote/.test(SRC),
+    'dispatcher.js no longer references a closedNote in the recommendation');
+  const closestMsg = (msgs.match(/closestRehabber\s*:\s*'([^']*)'/) || [])[1] || '';
+  assert(closestMsg.length > 0, 'closestRehabber message still defined');
+  assert(!/\{closedNote\}|not marked OPEN/i.test(closestMsg),
+    'closestRehabber message carries no open/closed note (got "' + closestMsg + '")');
+}
+
+// Empty rehabber phone must render the exact "----" placeholder (not prose).
+function testPhonePlaceholderDashes() {
+  console.log('\n[rehab] empty-phone placeholder is exactly "----"');
+  const msgs = fs.readFileSync(
+    path.join(__dirname, '..', 'docs', 'assets', 'messages.js'), 'utf8');
+  const m = msgs.match(/rehabPhoneMissing\s*:\s*'([^']*)'/);
+  assert(!!m, 'messages.js defines rehabPhoneMissing');
+  assertEqual(m && m[1], '----', 'rehabPhoneMissing placeholder is four hyphens');
+}
+
 (async function main() {
   console.log('== Phase G live-Worker + coordinator-source harness ==');
   testCountyCount();
@@ -343,6 +376,8 @@ function testRehabOnDemandWiring() {
   testRehabPhoneAndCounty();
   testRehabFewerThan3();
   testRehabOnDemandWiring();
+  testClosestRehabberNoOpenClosed();
+  testPhonePlaceholderDashes();
   testCountyCentroidFromGeojson();
   await testCoordPreferBoard();
   await testCoordFallbackEmpty();

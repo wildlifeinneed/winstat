@@ -1129,8 +1129,11 @@ async function runRehabAddressPath() {
     'row0 phone label keeps the verbatim formatted number');
   assert.strictEqual(rows[1].querySelector('.rehab-phone a'), null,
     'row1 (empty phone) renders NO tel: link');
-  assert.ok(rows[1].querySelector('.rehab-phone-missing'),
+  const missingEl = rows[1].querySelector('.rehab-phone-missing');
+  assert.ok(missingEl,
     'row1 (empty phone) renders the missing-phone placeholder');
+  assert.strictEqual((missingEl.textContent || '').trim(), '----',
+    'row1 missing-phone placeholder is exactly "----" (got "' + (missingEl.textContent || '') + '")');
 
   assert.ok(rows[0].querySelector('.rehab-site a'), 'row0 (has website) renders a link');
   const row0Href = rows[0].querySelector('.rehab-site a').getAttribute('href');

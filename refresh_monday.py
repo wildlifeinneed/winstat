@@ -196,10 +196,13 @@ REHAB_COL_IDS = {
     "phone": "text_mkqqtre3",
     "latitude": "text_mkqqj30w",
     "longitude": "text_mkqqrt6e",
-    "open_closed": "color_mkv6xbc",
     "website": "text_mkv8njgj",
     "availability": "text_mkqqgq94",
 }
+# NOTE: the board's open/closed status column (color_mkv6xbc) is intentionally
+# NOT pulled. The dispatcher org does not keep that field current (real-time
+# status lives in a separate beta "rehab status" app, not wired in here), so
+# surfacing it would be misleading. It is omitted from the data pipeline.
 
 # Area Coordinators board. The county->area map stays in counties.xlsx
 # (stable); only the volatile coordinator NAME is sourced here so a Monday
@@ -789,7 +792,7 @@ def build_rehabber_record(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Convert a raw RehabDB item to a PUBLIC-safe rehabber dict.
 
     Emits ONLY the public fields {rehab_name, lat, lon, county, phone,
-    open_closed, website, availability} (lat/lon as floats). The
+    website, availability} (lat/lon as floats). The
     ``phone`` field is the facility's PUBLIC phone (verbatim board text,
     empty string when blank) — a public-org contact number, NOT volunteer
     PII. The ``availability`` field is the raw 'Availability' cell text carried through
@@ -822,7 +825,6 @@ def build_rehabber_record(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "lon": lon,
         "county": _column_text(item, REHAB_COL_IDS["county"]),
         "phone": _column_text(item, REHAB_COL_IDS["phone"]),
-        "open_closed": _column_text(item, REHAB_COL_IDS["open_closed"]),
         "website": _column_text(item, REHAB_COL_IDS["website"]),
         "availability": _column_text(item, REHAB_COL_IDS["availability"]),
     }

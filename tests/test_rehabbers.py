@@ -3,14 +3,16 @@
 The RehabDB Monday board is mocked; NO live network is used. Covers:
   * correct field mapping from board columns -> public record
   * lat/lon parsed to float
-  * open/closed status label mapping (from the color/status column text)
+  * open/closed is NOT pulled into the record (the org does not keep that
+    Monday field current; status lives in a separate beta app)
   * a row missing lat/lon is skipped AND a warning is logged
-  * PII-free shape: exactly the 6 public fields and nothing else
+  * PII-free shape: exactly the public fields and nothing else
   * fetch_rehabbers issues a narrow board-level items_page query
 """
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from unittest import mock
@@ -21,7 +23,7 @@ sys.path.insert(0, str(ROOT))
 import refresh_monday as rm  # noqa: E402
 
 
-PUBLIC_FIELDS = {"rehab_name", "lat", "lon", "county", "phone", "open_closed", "website", "availability"}
+PUBLIC_FIELDS = {"rehab_name", "lat", "lon", "county", "phone", "website", "availability"}
 
 
 def _rehab_item(
@@ -35,7 +37,6 @@ def _rehab_item(
     phone="610-555-0100",
     latitude="40.4406",
     longitude="-75.3413",
-    open_closed="Open",
     website="https://example.org",
     availability="M/P/RVS",
 ) -> dict:
@@ -54,7 +55,6 @@ def _rehab_item(
             {"id": c["phone"], "text": phone, "value": None, "type": "text"},
             {"id": c["latitude"], "text": latitude, "value": None, "type": "text"},
             {"id": c["longitude"], "text": longitude, "value": None, "type": "text"},
-            {"id": c["open_closed"], "text": open_closed, "value": None, "type": "color"},
             {"id": c["website"], "text": website, "value": None, "type": "text"},
             {"id": c["availability"], "text": availability, "value": None, "type": "text"},
         ],
@@ -73,7 +73,6 @@ def test_field_mapping_full_record():
             phone="215-555-0188",
             latitude="40.5",
             longitude="-75.25",
-            open_closed="Open",
             website="https://owlhaven.example",
             availability="M/P",
         )
@@ -84,7 +83,6 @@ def test_field_mapping_full_record():
         "lon": -75.25,
         "county": "Bucks",
         "phone": "215-555-0188",
-        "open_closed": "Open",
         "website": "https://owlhaven.example",
         "availability": "M/P",
     }
@@ -121,22 +119,21 @@ def test_lat_lon_with_surrounding_whitespace_parsed():
 
 
 # ---------------------------------------------------------------------------
-# 3. open/closed label mapping
+# 3. open/closed is NOT carried into the record
 # ---------------------------------------------------------------------------
+# The dispatcher org does not keep the Monday open/closed column current
+# (real-time status lives in a separate beta app), so it must not appear in
+# the public record under any key.
 
-def test_open_closed_label_open():
-    rec = rm.build_rehabber_record(_rehab_item(open_closed="Open"))
-    assert rec["open_closed"] == "Open"
+def test_open_closed_not_in_record():
+    rec = rm.build_rehabber_record(_rehab_item())
+    for forbidden in ("open_closed", "is_open", "is_closed"):
+        assert forbidden not in rec
 
 
-def test_open_closed_label_closed():
-    rec = rm.build_rehabber_record(_rehab_item(open_closed="Closed"))
-    assert rec["open_closed"] == "Closed"
-
-
-def test_open_closed_blank_preserved_as_empty():
-    rec = rm.build_rehabber_record(_rehab_item(open_closed=""))
-    assert rec["open_closed"] == ""
+def test_open_closed_not_in_col_ids():
+    for forbidden in ("open_closed", "is_open", "is_closed"):
+        assert forbidden not in rm.REHAB_COL_IDS
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +221,7 @@ def test_build_rehabbers_skips_missing_and_keeps_valid(caplog):
 
 
 # ---------------------------------------------------------------------------
-# 5. PII-free shape: exactly the 6 public fields
+# 5. PII-free shape: exactly the public fields
 # ---------------------------------------------------------------------------
 
 def test_record_shape_is_pii_free():
@@ -236,7 +233,7 @@ def test_record_shape_is_pii_free():
             zip_code="18951",
         )
     )
-    # Exactly the 6 public fields — no address/city/state/zip/name leakage.
+    # Exactly the public fields — no address/city/state/zip/name leakage.
     assert set(rec.keys()) == PUBLIC_FIELDS
     for forbidden in ("address", "city", "state", "zip", "name"):
         assert forbidden not in rec
@@ -307,3 +304,19 @@ def test_fetch_rehabbers_paginates_via_cursor():
 
     recs = rm.build_rehabbers(raw)
     assert [r["rehab_name"] for r in recs] == ["P1", "P2"]
+
+
+# ---------------------------------------------------------------------------
+# 7. The COMMITTED dataset has no open/closed fields
+# ---------------------------------------------------------------------------
+
+def test_committed_rehabbers_json_has_no_open_closed():
+    path = ROOT / "docs" / "data" / "rehabbers.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert isinstance(data, list) and data, "rehabbers.json is a non-empty list"
+    for rec in data:
+        for forbidden in ("open_closed", "is_open", "is_closed"):
+            assert forbidden not in rec, f"{forbidden} leaked into {rec.get('rehab_name')!r}"
+        # The expected public fields are still present.
+        for field in ("rehab_name", "county", "phone", "availability", "lat", "lon"):
+            assert field in rec
