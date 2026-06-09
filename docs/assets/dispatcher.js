@@ -716,21 +716,29 @@
 
     // ── Recommended actions (mirror dispatch_core.build_recommendation) ──
     var hasQualified = QUALIFYING_ROLES.some(function (r) { return (roles[r] || 0) > 0; });
-    var coordinators = coordinatorsForAreas(areas);
     var actions = [];
 
+    // INFORMATIONAL (not a directive): how many WIN volunteers are in range and
+    // which area(s) they cover. The "WIN areas covered" chip row above is separate.
     if (total > 0 && areas.length) {
       actions.push(actionLine('go', '→',
-        'Task <strong>Connecteam</strong> volunteers in WIN area(s) ' +
-        '<strong>' + areas.map(escapeHtml).join(', ') + '</strong> ' +
-        '(' + total + ' in range).'));
+        'WIN volunteers found: <strong>' + total + '</strong> (WIN area' +
+        (areas.length > 1 ? 's' : '') + ' <strong>' +
+        areas.map(escapeHtml).join(', ') + '</strong>).'));
     }
 
-    if (coordinators.length) {
-      actions.push(actionLine('go', '→',
-        'Contact Area coordinator(s): <strong>' +
-        coordinators.map(escapeHtml).join(', ') + '</strong>.'));
-    }
+    // INFORMATIONAL: list the single coordinator for each in-range WIN area,
+    // one line per area (each area has exactly one coordinator). Mirrors the
+    // Tier 1 banner phrasing "Area XX Coordinator: <name>". area -> name via
+    // state.coordinators (coordinators.json); no hardcoding.
+    areas.forEach(function (a) {
+      var name = state.coordinators[String(a)];
+      if (name && String(name).trim()) {
+        actions.push(actionLine('go', '→',
+          'Area ' + escapeHtml(a) + ' Coordinator: <strong>' +
+          escapeHtml(String(name).trim()) + '</strong>.'));
+      }
+    });
 
     // ── R2 LENIENT recommendation (Tier 2 widen / out-of-county) ─────────
     // When the shared animal base info (rvs/issue) is present AND the response

@@ -567,7 +567,34 @@ async function runTier2Availability() {
   assert.ok(!/\d{3}[-.\s]?\d{3}[-.\s]?\d{4}/.test(cardsText),
     'Tier 2 summary cards must never render a phone number');
 
-  console.log('PASS: Tier 2 cards render avail/total (3/4, 1/2, 0/3) + Marginal badges on RVS & COURIER.');
+  // R4: the recommended-actions block is INFORMATIONAL, not directive.
+  // The volunteer-count line reads "WIN volunteers found: ..." (no "Task"/
+  // "Connecteam" action verb), and the coordinator is LISTED as info with the
+  // Tier-1-style "Area N Coordinator: <name>" label (no "Contact", no "(s)").
+  // NOTE: the separate LENIENT/actionable line legitimately keeps "Connecteam"
+  // (it stays a real action), so we assert per-line on the info lines, not on
+  // the whole actions blob.
+  const actionLines = Array.prototype.slice
+    .call(doc.querySelectorAll('#agg-actions .action-line'))
+    .map(function (el) { return (el.textContent || '').trim(); });
+
+  const volLine = actionLines.filter(function (t) { return /WIN volunteers found:/.test(t); });
+  assert.strictEqual(volLine.length, 1,
+    'exactly one info line "WIN volunteers found:" (got: ' + JSON.stringify(actionLines) + ')');
+  assert.ok(!/Task/.test(volLine[0]) && !/Connecteam/.test(volLine[0]),
+    'volunteer info line drops the imperative "Task Connecteam" verb (got: "' + volLine[0] + '")');
+
+  const coordLines = actionLines.filter(function (t) { return /Coordinator:/.test(t); });
+  assert.strictEqual(coordLines.length, 1,
+    'one "Area N Coordinator: <name>" line for the single in-range area (got: ' + JSON.stringify(coordLines) + ')');
+  assert.ok(/Area 10 Coordinator: Julia Meredith/.test(coordLines[0]),
+    'coordinator is LISTED as "Area 10 Coordinator: Julia Meredith" (got: "' + coordLines[0] + '")');
+  assert.ok(!/Contact/.test(coordLines[0]),
+    'coordinator line drops the imperative "Contact" verb (got: "' + coordLines[0] + '")');
+  assert.ok(!/coordinator\(s\)/i.test(actionLines.join(' ')),
+    'no "(s)" anywhere — exactly one coordinator per area (got: ' + JSON.stringify(actionLines) + ')');
+
+  console.log('PASS: Tier 2 cards render avail/total (3/4, 1/2, 0/3) + Marginal badges on RVS & COURIER; recommended actions are informational ("WIN volunteers found:" + "Area 10 Coordinator: Julia Meredith").');
 }
 
 // ── Tier 2 backward compat: a Worker payload WITHOUT availability fields must
