@@ -1,0 +1,10 @@
+{
+  "name": "pa-wildlife-dispatcher-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare Worker: PII-free volunteer aggregate endpoint for the PA Wildlife Rehab Dispatcher (SCAFFOLD, not deployed).",
+  "type": "commonjs",
+  "scripts": {
+    "test": "node test/run.test.js"
+  }
+}

@@ -1,0 +1,34 @@
+# Cloudflare Worker config for the Dispatcher aggregate endpoint.
+#
+# SCAFFOLD ONLY -- this is NOT deployed yet. Deploy happens later (Phase
+# E-deploy / Phase F) once a scoped token is provided. See worker/README.md.
+#
+# IMPORTANT:
+#   * NO secrets live in this file. CLOUDFLARE_API_TOKEN is supplied to
+#     `wrangler` via the environment at deploy time, never committed.
+#   * The KV namespace `id` below is a PLACEHOLDER. Create the real namespace
+#     at deploy time (`wrangler kv:namespace create VOLUNTEER_COORDS`) and paste
+#     the returned id here (or use `--kv-namespace` flags) -- do NOT commit a
+#     real id.
+#   * account_id is NOT hardcoded here. Supply it at deploy via the
+#     CLOUDFLARE_ACCOUNT_ID env var or `wrangler --account-id <id>`.
+#     (The real account id is recorded in worker/README.md deploy notes, not in
+#     committed Worker code.)
+
+name = "pa-wildlife-dispatcher"
+main = "src/index.mjs"
+compatibility_date = "2024-09-23"
+
+# account_id = "TODO(deploy): supply via CLOUDFLARE_ACCOUNT_ID env at deploy time"
+
+# Public GitHub Pages origin allowed to call this Worker (CORS).
+# TODO(deploy): replace with the project's real Pages origin.
+[vars]
+ALLOWED_ORIGIN = "https://example.github.io"
+
+# PRIVATE volunteer coords store. The Phase F refresh job writes the coords
+# array (JSON) under key `volunteer_coords`. id is a PLACEHOLDER -- replace at
+# deploy time with the real namespace id; do NOT create/commit a real one now.
+[[kv_namespaces]]
+binding = "VOLUNTEER_COORDS"
+id = "TODO_PLACEHOLDER_KV_NAMESPACE_ID"
