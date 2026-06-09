@@ -23,6 +23,36 @@
     { key: 'courier',   label: 'Courier' }
   ];
 
+  // ─── WIN Areas map (D5.2-5.3) ──────────────────────────────────────
+  // Stable per-area color map. 18 buckets (areas 1-16 + 15N/15S). These are
+  // documented, readable-on-light-bg swatches; defined here (not raw inline
+  // hex scattered through markup) so the legend, paths, and any future reuse
+  // share one source of truth.
+  var AREA_COLORS = {
+    '1':   '#4e79a7',
+    '2':   '#59a14f',
+    '3':   '#e15759',
+    '4':   '#f28e2b',
+    '5':   '#76b7b2',
+    '6':   '#edc948',
+    '7':   '#b07aa1',
+    '8':   '#ff9da7',
+    '9':   '#9c755f',
+    '10':  '#86bcb6',
+    '11':  '#d37295',
+    '12':  '#8cd17d',
+    '13':  '#bab0ac',
+    '14':  '#499894',
+    '15N': '#d4a6c8',
+    '15S': '#b6992d',
+    '16':  '#79706e'
+  };
+  var AREA_FALLBACK = '#c9c4bd';
+  // Path to the committed PA county GeoJSON (relative to dispatcher.html, which
+  // lives in docs/ alongside data/). Properties: {county, win_area, geoid}.
+  var GEOJSON_PATH = 'data/pa_counties.geojson';
+  var MAP_PANEL_KEY = 'win_map_panel_open'; // localStorage collapse persistence
+
   var DEFAULT_CONFIG = {
     marginal_threshold: 1,
     escalate_to_game_commission: {
@@ -42,7 +72,9 @@
     countyWin: {},          // county name -> WIN area (PII-free, from county_win.json)
     rehabbers: [],          // public rehabber dataset (may be empty)
     addressBusy: false,     // guard against concurrent address lookups
-    widenCounty: null       // Tier 1 county carried into Tier 2 as exclude_county
+    widenCounty: null,      // Tier 1 county carried into Tier 2 as exclude_county
+    mapBuilt: false,        // true once the SVG choropleth is drawn
+    mapAreas: {}            // area-string -> array of county-path <path> nodes
   };
 
   // ─── Address-mode (Phase G) configuration ──────────────────────────
@@ -169,9 +201,12 @@
     if (!countyName) {
       cards.forEach(function (card) {
         card.classList.add('empty');
-        $('.avail', card).textContent = '—';
-        $('.total', card).textContent = '—';
-        $('.sub', card).textContent = '';
+        // Address-mode cap-cards have no .avail/.total/.sub spans; guard so the
+        // reset loop never throws on them (that thrown TypeError previously
+        // aborted this branch before the coord-line/map highlight was cleared).
+        var availEl = $('.avail', card); if (availEl) availEl.textContent = '—';
+        var totalEl = $('.total', card); if (totalEl) totalEl.textContent = '—';
+        var subEl = $('.sub', card); if (subEl) subEl.textContent = '';
         var badge = $('.badge', card);
         if (badge) badge.remove();
       });
@@ -408,6 +443,8 @@
     if (!countyName) {
       if (line) { line.style.display = 'none'; line.innerHTML = ''; }
       if (prompt) prompt.style.display = 'none';
+      // Tier 1 cleared: drop any animal-area highlight on the map.
+      highlightAreas([], []);
       return;
     }
     var coord = coordinatorForCounty(countyName);
@@ -425,6 +462,8 @@
       line.style.display = 'block';
     }
     if (prompt) prompt.style.display = 'block';
+    // Tier 1 highlight: emphasize the selected county's WIN area on the map.
+    highlightAreas(coord.area ? [coord.area] : [], []);
   }
 
   function coordinatorsForAreas(areas) {
@@ -522,6 +561,7 @@
         emptyEl.style.display = 'block';
       }
       block.style.display = 'block';
+      highlightFromContext(rows, county);
       return;
     }
     if (emptyEl) { emptyEl.style.display = 'none'; emptyEl.textContent = ''; }
@@ -556,6 +596,23 @@
 
     if (listEl) listEl.innerHTML = html;
     block.style.display = 'block';
+    highlightFromContext(rows, county);
+  }
+
+  // Tier 2 highlight: emphasize the animal county's WIN area (green) PLUS the
+  // union of WIN areas present in the out_of_county rows (amber helper areas),
+  // so the dispatcher sees where helpers cluster relative to the animal.
+  function highlightFromContext(rows, excludeCounty) {
+    var animalArea = (excludeCounty && state.countyWin)
+      ? state.countyWin[excludeCounty] : null;
+    var helperSet = {};
+    (rows || []).forEach(function (row) {
+      if (row && row.win_area !== null && row.win_area !== undefined) {
+        var a = String(row.win_area).trim();
+        if (a !== '') helperSet[a] = true;
+      }
+    });
+    highlightAreas(animalArea ? [animalArea] : [], Object.keys(helperSet));
   }
 
   function renderAggregate(agg, ctx) {
@@ -840,6 +897,245 @@
     });
   }
 
+  // ─── WIN Areas map: render + dynamic highlight (D5.2-5.3) ──────────
+  // Self-drawn inline-SVG choropleth — NO runtime CDN dependency (no Leaflet/
+  // Mapbox/D3). We fetch the committed GeoJSON and project lon/lat to an SVG
+  // viewBox with a simple equirectangular transform fit to PA's bbox, applying
+  // a cos(midLat) correction so the map is not horizontally stretched.
+
+  var MAP_W = 800;   // SVG viewBox width (lon axis)
+  var MAP_PAD = 8;   // inner padding (viewBox units)
+
+  function areaColor(area) {
+    return AREA_COLORS[String(area)] || AREA_FALLBACK;
+  }
+
+  // Compute the geographic bbox across all features (handles Polygon +
+  // MultiPolygon). Returns {minLon,minLat,maxLon,maxLat}.
+  function geoBbox(features) {
+    var minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
+    function scanRing(ring) {
+      for (var i = 0; i < ring.length; i++) {
+        var lon = ring[i][0], lat = ring[i][1];
+        if (lon < minLon) minLon = lon;
+        if (lon > maxLon) maxLon = lon;
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+      }
+    }
+    features.forEach(function (f) {
+      eachRing(f.geometry, scanRing);
+    });
+    return { minLon: minLon, minLat: minLat, maxLon: maxLon, maxLat: maxLat };
+  }
+
+  // Invoke cb(ring) for every linear ring in a Polygon/MultiPolygon geometry.
+  function eachRing(geom, cb) {
+    if (!geom || !geom.coordinates) return;
+    if (geom.type === 'Polygon') {
+      geom.coordinates.forEach(cb);
+    } else if (geom.type === 'MultiPolygon') {
+      geom.coordinates.forEach(function (poly) { poly.forEach(cb); });
+    }
+  }
+
+  // Build a projector from geo bbox -> SVG units. lon increases left->right,
+  // lat increases bottom->top so we flip Y. cos(midLat) keeps the aspect honest.
+  function makeProjector(bbox) {
+    var midLat = (bbox.minLat + bbox.maxLat) / 2;
+    var lonScale = Math.cos(midLat * Math.PI / 180);
+    var geoW = (bbox.maxLon - bbox.minLon) * lonScale;
+    var geoH = (bbox.maxLat - bbox.minLat);
+    var innerW = MAP_W - 2 * MAP_PAD;
+    var scale = innerW / geoW;
+    var innerH = geoH * scale;
+    var height = innerH + 2 * MAP_PAD;
+    function project(lon, lat) {
+      var x = MAP_PAD + (lon - bbox.minLon) * lonScale * scale;
+      var y = MAP_PAD + (bbox.maxLat - lat) * scale; // flip Y
+      return [x, y];
+    }
+    return { project: project, width: MAP_W, height: height };
+  }
+
+  // Turn one geometry into an SVG path "d" string (sub-paths per ring).
+  function geometryToPath(geom, proj) {
+    var parts = [];
+    eachRing(geom, function (ring) {
+      var d = '';
+      for (var i = 0; i < ring.length; i++) {
+        var p = proj.project(ring[i][0], ring[i][1]);
+        d += (i === 0 ? 'M' : 'L') + p[0].toFixed(2) + ' ' + p[1].toFixed(2);
+      }
+      if (d) d += 'Z';
+      parts.push(d);
+    });
+    return parts.join(' ');
+  }
+
+  var SVGNS = 'http://www.w3.org/2000/svg';
+
+  // Draw the choropleth: 67 county <path>s colored by win_area, into an inline
+  // SVG. Builds state.mapAreas (area -> [<path>]) for fast highlight toggling.
+  function buildMap(geojson) {
+    var wrap = $('#map-svg-wrap');
+    if (!wrap) return;
+    var features = (geojson && Array.isArray(geojson.features)) ? geojson.features : [];
+    if (!features.length) {
+      wrap.innerHTML = '<div class="map-note">Map data unavailable.</div>';
+      return;
+    }
+    var bbox = geoBbox(features);
+    var proj = makeProjector(bbox);
+
+    var svg = document.createElementNS(SVGNS, 'svg');
+    svg.setAttribute('viewBox', '0 0 ' + proj.width + ' ' + proj.height.toFixed(2));
+    svg.setAttribute('class', 'map-svg');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', 'Pennsylvania counties colored by WIN area');
+
+    state.mapAreas = {};
+    features.forEach(function (f) {
+      var props = f.properties || {};
+      var county = String(props.county || '');
+      var area = (props.win_area === null || props.win_area === undefined)
+        ? '' : String(props.win_area);
+      var path = document.createElementNS(SVGNS, 'path');
+      path.setAttribute('d', geometryToPath(f.geometry, proj));
+      path.setAttribute('class', 'county-path');
+      path.setAttribute('fill', areaColor(area));
+      path.setAttribute('data-county', county);
+      path.setAttribute('data-area', area);
+      // County name tooltip (no labels cluttering the map).
+      var title = document.createElementNS(SVGNS, 'title');
+      title.textContent = area ? (county + ' — Area ' + area) : county;
+      path.appendChild(title);
+      svg.appendChild(path);
+      if (!state.mapAreas[area]) state.mapAreas[area] = [];
+      state.mapAreas[area].push(path);
+    });
+
+    wrap.innerHTML = '';
+    wrap.appendChild(svg);
+    state.mapBuilt = true;
+    buildLegend();
+  }
+
+  // Compact legend: one swatch per area present on the map, numeric-sorted.
+  function buildLegend() {
+    var legend = $('#map-legend');
+    if (!legend) return;
+    var areas = Object.keys(state.mapAreas).filter(function (a) { return a !== ''; });
+    areas.sort(function (a, b) {
+      var na = parseInt(a, 10), nb = parseInt(b, 10);
+      if (na !== nb) return na - nb;
+      return a < b ? -1 : (a > b ? 1 : 0); // 15N before 15S
+    });
+    legend.innerHTML = areas.map(function (a) {
+      return '<span class="leg-item" data-leg-area="' + escapeHtml(a) + '">' +
+        '<span class="leg-swatch" style="background:' + areaColor(a) + '"></span>' +
+        'Area ' + escapeHtml(a) + '</span>';
+    }).join('');
+  }
+
+  // ── Dynamic highlight API ──────────────────────────────────────────
+  // highlightAreas(animalAreas, helperAreas): emphasize counties in the given
+  // WIN areas and de-emphasize the rest. animalAreas get the strong green
+  // "animal area" treatment; helperAreas get the amber "helper area" treatment.
+  // Either argument may be a single value or an array; pass empty/none to clear.
+  function normAreaList(v) {
+    if (v === null || v === undefined) return [];
+    var arr = Array.isArray(v) ? v : [v];
+    var out = [];
+    arr.forEach(function (a) {
+      if (a === null || a === undefined) return;
+      var s = String(a).trim();
+      if (s !== '') out.push(s);
+    });
+    return out;
+  }
+
+  function highlightAreas(animalAreas, helperAreas) {
+    var animal = normAreaList(animalAreas);
+    var helper = normAreaList(helperAreas);
+    var animalSet = {};
+    animal.forEach(function (a) { animalSet[a] = true; });
+    // A helper area that is ALSO the animal area stays "animal" (stronger).
+    var helperSet = {};
+    helper.forEach(function (a) { if (!animalSet[a]) helperSet[a] = true; });
+
+    var svg = $('.map-svg');
+    var panel = $('#map-panel');
+    var any = animal.length > 0 || Object.keys(helperSet).length > 0;
+
+    // Clear existing highlight classes on every path, then re-apply.
+    Object.keys(state.mapAreas).forEach(function (area) {
+      var cls = animalSet[area] ? 'hl-animal' : (helperSet[area] ? 'hl-helper' : '');
+      state.mapAreas[area].forEach(function (p) {
+        p.classList.remove('hl-animal', 'hl-helper');
+        if (cls) p.classList.add(cls);
+      });
+    });
+
+    if (svg) {
+      if (any) svg.classList.add('dimmed');
+      else svg.classList.remove('dimmed');
+    }
+    if (panel) {
+      if (any) panel.classList.add('has-highlight');
+      else panel.classList.remove('has-highlight');
+    }
+
+    // Reflect active areas in the legend (bold the ones in play).
+    var legend = $('#map-legend');
+    if (legend) {
+      $$('.leg-item', legend).forEach(function (item) {
+        var a = item.getAttribute('data-leg-area');
+        if (a && (animalSet[a] || helperSet[a])) item.classList.add('leg-on');
+        else item.classList.remove('leg-on');
+      });
+    }
+  }
+
+  function clearHighlight() { highlightAreas([], []); }
+
+  // Persist the panel open/closed state (localStorage; gracefully no-ops if
+  // unavailable). Default collapsed: only OPEN when explicitly stored "1".
+  function restoreMapPanelState() {
+    var panel = $('#map-panel');
+    if (!panel) return;
+    try {
+      if (window.localStorage && localStorage.getItem(MAP_PANEL_KEY) === '1') {
+        panel.open = true;
+      }
+    } catch (e) { /* storage blocked — leave default collapsed */ }
+    panel.addEventListener('toggle', function () {
+      try {
+        if (window.localStorage) localStorage.setItem(MAP_PANEL_KEY, panel.open ? '1' : '0');
+      } catch (e) { /* ignore */ }
+    });
+  }
+
+  function loadMap() {
+    return fetch(GEOJSON_PATH, { cache: 'no-store' })
+      .then(function (resp) {
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        return resp.json();
+      })
+      .then(function (json) { buildMap(json); })
+      .catch(function () {
+        var wrap = $('#map-svg-wrap');
+        if (wrap) wrap.innerHTML = '<div class="map-note">Map could not be loaded.</div>';
+      });
+  }
+
+  // Expose the highlight API for other flows / debugging / tests.
+  window.WildlifeMap = {
+    highlightAreas: highlightAreas,
+    clearHighlight: clearHighlight,
+    areaColor: areaColor
+  };
+
   function setMode(mode) {
     var isAddress = (mode === 'address');
     $('#county-mode').hidden = isAddress;
@@ -982,8 +1278,14 @@
     var checkedMode = document.querySelector('input[name="mode"]:checked');
     setMode(checkedMode ? checkedMode.value : 'county');
 
+    // WIN Areas map (D5.2-5.3): restore the collapse state and draw the
+    // choropleth. Loaded alongside the other data; highlight wiring (Tier 1 in
+    // renderCoordLine, Tier 2 in renderContextList) becomes active once paths
+    // exist. Map fetch is independent so a failure here cannot block the rest.
+    restoreMapPanelState();
+
     Promise.all([
-      loadSnapshot(), loadConfig(), loadCoordinators(), loadRehabbers(), loadCountyWin()
+      loadSnapshot(), loadConfig(), loadCoordinators(), loadRehabbers(), loadCountyWin(), loadMap()
     ]).then(function () {
       renderBanner();
       renderConfigError();

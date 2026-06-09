@@ -45,6 +45,12 @@ const DOCS = path.resolve(__dirname, '..', 'docs');
 const HTML_PATH = path.join(DOCS, 'dispatcher.html');
 const DECISION_JS = path.join(DOCS, 'assets', 'decision.js');
 const DISPATCHER_JS = path.join(DOCS, 'assets', 'dispatcher.js');
+const GEOJSON_PATH = path.join(DOCS, 'data', 'pa_counties.geojson');
+
+// Real committed PA county GeoJSON (67 features, win_area baked in). Served by
+// the fetch mock so the map renders against production data — and the
+// projection sanity check (Erie top-left, Philadelphia bottom-right) is real.
+const PA_GEOJSON = JSON.parse(fs.readFileSync(GEOJSON_PATH, 'utf8'));
 
 const WORKER_AGG = {
   total_in_range: 32,
@@ -107,6 +113,16 @@ function makeFetch(workerHost, opts) {
     }
     let body = {};
     if (u.indexOf('rehabbers.json') !== -1) body = [];
+    if (u.indexOf('pa_counties.geojson') !== -1) {
+      // Serve the real committed GeoJSON so the WIN Areas map renders its 67
+      // county paths against production data.
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: function () { return Promise.resolve(PA_GEOJSON); },
+        text: function () { return Promise.resolve(JSON.stringify(PA_GEOJSON)); },
+      });
+    }
     if (u.indexOf('config.json') !== -1) {
       return Promise.resolve({
         ok: true, status: 200,
@@ -443,13 +459,179 @@ async function runTier2Empty() {
   console.log('PASS: Tier 2 empty-state renders when out_of_county is [].');
 }
 
+// ── D5.2: the WIN Areas map renders 67 county <path>s from the GeoJSON, each
+//    tagged with its win_area, and the projection puts Erie (NW) up-and-left of
+//    Philadelphia (SE). ─────────────────────────────────────────────────────
+async function runMapRender() {
+  const { window } = loadDom();
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  const svg = doc.querySelector('#map-svg-wrap svg.map-svg');
+  assert.ok(svg, 'inline SVG map is rendered');
+  const paths = Array.prototype.slice.call(svg.querySelectorAll('path.county-path'));
+  assert.strictEqual(paths.length, 67, 'map renders 67 county paths (got ' + paths.length + ')');
+
+  // Every path carries a county + area data attr; titles are county tooltips.
+  paths.forEach(function (p) {
+    assert.ok(p.getAttribute('data-county'), 'path has a data-county');
+    assert.ok(p.getAttribute('d') && p.getAttribute('d').indexOf('M') === 0,
+      'path "d" starts with a moveto');
+  });
+
+  // Legend lists each WIN area present (17 distinct: 1-16 with 15 split N/S).
+  const legItems = doc.querySelectorAll('#map-legend .leg-item');
+  assert.strictEqual(legItems.length, 17,
+    'legend shows 17 area swatches (got ' + legItems.length + ')');
+
+  // Projection sanity: compare the first vertex (moveto) of two known counties.
+  // Erie is NW (small lon -> left, high lat -> top); Philadelphia is SE.
+  function firstXY(county) {
+    const p = paths.filter(function (n) { return n.getAttribute('data-county') === county; })[0];
+    assert.ok(p, county + ' path exists');
+    const m = (p.getAttribute('d') || '').match(/^M([\d.]+)\s+([\d.]+)/);
+    assert.ok(m, county + ' path has a moveto');
+    return { x: parseFloat(m[1]), y: parseFloat(m[2]) };
+  }
+  const erie = firstXY('Erie');
+  const philly = firstXY('Philadelphia');
+  assert.ok(erie.x < philly.x,
+    'Erie projects LEFT of Philadelphia (erie.x ' + erie.x.toFixed(1) +
+    ' < philly.x ' + philly.x.toFixed(1) + ')');
+  assert.ok(erie.y < philly.y,
+    'Erie projects ABOVE Philadelphia (smaller y; erie.y ' + erie.y.toFixed(1) +
+    ' < philly.y ' + philly.y.toFixed(1) + ')');
+
+  console.log('PASS: map renders 67 county paths + 17-area legend; Erie projects up-and-left of Philadelphia.');
+}
+
+// ── D5.3: highlightAreas([n]) adds the highlight class to counties in those
+//    areas and NOT to counties in other areas; clearing removes it. ──────────
+async function runHighlightAreas() {
+  const { window } = loadDom();
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  assert.ok(window.WildlifeMap && typeof window.WildlifeMap.highlightAreas === 'function',
+    'WildlifeMap.highlightAreas API is exposed');
+
+  // Highlight area 7 as a helper area.
+  window.WildlifeMap.highlightAreas([], [7]);
+
+  const a7 = Array.prototype.slice.call(
+    doc.querySelectorAll('path.county-path[data-area="7"]'));
+  const notA7 = Array.prototype.slice.call(
+    doc.querySelectorAll('path.county-path:not([data-area="7"])'));
+  assert.ok(a7.length > 0, 'there are area-7 counties on the map');
+  a7.forEach(function (p) {
+    assert.ok(p.classList.contains('hl-helper'),
+      'area-7 county ' + p.getAttribute('data-county') + ' is highlighted (hl-helper)');
+  });
+  notA7.forEach(function (p) {
+    assert.ok(!p.classList.contains('hl-helper') && !p.classList.contains('hl-animal'),
+      'non-area-7 county ' + p.getAttribute('data-county') + ' is NOT highlighted');
+  });
+  // The SVG gets the dim class + the panel flags has-highlight.
+  assert.ok(doc.querySelector('svg.map-svg').classList.contains('dimmed'),
+    'map dims the rest when a highlight is applied');
+  assert.ok(doc.getElementById('map-panel').classList.contains('has-highlight'),
+    'panel flags has-highlight when a highlight is applied');
+
+  // Clearing removes all highlight classes + the dim/flag.
+  window.WildlifeMap.clearHighlight();
+  const stillOn = doc.querySelectorAll('path.county-path.hl-helper, path.county-path.hl-animal');
+  assert.strictEqual(stillOn.length, 0, 'clearHighlight removes all highlight classes');
+  assert.ok(!doc.querySelector('svg.map-svg').classList.contains('dimmed'),
+    'clearHighlight undims the map');
+
+  console.log('PASS: highlightAreas([7]) highlights only area-7 counties; clearHighlight resets.');
+}
+
+// ── D5.3 Tier 2: rendering the out-of-county context list highlights the UNION
+//    of the rows' win_areas (helper) plus the animal county's area (animal). ──
+async function runTier2Highlight() {
+  const agg = {
+    total_in_range: 4,
+    role_counts: { 'C&T': 0, 'RVS C&T': 0, 'COURIER': 0 },
+    win_areas: [],
+    out_of_county: [
+      { roles: ['C&T'], distance_mi: 9.1, win_area: '7', county: 'Centre' },
+      { roles: ['COURIER'], distance_mi: 18.6, win_area: '13', county: 'Dauphin' },
+      { roles: ['C&T'], distance_mi: 22.0, win_area: '7', county: 'Blair' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  // Animal county Allegheny -> WIN area 10 (from COUNTY_WIN).
+  const { doc } = await driveTier2(agg, 'Allegheny');
+
+  // Helper areas 7 and 13 are highlighted (amber); area 10 (animal) is green.
+  const a7 = doc.querySelectorAll('path.county-path[data-area="7"].hl-helper');
+  const a13 = doc.querySelectorAll('path.county-path[data-area="13"].hl-helper');
+  const a10 = doc.querySelectorAll('path.county-path[data-area="10"].hl-animal');
+  assert.ok(a7.length > 0, 'Tier 2 highlights area-7 helper counties');
+  assert.ok(a13.length > 0, 'Tier 2 highlights area-13 helper counties');
+  assert.ok(a10.length > 0, 'Tier 2 highlights the animal county area (10) distinctly');
+
+  // An area NOT in the union (e.g. 2) must stay un-highlighted.
+  const a2on = doc.querySelectorAll('path.county-path[data-area="2"].hl-helper, path.county-path[data-area="2"].hl-animal');
+  assert.strictEqual(a2on.length, 0, 'areas outside the union are not highlighted');
+
+  // Helper areas must NOT also carry the animal class (distinct styling).
+  doc.querySelectorAll('path.county-path[data-area="7"]').forEach(function (p) {
+    assert.ok(!p.classList.contains('hl-animal'),
+      'helper area 7 is styled as helper, not animal');
+  });
+
+  console.log('PASS: Tier 2 highlights the union of out_of_county areas (7, 13) + animal area (10) distinctly.');
+}
+
+// ── D5.3 Tier 1: selecting a county highlights that county's WIN area (animal)
+//    on the map; deselecting clears it. ────────────────────────────────────
+async function runTier1Highlight() {
+  const { window } = loadDom({
+    data: { 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS },
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  const countySel = doc.getElementById('county');
+  countySel.value = 'Allegheny'; // WIN area 10
+  countySel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+
+  const a10 = doc.querySelectorAll('path.county-path[data-area="10"].hl-animal');
+  assert.ok(a10.length > 0, 'Tier 1 highlights the selected county area (10) as animal');
+  const others = doc.querySelectorAll('path.county-path:not([data-area="10"]).hl-animal');
+  assert.strictEqual(others.length, 0, 'Tier 1 highlights ONLY the selected county area');
+
+  // Deselect -> highlight cleared.
+  countySel.value = '';
+  countySel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+  const stillOn = doc.querySelectorAll('path.county-path.hl-animal, path.county-path.hl-helper');
+  assert.strictEqual(stillOn.length, 0, 'deselecting a county clears the Tier 1 highlight');
+
+  console.log('PASS: Tier 1 county select highlights only that county area (animal); deselect clears it.');
+}
+
 async function run() {
   await runAddressMode();
   await runTier1Coordinator();
   await runTier2ContextList();
   await runTier2Overflow();
   await runTier2Empty();
-  console.log('\nALL DOM TESTS PASSED (5 scenarios).');
+  await runMapRender();
+  await runHighlightAreas();
+  await runTier2Highlight();
+  await runTier1Highlight();
+  console.log('\nALL DOM TESTS PASSED (9 scenarios).');
 }
 
 run().then(function () {
