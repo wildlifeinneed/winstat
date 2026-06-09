@@ -52,9 +52,22 @@ const WORKER_AGG = {
   win_areas: ['10', '11', '5'],
 };
 
+// Tier 1 data: county -> WIN area, and area -> coordinator NAME. Used by the
+// coordinator-name (Tier 1) scenario. Allegheny is WIN area 10 -> Julia Meredith
+// in the real docs/data files.
+const COUNTY_WIN = { Allegheny: '10', Beaver: '10', Erie: '1' };
+const COORDINATORS = { '10': 'Julia Meredith', '1': 'Sue DeArment' };
+
 // Resolve a fetch() call against a tiny in-memory router. The dispatcher loads
 // data/*.json on init (we return empty/ok) and calls the Worker on submit.
-function makeFetch(workerHost) {
+//
+// opts.workerAgg overrides the aggregate body the mock Worker returns (used by
+// the Tier 2 context-list scenarios). opts.data overrides specific data/*.json
+// payloads (e.g. county_win.json, coordinators.json) for the Tier 1 scenario.
+function makeFetch(workerHost, opts) {
+  opts = opts || {};
+  const workerAgg = opts.workerAgg || WORKER_AGG;
+  const dataRoutes = opts.data || {};
   return function fetchMock(url) {
     const u = String(url);
     if (u.indexOf(workerHost) === 0 || u.indexOf('workers.dev') !== -1) {
@@ -76,10 +89,22 @@ function makeFetch(workerHost) {
       return Promise.resolve({
         ok: true,
         status: 200,
-        json: function () { return Promise.resolve(WORKER_AGG); },
+        json: function () { return Promise.resolve(workerAgg); },
       });
     }
-    // Local data files loaded on init: return empty JSON so init resolves.
+    // Local data files loaded on init: return empty JSON so init resolves,
+    // unless a scenario supplied an explicit payload for that file.
+    let matchedKey = null;
+    Object.keys(dataRoutes).forEach(function (k) { if (u.indexOf(k) !== -1) matchedKey = k; });
+    if (matchedKey) {
+      const payload = dataRoutes[matchedKey];
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: function () { return Promise.resolve(payload); },
+        text: function () { return Promise.resolve(JSON.stringify(payload)); },
+      });
+    }
     let body = {};
     if (u.indexOf('rehabbers.json') !== -1) body = [];
     if (u.indexOf('config.json') !== -1) {
@@ -98,7 +123,7 @@ function makeFetch(workerHost) {
   };
 }
 
-function loadDom() {
+function loadDom(opts) {
   const html = fs.readFileSync(HTML_PATH, 'utf8');
   const dom = new JSDOM(html, {
     runScripts: 'outside-only',
@@ -118,7 +143,7 @@ function loadDom() {
   });
 
   // Mock network BEFORE the page scripts run.
-  window.fetch = makeFetch('https://pa-wildlife-dispatcher.winstat.workers.dev');
+  window.fetch = makeFetch('https://pa-wildlife-dispatcher.winstat.workers.dev', opts);
 
   // Execute the REAL site scripts in page context (decision first, as the page
   // loads it first), so dispatcher.js sees window.WildlifeDecision.
@@ -140,7 +165,7 @@ function wait(window, ms) {
   return new Promise(function (resolve) { window.setTimeout(resolve, ms); });
 }
 
-async function run() {
+async function runAddressMode() {
   const { window } = loadDom();
   const doc = window.document;
 
@@ -233,6 +258,198 @@ async function run() {
 
   console.log('PASS: dispatcher address-mode renders 32 / C&T 12 / RVS 0 / COURIER 20, chips ' +
     JSON.stringify(chips) + ', no error banner; county mode renders.');
+}
+
+// ── Tier 1: selecting a county renders the COORDINATOR NAME (name only, no
+//    phone) resolved county -> WIN area (county_win.json) -> name
+//    (coordinators.json), plus the "Widen search" affordance. ──────────────
+async function runTier1Coordinator() {
+  const { window } = loadDom({
+    data: {
+      'county_win.json': COUNTY_WIN,
+      'coordinators.json': COORDINATORS,
+    },
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  const countySel = doc.getElementById('county');
+  countySel.value = 'Allegheny';
+  countySel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+
+  const coordLine = doc.getElementById('coord-line');
+  assert.ok(coordLine, 'coord-line element exists');
+  assert.strictEqual(coordLine.style.display, 'block', 'coord-line visible after county select');
+  const txt = coordLine.textContent || '';
+  assert.ok(txt.indexOf('Julia Meredith') !== -1,
+    'Tier 1 shows the coordinator NAME (got: "' + txt + '")');
+  assert.ok(txt.indexOf('Area 10') !== -1, 'Tier 1 shows the WIN area context');
+  // PII guard: no phone-like digit sequences in the coordinator line.
+  assert.ok(!/\d{3}[-.\s]?\d{3}[-.\s]?\d{4}/.test(txt),
+    'coordinator line must show NAME ONLY, never a phone number');
+
+  const widen = doc.getElementById('widen-prompt');
+  assert.ok(widen && widen.style.display === 'block', 'Widen-search affordance is shown');
+
+  // A county with no WIN-area mapping falls back to a neutral "no coordinator"
+  // line (still NAME-only domain, never a phone).
+  countySel.value = 'Adams';
+  countySel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+  const fallback = doc.getElementById('coord-line').textContent || '';
+  assert.ok(fallback.indexOf('No coordinator') !== -1,
+    'unmapped county shows the no-coordinator fallback (got: "' + fallback + '")');
+
+  console.log('PASS: Tier 1 renders coordinator NAME (Julia Meredith / Area 10) + widen affordance, no phone.');
+}
+
+// Drive a Tier 2 "widen" query: select a county, click Widen, submit an
+// address, and return the document for assertions. The mock Worker returns the
+// supplied `agg` (which carries the out_of_county context list).
+async function driveTier2(agg, county) {
+  const { window } = loadDom({
+    workerAgg: agg,
+    data: { 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS },
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  const countySel = doc.getElementById('county');
+  countySel.value = county;
+  countySel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+
+  // Click the Tier 1 -> Tier 2 "Widen search" button.
+  doc.getElementById('widen-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  assert.strictEqual(doc.getElementById('address-mode').hidden, false,
+    'widen switches to Address mode');
+
+  doc.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+  return { window, doc };
+}
+
+// ── Tier 2: out_of_county rows render as ONE row per volunteer with role
+//    badge(s) + distance, in the Worker's nearest-first order. ─────────────
+async function runTier2ContextList() {
+  const agg = {
+    total_in_range: 5,
+    role_counts: { 'C&T': 0, 'RVS C&T': 0, 'COURIER': 0 },
+    win_areas: [],
+    out_of_county: [
+      { roles: ['C&T'], distance_mi: 8.2, win_area: '11', county: 'Beaver' },
+      { roles: ['RVS C&T', 'COURIER'], distance_mi: 14.7, win_area: '12', county: 'Butler' },
+      { roles: ['COURIER'], distance_mi: 21.3, win_area: '5', county: 'Westmoreland' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc } = await driveTier2(agg, 'Allegheny');
+
+  const block = doc.getElementById('ctx-block');
+  assert.strictEqual(block.style.display, 'block', 'context block is shown');
+  assert.strictEqual(doc.getElementById('ctx-notice').style.display, 'none',
+    'no overflow notice when not truncated');
+
+  const rows = Array.prototype.slice.call(doc.querySelectorAll('#ctx-list .ctx-row'));
+  assert.strictEqual(rows.length, 3, 'one row per volunteer (got ' + rows.length + ')');
+
+  // Nearest-first order preserved.
+  const dists = rows.map(function (r) {
+    return (r.querySelector('.ctx-dist').textContent || '').trim();
+  });
+  assert.deepStrictEqual(dists, ['8.2 mi', '14.7 mi', '21.3 mi'],
+    'distances render in nearest-first order (got ' + JSON.stringify(dists) + ')');
+
+  // Role badges per row.
+  const r0badges = Array.prototype.slice.call(rows[0].querySelectorAll('.role-badge'))
+    .map(function (b) { return b.textContent.trim(); });
+  assert.deepStrictEqual(r0badges, ['C&T'], 'row 0 has one C&T badge');
+  const r1badges = Array.prototype.slice.call(rows[1].querySelectorAll('.role-badge'))
+    .map(function (b) { return b.textContent.trim(); });
+  assert.deepStrictEqual(r1badges, ['RVS C&T', 'COURIER'], 'row 1 has both role badges');
+
+  // Context (area/county) present; PII (name/phone) absent.
+  assert.ok((rows[0].textContent || '').indexOf('Beaver') !== -1, 'row 0 shows county context');
+  rows.forEach(function (r) {
+    assert.ok(!/\d{3}[-.\s]?\d{3}[-.\s]?\d{4}/.test(r.textContent || ''),
+      'context rows must never render a phone number');
+  });
+
+  // Header reflects the excluded county + radius.
+  const hdr = doc.getElementById('ctx-header').textContent || '';
+  assert.ok(hdr.indexOf('50 mi') !== -1 && hdr.indexOf('Allegheny') !== -1,
+    'context header names radius + excluded county (got: "' + hdr + '")');
+
+  console.log('PASS: Tier 2 renders 3 context rows (nearest-first) with role badges, no PII.');
+}
+
+// ── Tier 2 overflow: radius_too_broad -> show notice above the (5) rows. ────
+async function runTier2Overflow() {
+  const five = [];
+  for (let i = 0; i < 5; i++) {
+    five.push({ roles: ['C&T'], distance_mi: 10 + i, win_area: '11', county: 'Beaver' });
+  }
+  const agg = {
+    total_in_range: 99,
+    role_counts: { 'C&T': 0, 'RVS C&T': 0, 'COURIER': 0 },
+    win_areas: [],
+    out_of_county: five,
+    out_of_county_truncated: true,
+    radius_too_broad: true,
+  };
+  const { doc } = await driveTier2(agg, 'Allegheny');
+
+  const notice = doc.getElementById('ctx-notice');
+  assert.strictEqual(notice.style.display, 'block', 'overflow notice is shown when radius_too_broad');
+  const ntxt = notice.textContent || '';
+  assert.ok(/Radius too large/i.test(ntxt) && ntxt.indexOf('5') !== -1,
+    'overflow notice mentions "Radius too large" + the 5 nearest (got: "' + ntxt + '")');
+  const rows = doc.querySelectorAll('#ctx-list .ctx-row');
+  assert.strictEqual(rows.length, 5, 'overflow shows the 5 nearest rows');
+
+  console.log('PASS: Tier 2 overflow notice renders above the 5 nearest rows.');
+}
+
+// ── Tier 2 empty-state: out_of_county = [] -> friendly empty message. ───────
+async function runTier2Empty() {
+  const agg = {
+    total_in_range: 0,
+    role_counts: { 'C&T': 0, 'RVS C&T': 0, 'COURIER': 0 },
+    win_areas: [],
+    out_of_county: [],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc } = await driveTier2(agg, 'Allegheny');
+
+  const block = doc.getElementById('ctx-block');
+  assert.strictEqual(block.style.display, 'block', 'context block shown even when empty');
+  const empty = doc.getElementById('ctx-empty');
+  assert.strictEqual(empty.style.display, 'block', 'empty-state message is shown');
+  assert.ok(/No out-of-county volunteers/i.test(empty.textContent || ''),
+    'empty-state copy present (got: "' + empty.textContent + '")');
+  assert.strictEqual(doc.querySelectorAll('#ctx-list .ctx-row').length, 0,
+    'no rows in empty-state');
+
+  console.log('PASS: Tier 2 empty-state renders when out_of_county is [].');
+}
+
+async function run() {
+  await runAddressMode();
+  await runTier1Coordinator();
+  await runTier2ContextList();
+  await runTier2Overflow();
+  await runTier2Empty();
+  console.log('\nALL DOM TESTS PASSED (5 scenarios).');
 }
 
 run().then(function () {

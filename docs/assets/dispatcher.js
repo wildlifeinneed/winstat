@@ -39,8 +39,10 @@
     config: null,           // parsed config.json (or null = use defaults)
     configError: false,     // true when config.json was present but malformed
     coordinators: {},       // area-string -> coordinator NAME (public-safe, no phone)
+    countyWin: {},          // county name -> WIN area (PII-free, from county_win.json)
     rehabbers: [],          // public rehabber dataset (may be empty)
-    addressBusy: false      // guard against concurrent address lookups
+    addressBusy: false,     // guard against concurrent address lookups
+    widenCounty: null       // Tier 1 county carried into Tier 2 as exclude_county
   };
 
   // ─── Address-mode (Phase G) configuration ──────────────────────────
@@ -175,6 +177,7 @@
       });
       emptyMsg.style.display = 'none';
       emptyMsg.textContent = '';
+      renderCoordLine('');
       return;
     }
 
@@ -213,6 +216,8 @@
       emptyMsg.style.display = 'none';
       emptyMsg.textContent = '';
     }
+
+    renderCoordLine(countyName);
   }
 
   var TARGET_LABELS = {
@@ -335,10 +340,16 @@
   // SERVER-SIDE (no browser CORS) and returns the PII-free AggregateResult.
   // Resolves to the parsed aggregate, or throws an Error whose message is a
   // stable code for the UI to surface a precise message.
-  function fetchAggregateByAddress(address, radiusMi) {
+  function fetchAggregateByAddress(address, radiusMi, opts) {
     var url = WORKER_URL +
       '?address=' + encodeURIComponent(address) +
       '&radius_mi=' + encodeURIComponent(radiusMi);
+    // Tier 2 "widen" mode: ask the Worker for the PII-safe out-of-county context
+    // list (context=1) scoped to EXCLUDE the Tier 1 county. The aggregate block
+    // is unchanged; out_of_county is purely additive.
+    if (opts && opts.excludeCounty) {
+      url += '&context=1&exclude_county=' + encodeURIComponent(opts.excludeCounty);
+    }
     return fetch(url, { cache: 'no-store' })
       .then(function (resp) {
         if (resp.status === 422) throw new Error('address_not_found');
@@ -374,6 +385,48 @@
     return bestOpen || bestAny;
   }
 
+  // Tier 1 notify line: resolve a county to its WIN area + coordinator NAME
+  // (name only, never phone). county -> area via state.countyWin (county_win.json),
+  // area -> name via state.coordinators (coordinators.json). Returns
+  // { area, name } with name possibly '' when unresolved.
+  function coordinatorForCounty(countyName) {
+    var area = (countyName && state.countyWin)
+      ? state.countyWin[countyName] : null;
+    if (area === null || area === undefined || String(area).trim() === '') {
+      return { area: null, name: '' };
+    }
+    area = String(area).trim();
+    var name = state.coordinators[area];
+    return { area: area, name: (name && String(name).trim()) ? String(name).trim() : '' };
+  }
+
+  // Render the Tier 1 coordinator notify line + the "widen search" affordance.
+  // Both live under the county cards. Hidden when no county is selected.
+  function renderCoordLine(countyName) {
+    var line = $('#coord-line');
+    var prompt = $('#widen-prompt');
+    if (!countyName) {
+      if (line) { line.style.display = 'none'; line.innerHTML = ''; }
+      if (prompt) prompt.style.display = 'none';
+      return;
+    }
+    var coord = coordinatorForCounty(countyName);
+    if (line) {
+      if (coord.name) {
+        var areaTxt = coord.area
+          ? ' <span class="coord-area">(Area ' + escapeHtml(coord.area) + ')</span>'
+          : '';
+        line.innerHTML = 'Notify county coordinator: <strong>' +
+          escapeHtml(coord.name) + '</strong>' + areaTxt + '.';
+      } else {
+        line.innerHTML = '<span class="coord-area">No coordinator on file for ' +
+          escapeHtml(countyName) + '.</span>';
+      }
+      line.style.display = 'block';
+    }
+    if (prompt) prompt.style.display = 'block';
+  }
+
   function coordinatorsForAreas(areas) {
     var names = {};
     (areas || []).forEach(function (a) {
@@ -401,6 +454,108 @@
     return '<div class="action-line ' + tone + '">' +
            '<span class="a-icon">' + escapeHtml(iconLabel) + '</span>' +
            '<div>' + html + '</div></div>';
+  }
+
+  // Map a canonical role label to the CSS modifier for its badge color.
+  function roleBadgeClass(role) {
+    var r = String(role).replace(/\s+/g, '').toUpperCase();
+    if (r === 'RVSC&T') return 'rvs';
+    if (r === 'COURIER') return 'courier';
+    return ''; // C&T (default green)
+  }
+
+  // Tier 2: render the PII-safe out-of-county context list. Each row = role
+  // badge(s) + distance (mi) + coarse area/county context. Rows are already
+  // sorted nearest-first by the Worker; preserve that order. Renders the
+  // overflow notice when the Worker flags radius_too_broad/out_of_county_truncated,
+  // and an empty-state when there are no out-of-county rows.
+  //
+  // The page renders ONLY fields present in the Worker payload
+  // ({roles, distance_mi, win_area, county}) — never name/phone/coords.
+  function renderContextList(agg, ctx) {
+    var block = $('#ctx-block');
+    var listEl = $('#ctx-list');
+    var noticeEl = $('#ctx-notice');
+    var emptyEl = $('#ctx-empty');
+    var headerEl = $('#ctx-header');
+    if (!block) return;
+
+    // Only show the context block when the response actually carries the Tier 2
+    // out_of_county field (i.e. a context=1 widen query). Otherwise hide it so
+    // standalone Address mode is unchanged.
+    if (!agg || !Array.isArray(agg.out_of_county)) {
+      block.style.display = 'none';
+      if (listEl) listEl.innerHTML = '';
+      if (noticeEl) noticeEl.style.display = 'none';
+      if (emptyEl) emptyEl.style.display = 'none';
+      return;
+    }
+
+    var radius = (ctx && ctx.radius) ? ctx.radius : '';
+    var county = (ctx && ctx.excludeCounty) ? ctx.excludeCounty : '';
+    if (headerEl) {
+      headerEl.textContent = county
+        ? ('Out-of-county helpers within ' + radius + ' mi (beyond ' + county + ')')
+        : ('Out-of-county helpers within ' + radius + ' mi');
+    }
+
+    var rows = agg.out_of_county;
+    var truncated = !!(agg.radius_too_broad || agg.out_of_county_truncated);
+
+    if (noticeEl) {
+      if (truncated) {
+        noticeEl.textContent = 'Radius too large — showing the ' + rows.length +
+          ' nearest. Narrow the radius for a complete list.';
+        noticeEl.style.display = 'block';
+      } else {
+        noticeEl.style.display = 'none';
+        noticeEl.textContent = '';
+      }
+    }
+
+    if (!rows.length) {
+      if (listEl) listEl.innerHTML = '';
+      if (emptyEl) {
+        emptyEl.textContent = county
+          ? ('No out-of-county volunteers within ' + radius + ' mi.')
+          : ('No out-of-county volunteers within ' + radius + ' mi.');
+        emptyEl.style.display = 'block';
+      }
+      block.style.display = 'block';
+      return;
+    }
+    if (emptyEl) { emptyEl.style.display = 'none'; emptyEl.textContent = ''; }
+
+    var radiusNum = Number(radius);
+    var html = rows.map(function (row) {
+      var roleList = Array.isArray(row.roles) ? row.roles : [];
+      var badges = roleList.map(function (r) {
+        var cls = roleBadgeClass(r);
+        return '<span class="role-badge' + (cls ? ' ' + cls : '') + '">' +
+               escapeHtml(r) + '</span>';
+      }).join('');
+
+      var dist = (typeof row.distance_mi === 'number') ? row.distance_mi : Number(row.distance_mi);
+      var distTxt = Number.isFinite(dist) ? dist.toFixed(1) : '?';
+
+      var ctxBits = [];
+      if (row.win_area) ctxBits.push('Area ' + escapeHtml(String(row.win_area)));
+      if (row.county) ctxBits.push(escapeHtml(String(row.county)));
+      var ctxTxt = ctxBits.length ? ' <span class="ctx-ctx">· ' + ctxBits.join(' · ') + '</span>' : '';
+
+      var edge = (Number.isFinite(dist) && Number.isFinite(radiusNum) && radiusNum > 0 &&
+                  dist >= 0.85 * radiusNum)
+        ? '<span class="ctx-edge">edge</span>' : '';
+
+      return '<li class="ctx-row">' +
+             '<span class="role-badges">' + badges + '</span>' +
+             '<span class="ctx-dist">' + distTxt + ' mi</span>' +
+             ctxTxt + edge +
+             '</li>';
+    }).join('');
+
+    if (listEl) listEl.innerHTML = html;
+    block.style.display = 'block';
   }
 
   function renderAggregate(agg, ctx) {
@@ -479,6 +634,7 @@
     }
 
     $('#agg-actions').innerHTML = actions.join('');
+    renderContextList(agg, ctx);
     $('#address-result').style.display = 'block';
   }
 
@@ -500,16 +656,23 @@
     $('#address-result').style.display = 'none';
     setAddressStatus('Finding volunteers within ' + radius + ' mi…');
 
+    // Tier 2 "widen": if a county was carried over from Tier 1, scope the query
+    // to EXCLUDE it and request the out-of-county context list. ctx carries the
+    // county so renderContextList can label/empty-state correctly.
+    var excludeCounty = state.widenCounty || null;
+    var ctx = { radius: radius };
+    if (excludeCounty) ctx.excludeCounty = excludeCounty;
+
     // Single origin: send the typed address to the Worker, which geocodes it
     // server-side (no browser CORS) and returns the PII-free aggregate.
-    fetchAggregateByAddress(addr, radius)
+    fetchAggregateByAddress(addr, radius, { excludeCounty: excludeCounty })
       .then(function (agg) {
         setAddressStatus('');
         // Render in its OWN try/catch so a rendering bug (e.g. a missing DOM
         // target) surfaces a DISTINCT message instead of being swallowed by the
         // network-error catch below and shown as "could not reach the service".
         try {
-          renderAggregate(agg, { radius: radius });
+          renderAggregate(agg, ctx);
         } catch (renderErr) {
           if (window.console && console.error) console.error('renderAggregate failed', renderErr);
           setAddressError('Got a response but could not display it. Please report this to the site maintainer.');
@@ -683,6 +846,38 @@
     $('#address-mode').hidden = !isAddress;
   }
 
+  // Tier 1 -> Tier 2 "widen" handoff: carry the selected county into Address
+  // mode as exclude_county, switch the toggle to Address, and focus the address
+  // input. The subsequent submit will request the out-of-county context list.
+  function widenFromCounty() {
+    var county = $('#county') ? $('#county').value : '';
+    if (!county) return;
+    var addrRadio = document.querySelector('input[name="mode"][value="address"]');
+    if (addrRadio) {
+      addrRadio.checked = true;
+      addrRadio.dispatchEvent(new Event('change', { bubbles: true }));
+    } else {
+      setMode('address');
+    }
+    // Set AFTER the mode-change dispatch (the change handler clears widenCounty
+    // so manual Address-mode toggles run a standalone aggregate query).
+    state.widenCounty = county;
+    var input = $('#animal-address');
+    if (input) input.focus();
+  }
+
+  function loadCountyWin() {
+    return fetch('data/county_win.json', { cache: 'no-store' })
+      .then(function (resp) {
+        if (!resp.ok) return {};
+        return resp.json();
+      })
+      .then(function (json) {
+        state.countyWin = (json && typeof json === 'object' && !Array.isArray(json)) ? json : {};
+      })
+      .catch(function () { state.countyWin = {}; });
+  }
+
   // Coordinator NAMES are an area-string -> name map (NAME only, never phone).
   // Locked source-of-truth: the auto-refreshing Monday board writes
   // docs/data/coordinators.json. We PREFER that (board-sourced, fresh) and
@@ -760,9 +955,16 @@
     // Address-mode wiring (Phase G).
     $$('input[name="mode"]').forEach(function (radio) {
       radio.addEventListener('change', function (e) {
-        if (e.target.checked) setMode(e.target.value);
+        if (e.target.checked) {
+          // A manual toggle resets the Tier 2 widen scope so standalone Address
+          // mode runs a plain aggregate (no exclude_county / context list).
+          state.widenCounty = null;
+          setMode(e.target.value);
+        }
       });
     });
+    var widenBtn = $('#widen-btn');
+    if (widenBtn) widenBtn.addEventListener('click', widenFromCounty);
     var addrBtn = $('#address-btn');
     if (addrBtn) addrBtn.addEventListener('click', onAddressSubmit);
     setupAutocomplete();
@@ -781,7 +983,7 @@
     setMode(checkedMode ? checkedMode.value : 'county');
 
     Promise.all([
-      loadSnapshot(), loadConfig(), loadCoordinators(), loadRehabbers()
+      loadSnapshot(), loadConfig(), loadCoordinators(), loadRehabbers(), loadCountyWin()
     ]).then(function () {
       renderBanner();
       renderConfigError();

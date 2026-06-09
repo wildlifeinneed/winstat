@@ -473,6 +473,107 @@
       border: 1px solid #c8e6d2;
     }
 
+    /* ─── Tier 1 coordinator notify line ──────────────────────── */
+    .coord-line {
+      margin-top: 14px;
+      padding: 10px 12px;
+      background: var(--green-light);
+      border: 1px solid #c8e6d2;
+      border-left: 4px solid var(--green);
+      border-radius: 8px;
+      font-size: 13.5px;
+      color: var(--green-deep);
+    }
+    .coord-line strong { color: var(--green-deep); }
+    .coord-line .coord-area { color: var(--text-muted); font-weight: 500; }
+
+    /* ─── Tier 1 → Tier 2 "widen" affordance ──────────────────── */
+    .widen-prompt {
+      margin-top: 14px;
+      padding: 10px 12px;
+      background: var(--amber-light);
+      border: 1px solid #f0c070;
+      border-radius: 8px;
+      font-size: 13.5px;
+      color: #7a4900;
+    }
+    .widen-prompt .widen-q { font-weight: 700; display: block; margin-bottom: 6px; }
+    .btn-widen {
+      background: var(--surface);
+      color: var(--amber);
+      border: 1.5px solid #f0c070;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 13.5px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background var(--transition), color var(--transition);
+    }
+    .btn-widen:hover { background: var(--amber); color: #fff; }
+
+    /* ─── Tier 2 out-of-county context list ───────────────────── */
+    .ctx-header {
+      font-family: 'Bitter', Georgia, serif;
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--green-deep);
+      margin: 18px 0 8px;
+    }
+    .ctx-notice {
+      background: var(--amber-light);
+      border: 1px solid #f0c070;
+      border-left: 4px solid var(--amber);
+      color: #7a4900;
+      padding: 9px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      margin-bottom: 10px;
+    }
+    .ctx-empty {
+      font-size: 13px;
+      color: var(--text-muted);
+      font-style: italic;
+      padding: 6px 2px;
+    }
+    .ctx-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+    .ctx-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 9px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      font-size: 14px;
+    }
+    .ctx-row .role-badges { display: inline-flex; gap: 5px; flex-wrap: wrap; }
+    .role-badge {
+      display: inline-block;
+      padding: 2px 9px;
+      font-size: 11.5px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      border-radius: 999px;
+      background: var(--green-light);
+      color: var(--green-dark);
+      border: 1px solid #c8e6d2;
+      white-space: nowrap;
+    }
+    .role-badge.rvs { background: var(--amber-light); color: var(--amber); border-color: #f0c070; }
+    .role-badge.courier { background: #eef0f5; color: #3a4a6b; border-color: #c8cfe0; }
+    .ctx-row .ctx-dist { font-weight: 700; color: var(--text); }
+    .ctx-row .ctx-ctx { color: var(--text-muted); font-size: 12.5px; }
+    .ctx-row .ctx-edge {
+      margin-left: auto;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      color: var(--amber);
+    }
+
     .actions-header {
       font-size: 12px;
       font-weight: 700;
@@ -611,6 +712,13 @@
       </div>
     </div>
     <div id="empty-msg" class="empty-msg" style="display:none;"></div>
+
+    <div id="coord-line" class="coord-line" style="display:none;"></div>
+
+    <div id="widen-prompt" class="widen-prompt" style="display:none;">
+      <span class="widen-q">Thin in this county?</span>
+      <button id="widen-btn" class="btn-widen" type="button">Widen search → enter address + radius</button>
+    </div>
   </section>
 
   <section class="panel">
@@ -693,6 +801,13 @@
           <div class="num"><span id="agg-courier">0</span></div>
           <div class="sub">in range</div>
         </div>
+      </div>
+
+      <div id="ctx-block" style="display:none;">
+        <div class="ctx-header" id="ctx-header">Out-of-county helpers</div>
+        <div id="ctx-notice" class="ctx-notice" style="display:none;"></div>
+        <div id="ctx-empty" class="ctx-empty" style="display:none;"></div>
+        <ul id="ctx-list" class="ctx-list"></ul>
       </div>
 
       <div class="agg-meta">
