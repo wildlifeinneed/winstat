@@ -29,3 +29,6 @@ data/volunteer_coords.json
 # Phase F — CI sentinel cache. Records the last VolDB_Status date the refresh
 # job acted on so the next run can compare. Local/CI-only state, never committed.
 last_refresh_date.json
+
+# Wrangler local cache (may hold account info)
+worker/.wrangler/
