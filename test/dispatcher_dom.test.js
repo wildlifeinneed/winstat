@@ -1018,17 +1018,23 @@ async function runTier1Highlight() {
 }
 
 // ── Nearest-rehabber top-3 panel: 4-facility fixture so the top-3 cap is
-//    actually exercised; includes a Closed facility and an empty-website
-//    facility (link must be omitted). ─────────────────────────────────────
+//    actually exercised; includes an empty-phone facility (phone placeholder)
+//    and an empty-website facility (link must be omitted). The open/closed
+//    field is intentionally NOT surfaced by the panel (org does not keep it
+//    current), so it is omitted from the fixture too. ─────────────────────
 const REHAB_DATA = [
   { rehab_name: 'Near Open Site', county: 'Allegheny', lat: 40.45, lon: -79.99,
-    availability: 'Songbirds\nM,P,R RVS', open_closed: 'Open', website: 'https://near.example' },
+    phone: '(412) 345-7300',
+    availability: 'Songbirds\nM,P,R RVS', website: 'https://near.example' },
   { rehab_name: 'Mid Closed NoSite', county: 'Allegheny', lat: 40.60, lon: -80.20,
-    availability: 'Mammals only', open_closed: 'Closed', website: '' },
+    phone: '',
+    availability: 'Mammals only', website: '' },
   { rehab_name: 'Far Open Site', county: 'Butler', lat: 41.00, lon: -79.80,
-    availability: 'Raptors', open_closed: 'Open', website: 'https://far.example' },
+    phone: '724-555-0100',
+    availability: 'Raptors', website: 'https://far.example' },
   { rehab_name: 'Farthest', county: 'Erie', lat: 42.13, lon: -80.08,
-    availability: 'All', open_closed: 'Open', website: 'https://farthest.example' }
+    phone: '814-555-0199',
+    availability: 'All', website: 'https://farthest.example' }
 ];
 
 // Animal-address path: Worker echoes animal_lat/animal_lon; the panel ranks the
@@ -1074,8 +1080,36 @@ async function runRehabAddressPath() {
     assert.ok(/^\d+\.\d mi$/.test(d), 'distance formatted "X.X mi" (got "' + d + '")');
   });
 
-  assert.ok(rows[0].querySelector('.rehab-status.open'), 'row0 shows Open status chip');
-  assert.ok(rows[1].querySelector('.rehab-status.closed'), 'row1 shows Closed status chip');
+  // Open/Closed status must NOT be surfaced anywhere in the panel.
+  assert.strictEqual(doc.querySelectorAll('#rehab-list .rehab-status').length, 0,
+    'no .rehab-status chip is rendered in any row');
+  // Check status text only OUTSIDE the facility name (fixture names contain
+  // the words "Open"/"Closed" deliberately, so scan the non-name row parts).
+  const nonNameText = rows.map(function (r) {
+    return ['.rehab-county', '.rehab-phone', '.rehab-dist', '.rehab-avail', '.rehab-site']
+      .map(function (sel) { var el = r.querySelector(sel); return el ? el.textContent : ''; })
+      .join(' ');
+  }).join(' ');
+  assert.ok(!/\b(Open|Closed|Status unknown)\b/.test(nonNameText),
+    'no Open/Closed/Status-unknown text leaks into the rehab row details (got "' + nonNameText + '")');
+
+  // County renders per row.
+  assert.ok(/Allegheny County/.test(rows[0].querySelector('.rehab-county').textContent || ''),
+    'row0 shows its county');
+  assert.ok(/Butler County/.test(rows[2].querySelector('.rehab-county').textContent || ''),
+    'row2 shows its county');
+
+  // Phone: row0 renders a tel: link; row1 (empty phone) renders the placeholder.
+  const row0Tel = rows[0].querySelector('.rehab-phone a');
+  assert.ok(row0Tel, 'row0 (has phone) renders a tel: link');
+  assert.strictEqual(row0Tel.getAttribute('href'), 'tel:4123457300',
+    'row0 tel: href is digits-only');
+  assert.ok(/\(412\) 345-7300/.test(row0Tel.textContent || ''),
+    'row0 phone label keeps the verbatim formatted number');
+  assert.strictEqual(rows[1].querySelector('.rehab-phone a'), null,
+    'row1 (empty phone) renders NO tel: link');
+  assert.ok(rows[1].querySelector('.rehab-phone-missing'),
+    'row1 (empty phone) renders the missing-phone placeholder');
 
   assert.ok(rows[0].querySelector('.rehab-site a'), 'row0 (has website) renders a link');
   const row0Href = rows[0].querySelector('.rehab-site a').getAttribute('href');
@@ -1093,7 +1127,7 @@ async function runRehabAddressPath() {
   assert.ok(/Nearest rehabbers \(3\)/.test(header),
     'header shows the count (got "' + header + '")');
 
-  console.log('PASS: rehab panel (animal path) ranks top-3, formats distance, omits empty-website link, preserves verbatim availability.');
+  console.log('PASS: rehab panel (animal path) ranks top-3, formats distance, shows phone(tel)+county, hides open/closed, omits empty-website link, preserves verbatim availability.');
 }
 
 // County-centroid path: the Worker returns NO animal_lat/animal_lon. The panel

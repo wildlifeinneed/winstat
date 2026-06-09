@@ -161,18 +161,19 @@ function buildRehabSandbox(rehabbers) {
 }
 
 // Realistic small fixture: 5 rehabbers around western PA. Distances increase
-// roughly from the Pittsburgh-ish origin used below.
+// roughly from the Pittsburgh-ish origin used below. open/closed is omitted —
+// the panel no longer surfaces it; phone + county are what the rows show.
 const REHAB_FIXTURE = [
-  { rehab_name: 'Alpha (closest, open, has site)', county: 'Allegheny', lat: 40.44, lon: -79.99,
-    availability: 'Songbirds only\nM,P,R RVS', open_closed: 'Open', website: 'https://alpha.example' },
-  { rehab_name: 'Bravo (2nd, closed, no site)', county: 'Allegheny', lat: 40.50, lon: -80.10,
-    availability: 'Mammals', open_closed: 'Closed', website: '' },
-  { rehab_name: 'Charlie (3rd, open, no site)', county: 'Butler', lat: 40.86, lon: -79.90,
-    availability: 'Raptors', open_closed: 'Open', website: '' },
+  { rehab_name: 'Alpha (closest, has site)', county: 'Allegheny', lat: 40.44, lon: -79.99,
+    phone: '(412) 555-0101', availability: 'Songbirds only\nM,P,R RVS', website: 'https://alpha.example' },
+  { rehab_name: 'Bravo (2nd, no phone, no site)', county: 'Allegheny', lat: 40.50, lon: -80.10,
+    phone: '', availability: 'Mammals', website: '' },
+  { rehab_name: 'Charlie (3rd, no site)', county: 'Butler', lat: 40.86, lon: -79.90,
+    phone: '724-555-0103', availability: 'Raptors', website: '' },
   { rehab_name: 'Delta (4th)', county: 'Westmoreland', lat: 40.30, lon: -79.50,
-    availability: '', open_closed: 'Open', website: 'https://delta.example' },
+    phone: '724-555-0104', availability: '', website: 'https://delta.example' },
   { rehab_name: 'Echo (far)', county: 'Erie', lat: 42.13, lon: -80.08,
-    availability: 'All', open_closed: 'Open', website: 'https://echo.example' }
+    phone: '814-555-0105', availability: 'All', website: 'https://echo.example' }
 ];
 
 function testRehabTop3Ranking() {
@@ -180,7 +181,7 @@ function testRehabTop3Ranking() {
   const { sandbox } = buildRehabSandbox(REHAB_FIXTURE);
   const rows = sandbox.__nearestRehabbers(40.44, -79.99, 3);
   assertEqual(rows.length, 3, 'returns exactly 3 rows');
-  assertEqual(rows[0].rehab_name, 'Alpha (closest, open, has site)', 'rank 1 is the closest');
+  assertEqual(rows[0].rehab_name, 'Alpha (closest, has site)', 'rank 1 is the closest');
   assert(rows[0].distance_mi <= rows[1].distance_mi, 'row0 <= row1 distance');
   assert(rows[1].distance_mi <= rows[2].distance_mi, 'row1 <= row2 distance');
   assert(rows[0].distance_mi < 0.001, 'closest distance ~0 mi for coincident origin');
@@ -200,26 +201,39 @@ function testRehabDistanceFormatting() {
 }
 
 function testRehabWebsiteFlag() {
-  console.log('\n[rehab] empty website normalized to "" (link omitted by renderer)');
+  console.log('\n[rehab] empty website normalized to "" (link omitted by renderer); no open/closed surfaced');
   const { sandbox } = buildRehabSandbox(REHAB_FIXTURE);
   const rows = sandbox.__nearestRehabbers(40.44, -79.99, 3);
   const alpha = rows.find(function (r) { return r.rehab_name.indexOf('Alpha') === 0; });
   const bravo = rows.find(function (r) { return r.rehab_name.indexOf('Bravo') === 0; });
   assertEqual(alpha.website, 'https://alpha.example', 'non-empty website preserved');
   assertEqual(bravo.website, '', 'empty website stays empty (renderer omits link)');
-  assertEqual(bravo.is_open, false, 'closed rehabber is_open=false');
-  assertEqual(bravo.is_closed, true, 'closed rehabber is_closed=true');
+  // open/closed status is intentionally NOT carried on the row objects anymore.
+  assertEqual(alpha.open_closed, undefined, 'no open_closed field on row');
+  assertEqual(alpha.is_open, undefined, 'no is_open field on row');
+  assertEqual(alpha.is_closed, undefined, 'no is_closed field on row');
+}
+
+function testRehabPhoneAndCounty() {
+  console.log('\n[rehab] rows carry phone (verbatim) + county; empty phone stays ""');
+  const { sandbox } = buildRehabSandbox(REHAB_FIXTURE);
+  const rows = sandbox.__nearestRehabbers(40.44, -79.99, 3);
+  const alpha = rows.find(function (r) { return r.rehab_name.indexOf('Alpha') === 0; });
+  const bravo = rows.find(function (r) { return r.rehab_name.indexOf('Bravo') === 0; });
+  assertEqual(alpha.phone, '(412) 555-0101', 'verbatim formatted phone preserved');
+  assertEqual(alpha.county, 'Allegheny', 'county carried on the row');
+  assertEqual(bravo.phone, '', 'empty phone stays "" (renderer shows placeholder)');
 }
 
 function testRehabFewerThan3() {
   console.log('\n[rehab] fewer than 3 -> returns what exists; skips missing coords');
   const { sandbox } = buildRehabSandbox([
     REHAB_FIXTURE[0],
-    { rehab_name: 'NoCoords', availability: 'x', open_closed: 'Open', website: '' }
+    { rehab_name: 'NoCoords', phone: '', availability: 'x', website: '' }
   ]);
   const rows = sandbox.__nearestRehabbers(40.44, -79.99, 3);
   assertEqual(rows.length, 1, 'only the one rehabber with numeric coords is ranked');
-  assertEqual(rows[0].rehab_name, 'Alpha (closest, open, has site)', 'coord-bearing row kept');
+  assertEqual(rows[0].rehab_name, 'Alpha (closest, has site)', 'coord-bearing row kept');
 }
 
 function testCountyCentroidFromGeojson() {
@@ -293,6 +307,7 @@ async function testLiveWorker() {
   testRehabTop3Ranking();
   testRehabDistanceFormatting();
   testRehabWebsiteFlag();
+  testRehabPhoneAndCounty();
   testRehabFewerThan3();
   testCountyCentroidFromGeojson();
   await testCoordPreferBoard();

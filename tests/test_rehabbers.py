@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT))
 import refresh_monday as rm  # noqa: E402
 
 
-PUBLIC_FIELDS = {"rehab_name", "lat", "lon", "county", "open_closed", "website", "availability"}
+PUBLIC_FIELDS = {"rehab_name", "lat", "lon", "county", "phone", "open_closed", "website", "availability"}
 
 
 def _rehab_item(
@@ -32,6 +32,7 @@ def _rehab_item(
     state="PA",
     zip_code="18951",
     county="Bucks",
+    phone="610-555-0100",
     latitude="40.4406",
     longitude="-75.3413",
     open_closed="Open",
@@ -50,6 +51,7 @@ def _rehab_item(
             {"id": c["state"], "text": state, "value": None, "type": "text"},
             {"id": c["zip"], "text": zip_code, "value": None, "type": "text"},
             {"id": c["county"], "text": county, "value": None, "type": "text"},
+            {"id": c["phone"], "text": phone, "value": None, "type": "text"},
             {"id": c["latitude"], "text": latitude, "value": None, "type": "text"},
             {"id": c["longitude"], "text": longitude, "value": None, "type": "text"},
             {"id": c["open_closed"], "text": open_closed, "value": None, "type": "color"},
@@ -68,6 +70,7 @@ def test_field_mapping_full_record():
         _rehab_item(
             rehab_name="Owl Haven",
             county="Bucks",
+            phone="215-555-0188",
             latitude="40.5",
             longitude="-75.25",
             open_closed="Open",
@@ -80,6 +83,7 @@ def test_field_mapping_full_record():
         "lat": 40.5,
         "lon": -75.25,
         "county": "Bucks",
+        "phone": "215-555-0188",
         "open_closed": "Open",
         "website": "https://owlhaven.example",
         "availability": "M/P",
@@ -148,6 +152,20 @@ def test_availability_not_normalized():
     # Mixed-case / spacing preserved exactly — the dispatcher reads the letters.
     rec = rm.build_rehabber_record(_rehab_item(availability=" m / p "))
     assert rec["availability"] == "m / p"
+
+
+# ---------------------------------------------------------------------------
+# 3c. phone passthrough (public-org contact; verbatim; blank -> "")
+# ---------------------------------------------------------------------------
+
+def test_phone_carried_through_verbatim():
+    rec = rm.build_rehabber_record(_rehab_item(phone="(610) 555-0100"))
+    assert rec["phone"] == "(610) 555-0100"
+
+
+def test_phone_blank_preserved_as_empty():
+    rec = rm.build_rehabber_record(_rehab_item(phone=""))
+    assert rec["phone"] == ""
 
 
 def test_availability_blank_preserved_as_empty():

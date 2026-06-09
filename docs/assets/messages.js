@@ -168,11 +168,12 @@
       rehabOriginCounty: 'distance from {county} County center',
       // Per-row distance text. {dist} = miles, one decimal place.
       rehabDistance: '{dist} mi',
-      // Open/Closed status chip text.
-      rehabStatusOpen: 'Open',
-      rehabStatusClosed: 'Closed',
-      // Status chip text when the dataset has no Open/Closed marker.
-      rehabStatusUnknown: 'Status unknown',
+      // Per-row county label. {county} = facility county name.
+      rehabCounty: '{county} County',
+      // Per-row phone link label (rendered as a tel: link when present).
+      rehabPhoneLabel: 'call {phone}',
+      // Shown in place of the phone link when the facility has no phone on file.
+      rehabPhoneMissing: 'no phone on file',
       // Link text for a rehabber website (only rendered when a website exists).
       rehabWebsiteLabel: 'website',
       // Shown when no rehabber coordinates are available to rank.

@@ -193,6 +193,7 @@ REHAB_COL_IDS = {
     "state": "text_mkqqk1xk",
     "zip": "text_mkqqe6qe",
     "county": "text_mkqqk5cb",
+    "phone": "text_mkqqtre3",
     "latitude": "text_mkqqj30w",
     "longitude": "text_mkqqrt6e",
     "open_closed": "color_mkv6xbc",
@@ -787,9 +788,11 @@ def _parse_float(text: str) -> Optional[float]:
 def build_rehabber_record(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Convert a raw RehabDB item to a PUBLIC-safe rehabber dict.
 
-    Emits ONLY the 7 public fields {rehab_name, lat, lon, county,
+    Emits ONLY the public fields {rehab_name, lat, lon, county, phone,
     open_closed, website, availability} (lat/lon as floats). The
-    ``availability`` field is the raw 'Availability' cell text carried through
+    ``phone`` field is the facility's PUBLIC phone (verbatim board text,
+    empty string when blank) — a public-org contact number, NOT volunteer
+    PII. The ``availability`` field is the raw 'Availability' cell text carried through
     verbatim (the M/P/RVS key letters the dispatcher reads) — NOT parsed,
     normalized, or interpreted here; empty string when blank. It is
     facility-level key letters only, so it introduces no volunteer PII. Rows
@@ -818,6 +821,7 @@ def build_rehabber_record(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "lat": lat,
         "lon": lon,
         "county": _column_text(item, REHAB_COL_IDS["county"]),
+        "phone": _column_text(item, REHAB_COL_IDS["phone"]),
         "open_closed": _column_text(item, REHAB_COL_IDS["open_closed"]),
         "website": _column_text(item, REHAB_COL_IDS["website"]),
         "availability": _column_text(item, REHAB_COL_IDS["availability"]),

@@ -454,8 +454,11 @@
   // Rank the public rehabbers by straight-line (haversine) distance from an
   // origin point (animal coords OR a county centroid) and return the nearest
   // `n` as plain row objects. Rehabbers missing numeric coords are skipped.
-  // Returns [{ rehab_name, county, distance_mi, open_closed, is_open, is_closed,
-  //            availability, website }], sorted ascending by distance, length<=n.
+  // Returns [{ rehab_name, county, phone, distance_mi, availability, website }],
+  // sorted ascending by distance, length<=n. NOTE: open/closed is intentionally
+  // NOT surfaced here — the dispatcher org does not keep that Monday field
+  // current (real-time status lives in a separate beta app), so showing it
+  // would be misleading. Phone + county are shown instead.
   function nearestRehabbers(lat, lon, n) {
     var limit = (typeof n === 'number' && n > 0) ? n : 3;
     var list = state.rehabbers || [];
@@ -463,15 +466,11 @@
     for (var i = 0; i < list.length; i++) {
       var rec = list[i];
       if (!rec || typeof rec.lat !== 'number' || typeof rec.lon !== 'number') continue;
-      var oc = String(rec.open_closed || '');
-      var ocNorm = oc.trim().toLowerCase();
       scored.push({
         rehab_name: String(rec.rehab_name || ''),
         county: String(rec.county || ''),
+        phone: String(rec.phone || '').trim(),
         distance_mi: haversineMiles(lat, lon, rec.lat, rec.lon),
-        open_closed: oc,
-        is_open: ocNorm === 'open',
-        is_closed: ocNorm === 'closed',
         availability: String(rec.availability || ''),
         website: String(rec.website || '').trim()
       });
@@ -773,10 +772,23 @@
     if (listEl) {
       listEl.innerHTML = rows.map(function (r) {
         var distTxt = fmt(T2.rehabDistance, { dist: r.distance_mi.toFixed(1) });
-        var statusClass, statusText;
-        if (r.is_open) { statusClass = 'open'; statusText = T2.rehabStatusOpen; }
-        else if (r.is_closed) { statusClass = 'closed'; statusText = T2.rehabStatusClosed; }
-        else { statusClass = 'unknown'; statusText = T2.rehabStatusUnknown; }
+
+        var countyHtml = r.county
+          ? '<div class="rehab-county">' +
+            escapeHtml(fmt(T2.rehabCounty, { county: r.county })) + '</div>'
+          : '';
+
+        var phoneHtml;
+        if (r.phone) {
+          // tel: href uses digits/+ only; the visible label keeps the verbatim
+          // formatted phone string from the dataset.
+          var telHref = r.phone.replace(/[^0-9+]/g, '');
+          phoneHtml = '<div class="rehab-phone"><a href="tel:' + escapeHtml(telHref) +
+            '">' + escapeHtml(fmt(T2.rehabPhoneLabel, { phone: r.phone })) + '</a></div>';
+        } else {
+          phoneHtml = '<div class="rehab-phone rehab-phone-missing">' +
+            escapeHtml(T2.rehabPhoneMissing) + '</div>';
+        }
 
         var avail = r.availability && r.availability.trim()
           ? '<div class="rehab-avail">' + escapeHtml(r.availability) + '</div>'
@@ -789,10 +801,9 @@
         return '<li class="rehab-row">' +
                '<div class="rehab-top">' +
                '<span class="rehab-name">' + escapeHtml(r.rehab_name) + '</span>' +
-               '<span class="rehab-status ' + statusClass + '">' + escapeHtml(statusText) + '</span>' +
                '<span class="rehab-dist">' + escapeHtml(distTxt) + '</span>' +
                '</div>' +
-               avail + site +
+               countyHtml + phoneHtml + avail + site +
                '</li>';
       }).join('');
     }
