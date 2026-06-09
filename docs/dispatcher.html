@@ -600,6 +600,19 @@
     }
 
     /* ─── Nearest-rehabber top-3 list ──────────────────────────── */
+    .btn-rehab-toggle {
+      background: var(--surface);
+      color: var(--green-deep);
+      border: 1.5px solid var(--border);
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 13.5px;
+      font-weight: 600;
+      cursor: pointer;
+      margin: 18px 0 0;
+    }
+    .btn-rehab-toggle:hover { background: var(--green); color: #fff; border-color: var(--green); }
     .rehab-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
     .rehab-row {
       padding: 10px 12px;
@@ -1009,9 +1022,13 @@
       </div>
 
       <div id="rehab-block" style="display:none;">
-        <div class="ctx-header" id="rehab-header">Nearest rehabbers</div>
-        <div id="rehab-empty" class="ctx-empty" style="display:none;"></div>
-        <ul id="rehab-list" class="rehab-list"></ul>
+        <button id="rehab-toggle" class="btn-rehab-toggle" type="button"
+                aria-expanded="false" aria-controls="rehab-content"></button>
+        <div id="rehab-content" style="display:none;">
+          <div class="ctx-header" id="rehab-header">Nearest rehabbers</div>
+          <div id="rehab-empty" class="ctx-empty" style="display:none;"></div>
+          <ul id="rehab-list" class="rehab-list"></ul>
+        </div>
       </div>
 
       <div class="agg-meta">

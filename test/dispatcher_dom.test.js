@@ -1043,9 +1043,11 @@ async function runRehabAddressPath() {
   const aggWithCoords = Object.assign({}, WORKER_AGG, {
     animal_lat: 40.4443, animal_lon: -79.9569,
   });
+  const aggCalls = [];
   const { window } = loadDom({
     workerAgg: aggWithCoords,
     data: { 'rehabbers.json': REHAB_DATA },
+    aggCalls: aggCalls,
   });
   const doc = window.document;
   await flush(window);
@@ -1063,7 +1065,26 @@ async function runRehabAddressPath() {
 
   const block = doc.getElementById('rehab-block');
   assert.ok(block, '#rehab-block exists');
-  assert.strictEqual(block.style.display, 'block', 'rehab panel is shown on the animal path');
+  assert.strictEqual(block.style.display, 'block', 'rehab block (with reveal control) is shown on the animal path');
+
+  // ON-DEMAND: the ranked list is NOT visible by default; only the toggle shows.
+  const toggle = doc.getElementById('rehab-toggle');
+  const content = doc.getElementById('rehab-content');
+  assert.ok(toggle, '#rehab-toggle reveal control exists');
+  assert.strictEqual(content.style.display, 'none', 'rehab list is HIDDEN by default after a lookup');
+  assert.strictEqual(toggle.getAttribute('aria-expanded'), 'false', 'toggle starts collapsed');
+  assert.ok(/show/i.test(toggle.textContent || ''), 'toggle reads "Show ..." while collapsed');
+
+  // Reveal: clicking the control shows the prepared list WITHOUT re-running the
+  // lookup (only fetch was the address submit; clicking must not add another).
+  const aggCallsBeforeReveal = aggCalls.length;
+  toggle.dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  assert.strictEqual(content.style.display, 'block', 'rehab list becomes visible after activating the control');
+  assert.strictEqual(toggle.getAttribute('aria-expanded'), 'true', 'toggle now expanded');
+  assert.ok(/hide/i.test(toggle.textContent || ''), 'toggle reads "Hide ..." while expanded');
+  assert.strictEqual(aggCalls.length, aggCallsBeforeReveal,
+    'revealing the list did NOT trigger any new fetch/geocode');
 
   const rows = Array.prototype.slice.call(doc.querySelectorAll('#rehab-list .rehab-row'));
   assert.strictEqual(rows.length, 3, 'shows exactly the top 3 (got ' + rows.length + ')');
@@ -1158,7 +1179,15 @@ async function runRehabCountyPath() {
 
   const block = doc.getElementById('rehab-block');
   assert.strictEqual(block.style.display, 'block',
-    'rehab panel is shown on the county-centroid fallback path');
+    'rehab block (with reveal control) is shown on the county-centroid fallback path');
+
+  // Default-hidden on the county path too; reveal via the control.
+  const content = doc.getElementById('rehab-content');
+  const toggle = doc.getElementById('rehab-toggle');
+  assert.strictEqual(content.style.display, 'none', 'county-path rehab list hidden by default');
+  toggle.dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  assert.strictEqual(content.style.display, 'block', 'county-path rehab list visible after activating the control');
 
   const rows = Array.prototype.slice.call(doc.querySelectorAll('#rehab-list .rehab-row'));
   assert.strictEqual(rows.length, 3, 'county path also shows top-3 (got ' + rows.length + ')');
@@ -1174,6 +1203,36 @@ async function runRehabCountyPath() {
     'header notes distance is from the county center (got "' + header + '")');
 
   console.log('PASS: rehab panel (county path) falls back to the Allegheny geojson centroid and ranks top-3.');
+}
+
+// No-origin path: Worker returns NO animal_lat/animal_lon AND no county is
+// selected → pickRehabberOrigin yields null → the whole block (including the
+// reveal control) stays hidden, since there is nothing to reveal.
+async function runRehabNoOrigin() {
+  const { window } = loadDom({
+    workerAgg: WORKER_AGG, // no animal_lat/animal_lon
+    data: { 'rehabbers.json': REHAB_DATA },
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  // Leave #county unset so there is no centroid fallback either.
+  const addrRadio = doc.querySelector('input[name="mode"][value="address"]');
+  addrRadio.checked = true;
+  addrRadio.dispatchEvent(new window.Event('change', { bubbles: true }));
+  doc.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  const block = doc.getElementById('rehab-block');
+  assert.strictEqual(block.style.display, 'none',
+    'rehab block (and its reveal control) is hidden when no origin is resolvable');
+
+  console.log('PASS: rehab panel hides the reveal control entirely when no origin (no animal coords, no county).');
 }
 
 async function run() {
@@ -1195,7 +1254,8 @@ async function run() {
   await runTier1Highlight();
   await runRehabAddressPath();
   await runRehabCountyPath();
-  console.log('\nALL DOM TESTS PASSED (18 scenarios).');
+  await runRehabNoOrigin();
+  console.log('\nALL DOM TESTS PASSED (19 scenarios).');
 }
 
 run().then(function () {

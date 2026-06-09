@@ -734,17 +734,34 @@
   // Each row shows: name, distance, open/closed status, the verbatim
   // availability text (line breaks preserved via CSS white-space:pre-line), and
   // a website link ONLY when a non-empty website exists.
+  //
+  // ON-DEMAND reveal: the ranked content is COMPUTED here (no network/geocode —
+  // nearestRehabbers reads the already-loaded state.rehabbers) but kept HIDDEN
+  // (#rehab-content display:none) behind a toggle button. The dispatcher clicks
+  // "Show nearest rehabbers" to reveal the prepared list; the click only flips
+  // visibility and never re-runs the lookup.
+  function setRehabToggleLabel(btn, expanded) {
+    var T2 = MSG.tier2Aggregate;
+    if (!btn) return;
+    btn.textContent = expanded ? T2.rehabHideBtn : T2.rehabShowBtn;
+    btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+  }
+
   function renderNearestRehabbers(origin) {
     var T2 = MSG.tier2Aggregate;
     var block = $('#rehab-block');
+    var contentEl = $('#rehab-content');
+    var toggleEl = $('#rehab-toggle');
     var headerEl = $('#rehab-header');
     var listEl = $('#rehab-list');
     var emptyEl = $('#rehab-empty');
     if (!block) return;
 
-    // No usable origin → keep the panel hidden entirely (caller fell back).
+    // No usable origin → keep the panel (and its reveal control) hidden entirely
+    // (caller fell back; there is nothing to reveal).
     if (!origin || typeof origin.lat !== 'number' || typeof origin.lon !== 'number') {
       block.style.display = 'none';
+      if (contentEl) contentEl.style.display = 'none';
       if (listEl) listEl.innerHTML = '';
       if (emptyEl) { emptyEl.style.display = 'none'; emptyEl.textContent = ''; }
       return;
@@ -764,48 +781,65 @@
     if (!rows.length) {
       if (listEl) listEl.innerHTML = '';
       if (emptyEl) { emptyEl.textContent = T2.rehabNone; emptyEl.style.display = 'block'; }
-      block.style.display = 'block';
-      return;
+    } else {
+      if (emptyEl) { emptyEl.style.display = 'none'; emptyEl.textContent = ''; }
+      if (listEl) {
+        listEl.innerHTML = rows.map(function (r) {
+          var distTxt = fmt(T2.rehabDistance, { dist: r.distance_mi.toFixed(1) });
+
+          var countyHtml = r.county
+            ? '<div class="rehab-county">' +
+              escapeHtml(fmt(T2.rehabCounty, { county: r.county })) + '</div>'
+            : '';
+
+          var phoneHtml;
+          if (r.phone) {
+            // tel: href uses digits/+ only; the visible label keeps the verbatim
+            // formatted phone string from the dataset.
+            var telHref = r.phone.replace(/[^0-9+]/g, '');
+            phoneHtml = '<div class="rehab-phone"><a href="tel:' + escapeHtml(telHref) +
+              '">' + escapeHtml(fmt(T2.rehabPhoneLabel, { phone: r.phone })) + '</a></div>';
+          } else {
+            phoneHtml = '<div class="rehab-phone rehab-phone-missing">' +
+              escapeHtml(T2.rehabPhoneMissing) + '</div>';
+          }
+
+          var avail = r.availability && r.availability.trim()
+            ? '<div class="rehab-avail">' + escapeHtml(r.availability) + '</div>'
+            : '';
+          var site = r.website
+            ? '<div class="rehab-site"><a href="' + escapeHtml(r.website) +
+              '" target="_blank" rel="noopener">' + escapeHtml(T2.rehabWebsiteLabel) + '</a></div>'
+            : '';
+
+          return '<li class="rehab-row">' +
+                 '<div class="rehab-top">' +
+                 '<span class="rehab-name">' + escapeHtml(r.rehab_name) + '</span>' +
+                 '<span class="rehab-dist">' + escapeHtml(distTxt) + '</span>' +
+                 '</div>' +
+                 countyHtml + phoneHtml + avail + site +
+                 '</li>';
+        }).join('');
+      }
     }
-    if (emptyEl) { emptyEl.style.display = 'none'; emptyEl.textContent = ''; }
 
-    if (listEl) {
-      listEl.innerHTML = rows.map(function (r) {
-        var distTxt = fmt(T2.rehabDistance, { dist: r.distance_mi.toFixed(1) });
-
-        var countyHtml = r.county
-          ? '<div class="rehab-county">' +
-            escapeHtml(fmt(T2.rehabCounty, { county: r.county })) + '</div>'
-          : '';
-
-        var phoneHtml;
-        if (r.phone) {
-          // tel: href uses digits/+ only; the visible label keeps the verbatim
-          // formatted phone string from the dataset.
-          var telHref = r.phone.replace(/[^0-9+]/g, '');
-          phoneHtml = '<div class="rehab-phone"><a href="tel:' + escapeHtml(telHref) +
-            '">' + escapeHtml(fmt(T2.rehabPhoneLabel, { phone: r.phone })) + '</a></div>';
-        } else {
-          phoneHtml = '<div class="rehab-phone rehab-phone-missing">' +
-            escapeHtml(T2.rehabPhoneMissing) + '</div>';
-        }
-
-        var avail = r.availability && r.availability.trim()
-          ? '<div class="rehab-avail">' + escapeHtml(r.availability) + '</div>'
-          : '';
-        var site = r.website
-          ? '<div class="rehab-site"><a href="' + escapeHtml(r.website) +
-            '" target="_blank" rel="noopener">' + escapeHtml(T2.rehabWebsiteLabel) + '</a></div>'
-          : '';
-
-        return '<li class="rehab-row">' +
-               '<div class="rehab-top">' +
-               '<span class="rehab-name">' + escapeHtml(r.rehab_name) + '</span>' +
-               '<span class="rehab-dist">' + escapeHtml(distTxt) + '</span>' +
-               '</div>' +
-               countyHtml + phoneHtml + avail + site +
-               '</li>';
-      }).join('');
+    // The block (with its toggle button) is shown, but the prepared content is
+    // collapsed by default. Each lookup resets it to the collapsed state.
+    if (contentEl) contentEl.style.display = 'none';
+    if (toggleEl) {
+      setRehabToggleLabel(toggleEl, false);
+      // Wire the reveal toggle exactly once. The handler only flips visibility;
+      // the ranking is already computed above, so no re-fetch/geocode occurs.
+      if (!toggleEl.dataset.bound) {
+        toggleEl.dataset.bound = '1';
+        toggleEl.addEventListener('click', function () {
+          var c = $('#rehab-content');
+          if (!c) return;
+          var open = c.style.display !== 'none';
+          c.style.display = open ? 'none' : 'block';
+          setRehabToggleLabel(toggleEl, !open);
+        });
+      }
     }
     block.style.display = 'block';
   }

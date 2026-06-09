@@ -301,6 +301,39 @@ async function testLiveWorker() {
   assert(hasQualified, 'qualified volunteers present -> no PGC escalation forced');
 }
 
+// On-demand reveal: the nearest-rehabber list must be hidden by default and
+// revealed only via an explicit control. Verified at the source/markup level
+// against the committed dispatcher.html, messages.js, and dispatcher.js so the
+// reveal wiring cannot silently regress to auto-render.
+function testRehabOnDemandWiring() {
+  console.log('\n[rehab] on-demand reveal control (default-hidden list + toggle)');
+  const html = fs.readFileSync(
+    path.join(__dirname, '..', 'docs', 'dispatcher.html'), 'utf8');
+  const msgs = fs.readFileSync(
+    path.join(__dirname, '..', 'docs', 'assets', 'messages.js'), 'utf8');
+
+  // Markup: a reveal control exists and the ranked content starts hidden.
+  assert(/id="rehab-toggle"/.test(html), 'dispatcher.html has a #rehab-toggle reveal control');
+  assert(/id="rehab-content"[^>]*style="[^"]*display:\s*none/.test(html),
+    '#rehab-content is default-hidden in the markup');
+  assert(/aria-controls="rehab-content"/.test(html),
+    'toggle is wired to #rehab-content via aria-controls');
+
+  // Labels routed through messages.js (rehab* block).
+  assert(/rehabShowBtn\s*:/.test(msgs), 'messages.js defines rehabShowBtn');
+  assert(/rehabHideBtn\s*:/.test(msgs), 'messages.js defines rehabHideBtn');
+
+  // renderNearestRehabbers collapses the content each render and binds a click
+  // toggle that flips visibility (no re-fetch).
+  const fn = extractFunction('renderNearestRehabbers');
+  assert(/contentEl\.style\.display\s*=\s*'none'/.test(fn),
+    'renderNearestRehabbers collapses #rehab-content by default');
+  assert(/addEventListener\('click'/.test(fn),
+    'renderNearestRehabbers binds a click handler on the reveal toggle');
+  assert(!/nearestRehabbers\([^)]*\)[\s\S]*addEventListener[\s\S]*nearestRehabbers\(/.test(fn),
+    'reveal handler does not call nearestRehabbers again (no duplicate ranking)');
+}
+
 (async function main() {
   console.log('== Phase G live-Worker + coordinator-source harness ==');
   testCountyCount();
@@ -309,6 +342,7 @@ async function testLiveWorker() {
   testRehabWebsiteFlag();
   testRehabPhoneAndCounty();
   testRehabFewerThan3();
+  testRehabOnDemandWiring();
   testCountyCentroidFromGeojson();
   await testCoordPreferBoard();
   await testCoordFallbackEmpty();

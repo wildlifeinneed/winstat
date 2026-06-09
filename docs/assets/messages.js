@@ -176,6 +176,10 @@
       rehabPhoneMissing: 'no phone on file',
       // Link text for a rehabber website (only rendered when a website exists).
       rehabWebsiteLabel: 'website',
+      // On-demand reveal control. The list is hidden by default after a lookup;
+      // the dispatcher clicks this to show it (label toggles to rehabHideBtn).
+      rehabShowBtn: 'Show nearest rehabbers',
+      rehabHideBtn: 'Hide nearest rehabbers',
       // Shown when no rehabber coordinates are available to rank.
       rehabNone: 'No rehabber locations available to rank.',
       // No data at all. {phone}.
