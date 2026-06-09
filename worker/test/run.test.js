@@ -15,8 +15,9 @@
  *   (a) correct aggregate for a known synthetic coord set
  *   (b) radius clamp (>100 -> 100; default 20; negative -> 0)
  *   (c) 400 on bad input (missing location; invalid radius; unresolvable addr)
- *   (d) success response contains ONLY {total_in_range, role_counts, win_areas}
- *       -- assert NO name/lat/lon/address/home_county keys leak
+ *   (d) success response contains {total_in_range, role_counts, win_areas}
+ *       plus the dispatcher-entered animal_lat/animal_lon (safe, not volunteer
+ *       PII) -- assert NO name/lat/lon/address/home_county keys leak
  *   (e) CORS header present on success, error and preflight responses
  *   + address geocode path uses MOCKED Census (no live call)
  */
@@ -259,7 +260,11 @@ async function main() {
       { ResponseCtor: MockResponse, kv: mockKV(COORDS), fetchFn: mockCensusNoMatch, allowedOrigin: 'https://pages.example' }
     );
     assert.strictEqual(res.status, 422);
-    assert.strictEqual((await res.json()).error, 'address_not_found');
+    const body = await res.json();
+    assert.strictEqual(body.error, 'address_not_found');
+    // Geocode failed -> no animal coords are present (frontend handles absence).
+    assert.strictEqual(body.animal_lat, undefined, 'no animal_lat on geocode failure');
+    assert.strictEqual(body.animal_lon, undefined, 'no animal_lon on geocode failure');
   });
 
   await test('(c3b) 502 geocoder_unavailable on Census network error', async () => {
@@ -268,7 +273,10 @@ async function main() {
       { ResponseCtor: MockResponse, kv: mockKV(COORDS), fetchFn: mockCensusNetworkError, allowedOrigin: 'https://pages.example' }
     );
     assert.strictEqual(res.status, 502);
-    assert.strictEqual((await res.json()).error, 'geocoder_unavailable');
+    const body = await res.json();
+    assert.strictEqual(body.error, 'geocoder_unavailable');
+    assert.strictEqual(body.animal_lat, undefined, 'no animal_lat when geocoder unavailable');
+    assert.strictEqual(body.animal_lon, undefined, 'no animal_lon when geocoder unavailable');
   });
 
   await test('(c4) 400 on out-of-range lat/lon', async () => {
@@ -280,7 +288,7 @@ async function main() {
   });
 
   // (d) PII-free key set on success --------------------------------------
-  await test('(d) success body has ONLY {total_in_range, role_counts, win_areas}', async () => {
+  await test('(d) success body has {total_in_range, role_counts, win_areas} + animal coords', async () => {
     const res = await handleRequest(
       mockRequest('GET', { animal_lat: ANIMAL.lat, animal_lon: ANIMAL.lon, radius_mi: 20 }),
       { ResponseCtor: MockResponse, kv: mockKV(COORDS), allowedOrigin: 'https://pages.example' }
@@ -288,8 +296,13 @@ async function main() {
     assert.strictEqual(res.status, 200);
     const body = await res.json();
     const keys = Object.keys(body).sort();
-    assert.deepStrictEqual(keys, ['role_counts', 'total_in_range', 'win_areas'],
+    assert.deepStrictEqual(keys, ['animal_lat', 'animal_lon', 'role_counts', 'total_in_range', 'win_areas'],
       'exact top-level key set, got: ' + JSON.stringify(keys));
+    // The dispatcher-entered animal coord is echoed back (safe, not PII).
+    assert.strictEqual(body.animal_lat, ANIMAL.lat, 'animal_lat echoed');
+    assert.strictEqual(body.animal_lon, ANIMAL.lon, 'animal_lon echoed');
+    assert.strictEqual(typeof body.animal_lat, 'number');
+    assert.strictEqual(typeof body.animal_lon, 'number');
     // Deep scan: no forbidden PII key anywhere in the serialized response.
     const serialized = JSON.stringify(body);
     for (const k of PII_FORBIDDEN_KEYS) {
@@ -300,7 +313,7 @@ async function main() {
     assert.deepStrictEqual(Object.keys(body.role_counts).sort(), ['C&T', 'COURIER', 'RVS C&T']);
   });
 
-  await test('(d2) address path returns same PII-free aggregate (mocked Census)', async () => {
+  await test('(d2) address path returns aggregate + geocoded animal coords (mocked Census)', async () => {
     const res = await handleRequest(
       mockRequest('GET', { address: '1 Capitol, Harrisburg PA', radius_mi: 20 }),
       {
@@ -312,18 +325,22 @@ async function main() {
     );
     assert.strictEqual(res.status, 200);
     const body = await res.json();
-    assert.deepStrictEqual(Object.keys(body).sort(), ['role_counts', 'total_in_range', 'win_areas']);
+    assert.deepStrictEqual(Object.keys(body).sort(),
+      ['animal_lat', 'animal_lon', 'role_counts', 'total_in_range', 'win_areas']);
     assert.strictEqual(body.total_in_range, 3);
+    // animal coords come from the geocoder on the address path.
+    assert.strictEqual(body.animal_lat, ANIMAL.lat, 'geocoded animal_lat present');
+    assert.strictEqual(body.animal_lon, ANIMAL.lon, 'geocoded animal_lon present');
   });
 
-  await test('(d3) POST body path works and stays PII-free', async () => {
+  await test('(d3) POST body path works and carries animal coords', async () => {
     const res = await handleRequest(
       mockRequest('POST', {}, { animal_lat: ANIMAL.lat, animal_lon: ANIMAL.lon, radius_mi: 20 }),
       { ResponseCtor: MockResponse, kv: mockKV(COORDS), allowedOrigin: 'https://pages.example' }
     );
     assert.strictEqual(res.status, 200);
     assert.deepStrictEqual(Object.keys(await res.json()).sort(),
-      ['role_counts', 'total_in_range', 'win_areas']);
+      ['animal_lat', 'animal_lon', 'role_counts', 'total_in_range', 'win_areas']);
   });
 
   // (e) CORS header present ----------------------------------------------
@@ -371,7 +388,11 @@ async function main() {
     const body = await res.json();
     assert.strictEqual(body.total_in_range, 0);
     assert.deepStrictEqual(body.win_areas, []);
-    assert.deepStrictEqual(Object.keys(body).sort(), ['role_counts', 'total_in_range', 'win_areas']);
+    assert.deepStrictEqual(Object.keys(body).sort(),
+      ['animal_lat', 'animal_lon', 'role_counts', 'total_in_range', 'win_areas']);
+    // Even with an empty KV, the geocoded animal coord is still echoed back.
+    assert.strictEqual(body.animal_lat, ANIMAL.lat);
+    assert.strictEqual(body.animal_lon, ANIMAL.lon);
   });
 
   // (h) AUTOCOMPLETE route --------------------------------------------
@@ -577,11 +598,14 @@ async function main() {
     );
     assert.strictEqual(res.status, 200);
     const body = await res.json();
-    // Top-level whitelist (now includes availability fields).
+    // Top-level whitelist (now includes availability fields + animal coords).
     assert.deepStrictEqual(Object.keys(body).sort(),
-      ['marginal_threshold', 'out_of_county', 'out_of_county_truncated',
-       'radius_too_broad', 'role_available', 'role_counts', 'total_available',
-       'total_in_range', 'win_areas']);
+      ['animal_lat', 'animal_lon', 'marginal_threshold', 'out_of_county',
+       'out_of_county_truncated', 'radius_too_broad', 'role_available',
+       'role_counts', 'total_available', 'total_in_range', 'win_areas']);
+    // animal coords echoed on the Tier 2 path too.
+    assert.strictEqual(body.animal_lat, ANIMAL.lat);
+    assert.strictEqual(body.animal_lon, ANIMAL.lon);
     // Deep-walk every key name; none may be forbidden.
     const allKeys = collectKeys(body, []);
     for (const k of TIER2_FORBIDDEN_KEYS) {
@@ -606,10 +630,10 @@ async function main() {
     const resOff = await handleRequest(
       mockRequest('GET', Object.assign({}, query, { exclude_county: 'Dauphin', context: '0' })),
       { ResponseCtor: MockResponse, kv: mockKV(COORDS_PII), allowedOrigin: 'https://pages.example' });
-    // Byte-for-byte equal bodies; only the 3 legacy keys; no out_of_county.
+    // Byte-for-byte equal bodies; legacy keys + animal coords; no out_of_county.
     assert.strictEqual(resPlain.body, resOff.body, 'context off is byte-identical');
     assert.deepStrictEqual(Object.keys(await resPlain.json()).sort(),
-      ['role_counts', 'total_in_range', 'win_areas']);
+      ['animal_lat', 'animal_lon', 'role_counts', 'total_in_range', 'win_areas']);
   });
 
   await test('(i7) handler context=1 carries CORS header', async () => {
@@ -715,7 +739,8 @@ async function main() {
     );
     const body = await res.json();
     assert.deepStrictEqual(Object.keys(body).sort(),
-      ['role_counts', 'total_in_range', 'win_areas'], 'legacy 3-key shape unchanged');
+      ['animal_lat', 'animal_lon', 'role_counts', 'total_in_range', 'win_areas'],
+      'legacy aggregate shape + animal coords, no availability fields');
     assert.strictEqual(body.role_available, undefined, 'no availability leak on plain path');
     assert.strictEqual(body.marginal_threshold, undefined);
   });

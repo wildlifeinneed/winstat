@@ -9,8 +9,10 @@
  * Endpoint behaviour:
  *   GET/POST with EITHER (animal_lat & animal_lon) OR (address), plus optional
  *   radius_mi (default 20, clamped to max 100). Reads the PRIVATE volunteer
- *   coords from the KV binding and returns ONLY the PII-free AggregateResult:
- *       { total_in_range, role_counts, win_areas }
+ *   coords from the KV binding and returns the PII-free AggregateResult plus
+ *   the dispatcher-entered ANIMAL coordinate (safe -- it is the animal location,
+ *   not volunteer PII) so the browser can rank rehabbers by distance:
+ *       { total_in_range, role_counts, win_areas, animal_lat, animal_lon }
  *
  * Hardening:
  *   - validates inputs, clamps radius, returns 400 on bad input
@@ -310,6 +312,12 @@ async function handleRequest(request, deps) {
     // Single serialization seam: only buildTier2Response constructs the JSON,
     // whitelisting keys so no raw KV datum can leak.
     const tier2 = buildTier2Response(aggregate, contextRows);
+    // The animal coordinate is the dispatcher-entered ANIMAL location (NOT
+    // volunteer PII), so it is safe to echo back. The browser uses it to rank
+    // rehabbers by distance. Distinct key names (animal_lat/animal_lon) keep it
+    // clear this is the animal, not a volunteer coordinate.
+    tier2.animal_lat = coord.lat;
+    tier2.animal_lon = coord.lon;
     return jsonResponse(ResponseCtor, 200, tier2, allowedOrigin);
   }
 
@@ -317,7 +325,13 @@ async function handleRequest(request, deps) {
   // today). findVolunteersInRadius now also computes availability counts, so we
   // route through buildAggregateResponse to re-whitelist down to the historical
   // three keys -- the availability fields surface ONLY via the Tier 2 response.
-  return jsonResponse(ResponseCtor, 200, buildAggregateResponse(aggregate), allowedOrigin);
+  const aggregateResponse = buildAggregateResponse(aggregate);
+  // Echo the dispatcher-entered ANIMAL coordinate (safe, not volunteer PII) so
+  // the browser can rank rehabbers by distance. animal_lat/animal_lon are
+  // distinct from the forbidden lat/lon volunteer keys.
+  aggregateResponse.animal_lat = coord.lat;
+  aggregateResponse.animal_lon = coord.lon;
+  return jsonResponse(ResponseCtor, 200, aggregateResponse, allowedOrigin);
 }
 
 module.exports = {
