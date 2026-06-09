@@ -509,6 +509,37 @@
       border: 1px solid #c8e6d2;
     }
 
+    /* ─── County WIN-area badge + address resolved-location header ─── */
+    .county-badge {
+      display: inline-block;
+      margin-top: 10px;
+      padding: 4px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      border-radius: 999px;
+      background: var(--green-light);
+      color: var(--green-dark);
+      border: 1px solid #c8e6d2;
+    }
+    .resolved-location {
+      margin-bottom: 12px;
+      padding: 10px 12px;
+      background: var(--green-light);
+      border: 1px solid #c8e6d2;
+      border-left: 4px solid var(--green);
+      border-radius: 8px;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+    .resolved-location strong { color: var(--green-deep); }
+    .resolved-location .resolved-spread {
+      display: block;
+      margin-top: 4px;
+      font-size: 13px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
     /* ─── Tier 1 coordinator notify line ──────────────────────── */
     .coord-line {
       margin-top: 14px;
@@ -960,6 +991,7 @@
     <select id="county" aria-label="County">
       <option value="">— select a county —</option>
     </select>
+    <div id="county-badge" class="county-badge" style="display:none;" aria-live="polite"></div>
 
     <div class="cards-grid" style="margin-top:16px;">
       <div class="cap-card empty" data-role="ct_no_rvs">
@@ -1031,6 +1063,8 @@
     </section>
 
     <section id="address-result" class="panel" style="display:none;">
+      <div id="resolved-location" class="resolved-location" style="display:none;" aria-live="polite"></div>
+
       <div class="agg-summary">
         Volunteers in range: <span class="count" id="agg-total">0</span>
       </div>

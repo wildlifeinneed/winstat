@@ -27,6 +27,7 @@ const {
   buildTier2Response,
 } = require('./aggregate');
 const { geocodeAddress } = require('./census');
+const { countyToArea } = require('./county_win');
 const { autocompleteAddress } = require('./autocomplete');
 const { rehabberDistances, drivingDistancesMiles } = require('./distance');
 
@@ -153,11 +154,14 @@ function isContextOn(value) {
  * back to geocoding the address (server-side, no CORS) via the (injectable)
  * fetchFn. Returns a discriminated result so the caller can choose the right
  * status code:
- *   { status: 'ok',          coord: {lat, lon} }
+ *   { status: 'ok',          coord: {lat, lon}, county: 'Allegheny'|null }
  *   { status: 'bad_latlon' }                       -- lat/lon present but invalid
  *   { status: 'address_not_found' }                -- geocoder reachable, no match
  *   { status: 'geocoder_unavailable' }             -- geocoder network/HTTP error
  *   { status: 'missing' }                          -- neither location supplied
+ *
+ * `county` is the ANIMAL's own county (from the geocoder) or null when only
+ * explicit lat/lon were supplied or the geocoder did not return a county.
  */
 async function resolveAnimalCoord(params, fetchFn) {
   const lat = parseFiniteNumber(params.animal_lat);
@@ -166,7 +170,8 @@ async function resolveAnimalCoord(params, fetchFn) {
     if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
       return { status: 'bad_latlon' };
     }
-    return { status: 'ok', coord: { lat, lon } };
+    // Explicit coordinates carry no county; the UI falls back to in-range areas.
+    return { status: 'ok', coord: { lat, lon }, county: null };
   }
 
   const address = params.address !== null && params.address !== undefined
@@ -175,7 +180,7 @@ async function resolveAnimalCoord(params, fetchFn) {
   if (address) {
     const geo = await geocodeAddress(address, fetchFn);
     if (geo && geo.status === 'ok') {
-      return { status: 'ok', coord: geo.coord };
+      return { status: 'ok', coord: geo.coord, county: geo.county || null };
     }
     if (geo && geo.status === 'unavailable') {
       return { status: 'geocoder_unavailable' };
@@ -339,6 +344,15 @@ async function handleRequest(request, deps) {
   }
   const coord = resolved.coord;
 
+  // ANIMAL's own county + WIN area (from the geocoder, via county->area map).
+  // Both are null when only explicit lat/lon were supplied or the geocoder did
+  // not return a county. These describe the ANIMAL location (already echoed as
+  // animal_lat/animal_lon) and are NOT volunteer PII. The UI uses animal_area as
+  // the single governing area in address mode; when null it falls back to the
+  // in-range win_areas spread without an animal-area header.
+  const animalCounty = resolved.county || null;
+  const animalArea = animalCounty ? countyToArea(animalCounty) : null;
+
   const coords = await readCoordsFromKV(deps.kv);
 
   // VOLUNTEER radius filter now uses DRIVING distance (ORS Matrix driving-car)
@@ -389,6 +403,10 @@ async function handleRequest(request, deps) {
     // clear this is the animal, not a volunteer coordinate.
     tier2.animal_lat = coord.lat;
     tier2.animal_lon = coord.lon;
+    // ANIMAL's own county + WIN area (non-PII; null when geocoder gave no county
+    // or only lat/lon were supplied). Lets the UI bind the governing area.
+    tier2.animal_county = animalCounty;
+    tier2.animal_area = animalArea;
     return jsonResponse(ResponseCtor, 200, tier2, allowedOrigin);
   }
 
@@ -402,6 +420,10 @@ async function handleRequest(request, deps) {
   // distinct from the forbidden lat/lon volunteer keys.
   aggregateResponse.animal_lat = coord.lat;
   aggregateResponse.animal_lon = coord.lon;
+  // ANIMAL's own county + WIN area (non-PII; null when geocoder gave no county
+  // or only lat/lon were supplied). Lets the UI bind the governing area.
+  aggregateResponse.animal_county = animalCounty;
+  aggregateResponse.animal_area = animalArea;
   return jsonResponse(ResponseCtor, 200, aggregateResponse, allowedOrigin);
 }
 

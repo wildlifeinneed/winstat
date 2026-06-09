@@ -1642,6 +1642,172 @@ async function runHelpViewerRenders() {
   console.log('PASS: help.html renders the manual heading via the vendored renderer (file:// fallback, no network).');
 }
 
+// ── County dropdown WIN-area badge: shows "<County> · Area N" beside the
+//    dropdown and updates live as the selection changes. ────────────────────
+async function runCountyAreaBadge() {
+  const { window } = loadDom({
+    data: { 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS },
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  const badge = doc.getElementById('county-badge');
+  assert.ok(badge, 'county-badge element exists');
+  // Nothing selected -> badge hidden.
+  assert.strictEqual(badge.style.display, 'none', 'badge hidden with no county selected');
+
+  const countySel = doc.getElementById('county');
+  countySel.value = 'Allegheny';
+  countySel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+  assert.notStrictEqual(badge.style.display, 'none', 'badge visible after county select');
+  assert.ok(/Allegheny\s*\u00b7\s*Area 10/.test(badge.textContent || ''),
+    'badge reads "Allegheny \u00b7 Area 10" (got: "' + badge.textContent + '")');
+
+  // Live update on change to a different-area county.
+  countySel.value = 'Erie';
+  countySel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+  assert.ok(/Erie\s*\u00b7\s*Area 1\b/.test(badge.textContent || ''),
+    'badge updates live to "Erie \u00b7 Area 1" (got: "' + badge.textContent + '")');
+
+  console.log('PASS: county dropdown WIN-area badge renders "<County> \u00b7 Area N" and updates on change.');
+}
+
+// ── Address mode RESOLVED-LOCATION header: the ANIMAL's own resolved county +
+//    WIN area is the primary/highlighted location, the coordinator shown is
+//    THAT area's coordinator, and the in-range spread is listed when the radius
+//    crosses WIN-area boundaries. ───────────────────────────────────────────
+async function runAddressResolvedArea() {
+  // Worker returns the animal's own area (10) plus a cross-boundary area (11).
+  const agg = {
+    total_in_range: 7,
+    role_counts: { 'C&T': 3, 'RVS C&T': 1, 'COURIER': 3 },
+    win_areas: ['10', '11'],
+    animal_county: 'Allegheny',
+    animal_area: '10',
+    animal_lat: 40.4406,
+    animal_lon: -79.9959,
+  };
+  const { window } = loadDom({
+    workerAgg: agg,
+    data: { 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS },
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  // Switch to address mode and submit.
+  const addrRadio = doc.querySelector('input[name="mode"][value="address"]');
+  addrRadio.checked = true;
+  addrRadio.dispatchEvent(new window.Event('change', { bubbles: true }));
+  doc.getElementById('animal-address').value = '436 Grant St, Pittsburgh, PA';
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  const resolved = doc.getElementById('resolved-location');
+  assert.ok(resolved, 'resolved-location element exists');
+  assert.strictEqual(resolved.style.display, 'block', 'resolved header visible after geocode');
+  const rtxt = resolved.textContent || '';
+  // ANIMAL's own area is the primary header.
+  assert.ok(/Resolved:\s*Allegheny County\s*\u00b7\s*Area 10/.test(rtxt),
+    'resolved header names the ANIMAL county + area (got: "' + rtxt + '")');
+  // Cross-boundary spread is also listed (10, 11).
+  assert.ok(/span Areas\s*10,\s*11/.test(rtxt),
+    'resolved header lists the in-range spread (got: "' + rtxt + '")');
+
+  // The address-mode coordinator shown is the ANIMAL area's coordinator (Area 10
+  // -> Julia Meredith), listed first (primary).
+  const actions = (doc.getElementById('agg-actions').textContent || '');
+  assert.ok(actions.indexOf('Julia Meredith') !== -1,
+    'address mode shows the ANIMAL area (10) coordinator Julia Meredith (got: "' + actions + '")');
+  // The animal's own area chip leads the chip row.
+  const chips = Array.prototype.slice
+    .call(doc.querySelectorAll('#agg-areas .win-chip'))
+    .map(function (c) { return c.textContent.trim(); });
+  assert.strictEqual(chips[0], 'Area 10', 'animal area chip leads (got ' + JSON.stringify(chips) + ')');
+
+  console.log('PASS: address-mode resolved header = animal Allegheny/Area 10 (primary) + spread 10,11; Area-10 coordinator shown.');
+}
+
+// ── DECONFLICTION: geocoding an address in a DIFFERENT county than the dropdown
+//    rebinds the governing location to the address; the county-mode coordinator
+//    line is cleared so two coordinators are NEVER shown at once. Switching back
+//    to county mode rebinds to the dropdown county (selection preserved). ─────
+async function runDeconfliction() {
+  // Dropdown will be Erie (Area 1 -> Sue DeArment); address resolves to
+  // Allegheny (Area 10 -> Julia Meredith).
+  const agg = {
+    total_in_range: 4,
+    role_counts: { 'C&T': 2, 'RVS C&T': 0, 'COURIER': 2 },
+    win_areas: ['10'],
+    animal_county: 'Allegheny',
+    animal_area: '10',
+    animal_lat: 40.4406,
+    animal_lon: -79.9959,
+  };
+  const { window } = loadDom({
+    workerAgg: agg,
+    data: { 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS },
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  // 1) Pick a county in a DIFFERENT area first (Erie -> Area 1 -> Sue DeArment).
+  const countySel = doc.getElementById('county');
+  countySel.value = 'Erie';
+  countySel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+  const coordLine = doc.getElementById('coord-line');
+  assert.ok((coordLine.textContent || '').indexOf('Sue DeArment') !== -1,
+    'county mode initially shows Erie/Area 1 coordinator Sue DeArment');
+
+  // 2) Switch to address mode + geocode an Allegheny address.
+  const addrRadio = doc.querySelector('input[name="mode"][value="address"]');
+  addrRadio.checked = true;
+  addrRadio.dispatchEvent(new window.Event('change', { bubbles: true }));
+  doc.getElementById('animal-address').value = '436 Grant St, Pittsburgh, PA';
+  doc.getElementById('radius-mi').value = '30';
+  doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  // CORE FIX: county-mode coordinator line is no longer shown (cleared), so the
+  // stale Erie coordinator does NOT linger beside the address area's coordinator.
+  assert.strictEqual(coordLine.style.display, 'none',
+    'county-mode coordinator line is hidden once an address governs');
+  assert.strictEqual((coordLine.textContent || '').indexOf('Sue DeArment'), -1,
+    'stale dropdown-county coordinator (Sue DeArment) is cleared');
+  // Only the ADDRESS area's coordinator (Allegheny/Area 10 -> Julia Meredith) shows.
+  const actions = (doc.getElementById('agg-actions').textContent || '');
+  assert.ok(actions.indexOf('Julia Meredith') !== -1,
+    'address area coordinator Julia Meredith is shown');
+  assert.strictEqual(actions.indexOf('Sue DeArment'), -1,
+    'dropdown-county coordinator never appears in address mode');
+  // Dropdown selection is PRESERVED (not wiped).
+  assert.strictEqual(countySel.value, 'Erie', 'dropdown selection is preserved while address governs');
+
+  // 3) Switch back to county mode -> rebinds to Erie, tears down address context.
+  const countyRadio = doc.querySelector('input[name="mode"][value="county"]');
+  countyRadio.checked = true;
+  countyRadio.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+  assert.strictEqual(doc.getElementById('resolved-location').style.display, 'none',
+    'address resolved header is torn down when county mode regains control');
+  assert.strictEqual(doc.getElementById('address-result').style.display, 'none',
+    'address result panel is hidden when county mode regains control');
+  assert.ok((coordLine.textContent || '').indexOf('Sue DeArment') !== -1,
+    'county-mode coordinator (Sue DeArment) returns when county mode governs again');
+
+  console.log('PASS: deconfliction — address rebinds governing area + clears county coordinator (no dual display); switching back restores county.');
+}
+
 async function run() {
   await runHelpLink();
   await runHelpViewerRenders();
@@ -1668,7 +1834,10 @@ async function run() {
   await runRehabDrivingFallback();
   await runStaleAddressMode();
   await runStaleCountyMode();
-  console.log('\nALL DOM TESTS PASSED (25 scenarios).');
+  await runCountyAreaBadge();
+  await runAddressResolvedArea();
+  await runDeconfliction();
+  console.log('\nALL DOM TESTS PASSED (28 scenarios).');
 }
 
 run().then(function () {

@@ -89,7 +89,14 @@
     mapAreas: {},           // area-string -> array of county-path <path> nodes
     mapCounties: {},        // county name -> its county-path <path> node
     countyCentroids: {},    // county name -> { lat, lon } area-weighted centroid (from geojson)
-    currentCounty: null     // county name currently distinctly highlighted (hl-county)
+    currentCounty: null,    // county name currently distinctly highlighted (hl-county)
+    // DECONFLICTION: the single governing "active location". Whichever input was
+    // used LAST wins: 'county' = dropdown drives results; 'address' = a geocoded
+    // address drives them. Entering an address rebinds to 'address' and clears
+    // the county-mode coordinator so two coordinators are NEVER shown at once;
+    // switching back to county mode rebinds to 'county'. The dropdown VALUE is
+    // preserved either way (we never wipe the selection).
+    activeLocation: 'county'
   };
 
   // ─── Address-mode (Phase G) configuration ──────────────────────────
@@ -210,9 +217,31 @@
     }
   }
 
+  // County WIN-area badge beside the dropdown: "<County> · Area N". Uses the
+  // SAME county -> area map (state.countyWin) that drives the coordinator line.
+  // Hidden when no county is selected. Updates live on every dropdown change.
+  function renderCountyBadge(countyName) {
+    var badge = $('#county-badge');
+    if (!badge) return;
+    if (!countyName) {
+      badge.style.display = 'none';
+      badge.textContent = '';
+      return;
+    }
+    var area = (state.countyWin && state.countyWin[countyName] !== undefined)
+      ? String(state.countyWin[countyName]).trim() : '';
+    badge.textContent = area
+      ? fmt(MSG.coordinator.countyAreaBadge, { county: countyName, area: area })
+      : fmt(MSG.coordinator.countyAreaBadgeUnknown, { county: countyName });
+    badge.style.display = 'inline-block';
+  }
+
   function renderCardsForCounty(countyName) {
     var emptyMsg = $('#empty-msg');
     var cards = $$('.cap-card');
+
+    // WIN-area badge tracks the dropdown regardless of capacity data.
+    renderCountyBadge(countyName);
 
     if (!countyName) {
       cards.forEach(function (card) {
@@ -568,15 +597,22 @@
 
   // Render the Tier 1 coordinator notify line + the "widen search" affordance.
   // Both live under the county cards. Hidden when no county is selected.
+  //
+  // DECONFLICTION: the county coordinator line only governs when the ACTIVE
+  // location is 'county'. While an address governs ('address'), this line stays
+  // cleared so the dropdown county's coordinator never shows alongside the
+  // address area's coordinator. The dropdown VALUE is preserved regardless.
   function renderCoordLine(countyName) {
     var line = $('#coord-line');
     var prompt = $('#widen-prompt');
-    if (!countyName) {
+    if (!countyName || state.activeLocation === 'address') {
       if (line) { line.style.display = 'none'; line.innerHTML = ''; }
-      if (prompt) prompt.style.display = 'none';
-      // Tier 1 cleared: drop any animal-area highlight + selected-county mark.
-      highlightAreas([], []);
-      highlightCounty(null);
+      if (prompt) prompt.style.display = (countyName ? prompt.style.display : 'none');
+      if (!countyName) {
+        // Tier 1 cleared: drop any animal-area highlight + selected-county mark.
+        highlightAreas([], []);
+        highlightCounty(null);
+      }
       return;
     }
     var coord = coordinatorForCounty(countyName);
@@ -607,6 +643,53 @@
       if (name && String(name).trim()) names[String(name).trim()] = true;
     });
     return Object.keys(names).sort();
+  }
+
+  // Address-mode RESOLVED-LOCATION header. Names the ANIMAL's own resolved
+  // county + WIN area (from the Worker: agg.animal_county / agg.animal_area) as
+  // the single governing location, then — when the radius crosses WIN-area
+  // boundaries — notes the in-range spread from agg.win_areas. When the Worker
+  // could not resolve a county (animal_area null), we DO NOT invent one: we show
+  // a county-unavailable note and fall back to the in-range areas only.
+  // Returns the animal's own area string (or null) so renderAggregate can
+  // highlight it as primary in the per-area coordinator list.
+  function renderResolvedLocation(agg) {
+    var el = $('#resolved-location');
+    if (!el) return null;
+    var T2 = MSG.tier2Aggregate;
+    var animalCounty = (agg && typeof agg.animal_county === 'string' && agg.animal_county.trim())
+      ? agg.animal_county.trim() : null;
+    var animalArea = (agg && agg.animal_area !== null && agg.animal_area !== undefined &&
+                      String(agg.animal_area).trim() !== '') ? String(agg.animal_area).trim() : null;
+    var areas = (agg && Array.isArray(agg.win_areas)) ? agg.win_areas.map(String) : [];
+
+    var html;
+    if (animalCounty && animalArea) {
+      html = fmt(T2.resolvedLocation, {
+        county: escapeHtml(animalCounty), area: escapeHtml(animalArea)
+      });
+      // In-range spread: only when volunteers span MORE than the animal's area.
+      var others = areas.filter(function (a) { return a !== animalArea; });
+      if (others.length) {
+        var spreadAreas = [animalArea].concat(others);
+        html += '<span class="resolved-spread">' + fmt(T2.resolvedSpread, {
+          areaWord: (spreadAreas.length > 1 ? 'Areas' : 'Area'),
+          areas: spreadAreas.map(escapeHtml).join(', ')
+        }) + '</span>';
+      }
+    } else {
+      // Geocoder gave no county/area — never invent one.
+      html = T2.resolvedLocationUnknown;
+      if (areas.length) {
+        html += '<span class="resolved-spread">' + fmt(T2.resolvedSpread, {
+          areaWord: (areas.length > 1 ? 'Areas' : 'Area'),
+          areas: areas.map(escapeHtml).join(', ')
+        }) + '</span>';
+      }
+    }
+    el.innerHTML = html;
+    el.style.display = 'block';
+    return animalArea;
   }
 
   function setAddressStatus(msg) {
@@ -1031,6 +1114,14 @@
   }
 
   function renderAggregate(agg, ctx) {
+    // DECONFLICTION: a geocoded address now governs. Rebind the active location
+    // to 'address' and clear the county-mode coordinator line so the dropdown
+    // county's coordinator is NEVER shown alongside the address area's. The
+    // dropdown selection VALUE is preserved (only its influence is suspended).
+    state.activeLocation = 'address';
+    var countySel = $('#county');
+    renderCoordLine(countySel ? countySel.value : null);
+
     var roles = (agg && agg.role_counts) || {};
     var avail = (agg && agg.role_available) || null;
     var ct = roles['C&T'] || 0;
@@ -1038,6 +1129,18 @@
     var courier = roles['COURIER'] || 0;
     var total = (typeof agg.total_in_range === 'number') ? agg.total_in_range : 0;
     var areas = (agg && Array.isArray(agg.win_areas)) ? agg.win_areas.slice() : [];
+
+    // RESOLVED-LOCATION header: the ANIMAL's own county + WIN area is the single
+    // governing/primary location. Returns the animal's own area (or null).
+    var animalArea = renderResolvedLocation(agg);
+    // Order the in-range areas so the animal's OWN area leads (primary), with
+    // the remaining cross-boundary areas following — the coordinator list and
+    // chip row then reflect "the address's area first".
+    if (animalArea && areas.indexOf(String(animalArea)) !== -1) {
+      areas = [String(animalArea)].concat(areas.filter(function (a) {
+        return String(a) !== String(animalArea);
+      }));
+    }
 
     // Marginal threshold mirrors Tier 1: prefer the Worker-supplied value
     // (global default), else fall back to the frontend config default.
@@ -1781,6 +1884,23 @@
     var isAddress = (mode === 'address');
     $('#county-mode').hidden = isAddress;
     $('#address-mode').hidden = !isAddress;
+
+    // DECONFLICTION: switching BACK to county mode rebinds the governing
+    // location to the dropdown county and tears down the lingering address
+    // context (resolved-location header + address result panel) so the inactive
+    // mode never lingers on screen. The dropdown VALUE is preserved; we simply
+    // re-assert it as the active location and re-render its coordinator line.
+    if (!isAddress) {
+      state.activeLocation = 'county';
+      var resolved = $('#resolved-location');
+      if (resolved) { resolved.style.display = 'none'; resolved.innerHTML = ''; }
+      var addrResult = $('#address-result');
+      if (addrResult) addrResult.style.display = 'none';
+      var countySel = $('#county');
+      var countyVal = countySel ? countySel.value : '';
+      renderCountyBadge(countyVal);
+      renderCoordLine(countyVal);
+    }
   }
 
   // Tier 1 -> Tier 2 "widen" handoff: carry the selected county into Address
@@ -1893,6 +2013,9 @@
       fallbackNote.textContent = fmt(MSG.staticUi.finderFallbackNote, { phone: PGC_PHONE });
     }
     $('#county').addEventListener('change', function (e) {
+      // Selecting a county is a county-mode action: it re-asserts the dropdown
+      // as the governing active location (the badge + coordinator follow).
+      state.activeLocation = 'county';
       renderCardsForCounty(e.target.value);
     });
     $('#recommend-btn').addEventListener('click', onRecommendClick);

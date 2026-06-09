@@ -119,7 +119,12 @@
       // {label} = the resolved label above, {name} = coordinator name.
       coordinatorLine: '{label}: <strong>{name}</strong>.',
       // {county} = selected county name.
-      noCoordinatorOnFile: '<span class="coord-area">No coordinator on file for {county}.</span>'
+      noCoordinatorOnFile: '<span class="coord-area">No coordinator on file for {county}.</span>',
+      // WIN-area badge shown beside the county dropdown. {county} = selected
+      // county, {area} = its WIN area. Updates live as the dropdown changes.
+      countyAreaBadge: '{county} \u00b7 Area {area}',
+      // Fallback badge when the selected county has no WIN area on file.
+      countyAreaBadgeUnknown: '{county} \u00b7 Area unknown'
     },
 
     // ── Tier 2 aggregate / address-mode wording (dispatcher.js) ────────────
@@ -202,7 +207,18 @@
       qualBadgeYesTitle: 'Qualified for this animal',
       qualBadgeNoTitle: 'Not qualified for this animal',
       // {area} = win area chip / context label.
-      areaChip: 'Area {area}'
+      areaChip: 'Area {area}',
+      // ── Address-mode RESOLVED-LOCATION header (dispatcher.js renderAggregate) ──
+      // Primary header naming the ANIMAL's own resolved county + WIN area. This
+      // is the single governing location in address mode. {county}, {area}.
+      resolvedLocation: 'Resolved: <strong>{county} County \u00b7 Area {area}</strong>',
+      // Shown when the geocoder returned coordinates but no county/area for the
+      // animal — we fall back to the in-range area spread only (no animal area).
+      resolvedLocationUnknown: 'Resolved location (county unavailable) — showing in-range WIN areas only.',
+      // In-range spread note appended under the resolved header when volunteers
+      // span more than the animal's own area. {areaWord} = "Area"/"Areas",
+      // {areas} = sorted in-range area list.
+      resolvedSpread: 'Volunteers in range span {areaWord} <strong>{areas}</strong>.'
     },
 
     // ── Stale-results flag (dispatcher.js) ─────────────────────────────────
