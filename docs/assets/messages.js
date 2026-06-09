@@ -200,6 +200,20 @@
       areaChip: 'Area {area}'
     },
 
+    // ── Stale-results flag (dispatcher.js) ─────────────────────────────────
+    // Shown when a relevant animal-input (RVS toggle or Issue/C&T selection)
+    // changes AFTER a result is already on screen. Approach B: we do NOT
+    // auto-recompute — the displayed numbers are flagged stale and the
+    // dispatcher must re-click the lookup/submit button to refresh them.
+    stale: {
+      // Banner text overlaid on a stale result surface. {action} = the
+      // re-run affordance for that surface (one of the two below).
+      notice: 'Inputs changed — re-run the lookup to refresh results.',
+      // Re-run hints tailored per surface (appended after the notice).
+      rerunRecommend: 'Click "Get Recommendation" again to refresh.',
+      rerunAddress: 'Click "Find Help Nearby" again to refresh.'
+    },
+
     // ── Address-mode status + geocode error wording (dispatcher.js) ────────
     geocodeErrors: {
       // {radius}.

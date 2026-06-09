@@ -271,6 +271,42 @@
     }
     .rec-output.show { display: block; }
 
+    /* ─── Stale-results flag (Approach B) ───────────────────────
+       When a relevant animal input (RVS / Issue) changes after a result is
+       on screen, the result surface is marked .is-stale: its contents are
+       dimmed + de-saturated so the numbers read as "do not trust", and a
+       #*-stale-notice banner is shown on top instructing the dispatcher to
+       re-run the lookup. Re-clicking the lookup button clears .is-stale. */
+    .is-stale { position: relative; }
+    .is-stale > *:not(.stale-notice) {
+      opacity: 0.4;
+      filter: grayscale(0.85);
+      pointer-events: none;
+    }
+    .stale-notice {
+      display: none;
+      margin: 0 0 12px;
+      padding: 10px 12px;
+      background: #fff7e6;
+      border: 1px solid #e0a106;
+      border-left: 4px solid #e0a106;
+      border-radius: 8px;
+      color: #7a5600;
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.4;
+      opacity: 1 !important;
+      filter: none !important;
+      pointer-events: auto;
+    }
+    .is-stale > .stale-notice { display: block; }
+    .stale-notice .stale-hint {
+      display: block;
+      margin-top: 3px;
+      font-weight: 500;
+      color: #8a6a14;
+    }
+
     .rec-dismiss {
       position: absolute;
       top: 8px;

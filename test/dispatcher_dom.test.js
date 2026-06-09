@@ -1238,6 +1238,196 @@ async function runRehabNoOrigin() {
   console.log('PASS: rehab panel hides the reveal control entirely when no origin (no animal coords, no county).');
 }
 
+// ── Stale-flag (Approach B): ADDRESS mode ───────────────────────────────────
+// Render an aggregate result, then change the RVS toggle. The shown
+// #address-result must be flagged stale (NOT silently trusted, NOT auto-
+// recomputed): it gets .is-stale, a .stale-notice banner appears, the rehabber
+// on-demand panel is collapsed so it can't reveal stale rows, and NO new Worker
+// fetch fires on the input change. Re-clicking "Find Help Nearby" clears the
+// stale flag and renders fresh numbers. Then repeat for an Issue (C&T) change.
+async function runStaleAddressMode() {
+  const aggWithCoords = Object.assign({}, WORKER_AGG, {
+    animal_lat: 40.4443, animal_lon: -79.9569,
+  });
+  const aggCalls = [];
+  const { window } = loadDom({
+    workerAgg: aggWithCoords,
+    data: { 'rehabbers.json': REHAB_DATA },
+    aggCalls: aggCalls,
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  const addrRadio = doc.querySelector('input[name="mode"][value="address"]');
+  addrRadio.checked = true;
+  addrRadio.dispatchEvent(new window.Event('change', { bubbles: true }));
+  doc.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  const result = doc.getElementById('address-result');
+  assert.strictEqual(result.style.display, 'block', 'address-result shown after submit');
+  assert.ok(!result.classList.contains('is-stale'), 'result is NOT stale right after a fresh lookup');
+  assert.strictEqual(result.querySelector(':scope > .stale-notice'), null,
+    'no stale-notice banner on a fresh result');
+  // The fresh numbers we will guard against being silently trusted later.
+  assert.strictEqual(doc.getElementById('agg-total').textContent, '32', 'fresh total rendered (32)');
+
+  // Reveal the rehabber list so we can prove it gets collapsed on stale.
+  const toggle = doc.getElementById('rehab-toggle');
+  const content = doc.getElementById('rehab-content');
+  toggle.dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  assert.strictEqual(content.style.display, 'block', 'rehab list revealed before the input change');
+
+  // --- Change RVS toggle AFTER results render --------------------------
+  const callsBefore = aggCalls.length;
+  doc.querySelector('input[name="rvs"][value="yes"]').checked = true;
+  doc.querySelector('input[name="rvs"][value="yes"]')
+    .dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+
+  // Approach B: NOT auto-recomputed.
+  assert.strictEqual(aggCalls.length, callsBefore,
+    'changing RVS does NOT trigger a new Worker lookup (no auto-recompute)');
+  // Result is still on screen (we do not hide it) but is clearly flagged stale.
+  assert.strictEqual(result.style.display, 'block', 'stale result stays on screen (not hidden)');
+  assert.ok(result.classList.contains('is-stale'),
+    'address-result is visually marked stale after the RVS change');
+  const notice = result.querySelector(':scope > .stale-notice');
+  assert.ok(notice, 'a stale-notice banner is shown on the address result');
+  assert.ok(/re-run the lookup/i.test(notice.textContent || ''),
+    'stale banner instructs the user to re-run the lookup (got "' + (notice.textContent || '') + '")');
+  // The numbers are still in the DOM but the surface is flagged: the rehabber
+  // on-demand panel must be collapsed so stale rehabbers cannot be shown.
+  assert.strictEqual(content.style.display, 'none',
+    'rehabber on-demand panel is collapsed while the result is stale');
+  assert.strictEqual(toggle.getAttribute('aria-expanded'), 'false',
+    'rehabber toggle reset to collapsed while stale');
+
+  // --- Re-click "Find Help Nearby" -> stale cleared + fresh numbers ----
+  doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+  assert.strictEqual(aggCalls.length, callsBefore + 1,
+    're-clicking the submit button DID run a fresh lookup');
+  assert.ok(!result.classList.contains('is-stale'), 're-running clears the stale flag');
+  assert.strictEqual(result.querySelector(':scope > .stale-notice'), null,
+    're-running removes the stale-notice banner');
+  assert.strictEqual(result.style.display, 'block', 'fresh result shown after re-run');
+  assert.strictEqual(doc.getElementById('agg-total').textContent, '32',
+    'fresh numbers rendered after re-run');
+
+  // --- Same for an Issue (C&T) change ----------------------------------
+  const callsBefore2 = aggCalls.length;
+  doc.querySelector('input[name="issue"][value="transport"]').checked = true;
+  doc.querySelector('input[name="issue"][value="transport"]')
+    .dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+  assert.strictEqual(aggCalls.length, callsBefore2,
+    'changing Issue does NOT auto-recompute');
+  assert.ok(result.classList.contains('is-stale'),
+    'address-result flagged stale after the Issue (C&T) change too');
+  assert.ok(result.querySelector(':scope > .stale-notice'),
+    'stale-notice banner shown after the Issue change');
+
+  // Re-run clears it again.
+  doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+  assert.ok(!result.classList.contains('is-stale'),
+    're-running after the Issue change clears stale');
+
+  console.log('PASS: address-mode result is flagged stale on RVS/Issue change (no auto-recompute, rehab panel collapsed); re-click clears it + renders fresh numbers.');
+}
+
+// ── Stale-flag (Approach B): COUNTY mode ────────────────────────────────────
+// Render a recommendation, then change the Issue (C&T) selection. The shown
+// #rec-output must be flagged stale (.is-stale + banner) without recomputing.
+// Re-clicking "Get Recommendation" clears the flag and renders fresh. Repeat
+// for an RVS change.
+async function runStaleCountyMode() {
+  const SNAPSHOT = {
+    generated_at: '2024-01-01T00:00:00Z',
+    counties: {
+      Allegheny: {
+        ct_no_rvs: { available: 3, total: 5, marginal_volunteers: [] },
+        ct_rvs: { available: 2, total: 2, marginal_volunteers: [] },
+        courier: { available: 4, total: 6, marginal_volunteers: [] },
+      },
+    },
+  };
+  const { window } = loadDom({
+    data: {
+      'county_capacity.json': SNAPSHOT,
+      'county_win.json': COUNTY_WIN,
+      'coordinators.json': COORDINATORS,
+    },
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  const countySel = doc.getElementById('county');
+  countySel.value = 'Allegheny';
+  countySel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+
+  const out = doc.getElementById('rec-output');
+  // Get a recommendation rendered.
+  doc.getElementById('recommend-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  assert.ok(out.classList.contains('show'), 'recommendation shown after clicking the button');
+  assert.ok(!out.classList.contains('is-stale'), 'recommendation NOT stale right after rendering');
+  assert.strictEqual(out.querySelector(':scope > .stale-notice'), null,
+    'no stale-notice on a fresh recommendation');
+
+  // --- Change Issue (C&T) AFTER the recommendation renders -------------
+  doc.querySelector('input[name="issue"][value="transport"]').checked = true;
+  doc.querySelector('input[name="issue"][value="transport"]')
+    .dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+  assert.ok(out.classList.contains('show'),
+    'stale recommendation stays on screen (not hidden)');
+  assert.ok(out.classList.contains('is-stale'),
+    'rec-output is visually marked stale after the Issue (C&T) change');
+  const notice = out.querySelector(':scope > .stale-notice');
+  assert.ok(notice, 'a stale-notice banner is shown on the recommendation');
+  assert.ok(/re-run the lookup/i.test(notice.textContent || ''),
+    'stale banner instructs the user to re-run (got "' + (notice.textContent || '') + '")');
+
+  // --- Re-click "Get Recommendation" -> stale cleared + fresh ----------
+  doc.getElementById('recommend-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  assert.ok(out.classList.contains('show'), 'fresh recommendation shown after re-run');
+  assert.ok(!out.classList.contains('is-stale'), 're-running clears the stale flag');
+  assert.strictEqual(out.querySelector(':scope > .stale-notice'), null,
+    're-running removes the stale-notice banner');
+
+  // --- Same for an RVS change ------------------------------------------
+  doc.querySelector('input[name="rvs"][value="yes"]').checked = true;
+  doc.querySelector('input[name="rvs"][value="yes"]')
+    .dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+  assert.ok(out.classList.contains('is-stale'),
+    'rec-output flagged stale after the RVS change too');
+  assert.ok(out.querySelector(':scope > .stale-notice'),
+    'stale-notice banner shown after the RVS change');
+
+  doc.getElementById('recommend-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  assert.ok(!out.classList.contains('is-stale'),
+    're-running after the RVS change clears stale');
+
+  console.log('PASS: county-mode recommendation is flagged stale on Issue/RVS change (no auto-recompute); re-click clears it + renders fresh.');
+}
+
 async function run() {
   await runAddressMode();
   await runTier1Coordinator();
@@ -1258,7 +1448,9 @@ async function run() {
   await runRehabAddressPath();
   await runRehabCountyPath();
   await runRehabNoOrigin();
-  console.log('\nALL DOM TESTS PASSED (19 scenarios).');
+  await runStaleAddressMode();
+  await runStaleCountyMode();
+  console.log('\nALL DOM TESTS PASSED (21 scenarios).');
 }
 
 run().then(function () {

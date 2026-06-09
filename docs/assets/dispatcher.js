@@ -344,8 +344,77 @@
     };
   }
 
+  // ─── Stale-results flag (Approach B) ───────────────────────────────
+  // The RVS toggle and the Issue (C&T) selection feed BOTH result surfaces
+  // via readAnimalBaseInfo() but are wired to no render handler — so changing
+  // one after results render used to silently leave misleading stale numbers
+  // on screen. Per the user's decision (approach B, NOT auto-recompute) we
+  // instead FLAG the displayed result as stale and require a re-click of the
+  // existing lookup/submit button to recompute.
+  //
+  // Each result surface (#rec-output for county mode, #address-result for
+  // address mode — the latter wraps the nearest-rehabber panel, so flagging
+  // the container covers it too) gets a `.is-stale` class plus a `.stale-notice`
+  // banner. The banner wording is routed through messages.js. The rehabber
+  // on-demand panel is additionally collapsed so it cannot reveal stale rows.
+  function staleNoticeEl(container, hintKey) {
+    var notice = container.querySelector(':scope > .stale-notice');
+    if (!notice) {
+      notice = document.createElement('div');
+      notice.className = 'stale-notice';
+      notice.setAttribute('role', 'status');
+      notice.setAttribute('aria-live', 'polite');
+      // Banner sits at the TOP of the surface, above the (dimmed) content.
+      container.insertBefore(notice, container.firstChild);
+    }
+    var S = MSG.stale;
+    notice.innerHTML = escapeHtml(S.notice) +
+      '<span class="stale-hint">' + escapeHtml(S[hintKey] || '') + '</span>';
+    return notice;
+  }
+
+  // Mark a single surface stale only when it is currently SHOWING a result.
+  // #rec-output shows via the `.show` class; #address-result via display:block.
+  function markRecOutputStale() {
+    var out = document.getElementById('rec-output');
+    if (!out || !out.classList.contains('show')) return;
+    out.classList.add('is-stale');
+    staleNoticeEl(out, 'rerunRecommend');
+  }
+
+  function markAddressResultStale() {
+    var res = document.getElementById('address-result');
+    if (!res || res.style.display !== 'block') return;
+    res.classList.add('is-stale');
+    staleNoticeEl(res, 'rerunAddress');
+    // Collapse the on-demand rehabber list so stale rehabbers can't be revealed
+    // while the surface is flagged. Re-running the lookup re-prepares + resets it.
+    var content = document.getElementById('rehab-content');
+    var toggle = document.getElementById('rehab-toggle');
+    if (content) content.style.display = 'none';
+    if (toggle) setRehabToggleLabel(toggle, false);
+  }
+
+  // Called on every relevant input change (RVS / Issue). Flags whichever
+  // surface is currently showing results. Never recomputes (approach B).
+  function markResultsStale() {
+    markRecOutputStale();
+    markAddressResultStale();
+  }
+
+  // Re-running a lookup clears the stale flag for that surface. Called at the
+  // top of the render paths the lookup buttons drive.
+  function clearStale(container) {
+    if (!container) return;
+    container.classList.remove('is-stale');
+    var notice = container.querySelector(':scope > .stale-notice');
+    if (notice) notice.parentNode.removeChild(notice);
+  }
+
   function onRecommendClick() {
     var out = $('#rec-output');
+    // Re-running the lookup clears any stale flag on this surface.
+    clearStale(out);
     var county = $('#county').value;
     if (!county) {
       out.className = 'rec-output show tone-unknown';
@@ -1039,6 +1108,8 @@
     state.addressBusy = true;
     var btn = $('#address-btn');
     btn.disabled = true;
+    // Re-running the lookup clears any stale flag on the result surface.
+    clearStale($('#address-result'));
     $('#address-result').style.display = 'none';
     setAddressStatus(fmt(MSG.geocodeErrors.finding, { radius: radius }));
 
@@ -1728,6 +1799,15 @@
       renderCardsForCounty(e.target.value);
     });
     $('#recommend-btn').addEventListener('click', onRecommendClick);
+
+    // Approach B stale-flag wiring: the RVS toggle and the Issue (C&T) radios
+    // feed BOTH result surfaces (readAnimalBaseInfo) but trigger no render. So
+    // changing one after a result is shown would silently leave misleading
+    // stale numbers. We do NOT auto-recompute — we flag the shown result(s) as
+    // stale and require a re-click of the existing lookup/submit button.
+    $$('input[name="rvs"], input[name="issue"]').forEach(function (radio) {
+      radio.addEventListener('change', markResultsStale);
+    });
 
     // Address-mode wiring (Phase G).
     $$('input[name="mode"]').forEach(function (radio) {
