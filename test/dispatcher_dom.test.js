@@ -338,7 +338,10 @@ async function runTier1Coordinator() {
   const txt = coordLine.textContent || '';
   assert.ok(txt.indexOf('Julia Meredith') !== -1,
     'Tier 1 shows the coordinator NAME (got: "' + txt + '")');
-  assert.ok(txt.indexOf('Area 10') !== -1, 'Tier 1 shows the WIN area context');
+  assert.ok(txt.indexOf('Area 10 Coordinator:') !== -1,
+    'Tier 1 uses informational "Area XX Coordinator:" label with the WIN area (got: "' + txt + '")');
+  assert.ok(!/Notify/i.test(txt),
+    'Tier 1 label must be informational, not an imperative "Notify ..." directive (got: "' + txt + '")');
   // PII guard: no phone-like digit sequences in the coordinator line.
   assert.ok(!/\d{3}[-.\s]?\d{3}[-.\s]?\d{4}/.test(txt),
     'coordinator line must show NAME ONLY, never a phone number');
@@ -355,7 +358,7 @@ async function runTier1Coordinator() {
   assert.ok(fallback.indexOf('No coordinator') !== -1,
     'unmapped county shows the no-coordinator fallback (got: "' + fallback + '")');
 
-  console.log('PASS: Tier 1 renders coordinator NAME (Julia Meredith / Area 10) + widen affordance, no phone.');
+  console.log('PASS: Tier 1 renders "Area 10 Coordinator: Julia Meredith" (info, not directive) + widen affordance, no phone.');
 }
 
 // Drive a Tier 2 "widen" query: select a county, click Widen, submit an

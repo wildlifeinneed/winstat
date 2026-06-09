@@ -469,11 +469,11 @@
     var coord = coordinatorForCounty(countyName);
     if (line) {
       if (coord.name) {
-        var areaTxt = coord.area
-          ? ' <span class="coord-area">(Area ' + escapeHtml(coord.area) + ')</span>'
-          : '';
-        line.innerHTML = 'Notify county coordinator: <strong>' +
-          escapeHtml(coord.name) + '</strong>' + areaTxt + '.';
+        var label = coord.area
+          ? 'Area ' + escapeHtml(coord.area) + ' Coordinator'
+          : 'Coordinator';
+        line.innerHTML = label + ': <strong>' +
+          escapeHtml(coord.name) + '</strong>.';
       } else {
         line.innerHTML = '<span class="coord-area">No coordinator on file for ' +
           escapeHtml(countyName) + '.</span>';
