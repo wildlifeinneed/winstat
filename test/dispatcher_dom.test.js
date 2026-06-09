@@ -58,6 +58,21 @@ function makeFetch(workerHost) {
   return function fetchMock(url) {
     const u = String(url);
     if (u.indexOf(workerHost) === 0 || u.indexOf('workers.dev') !== -1) {
+      // Autocomplete route: return a deterministic suggestion list.
+      if (u.indexOf('autocomplete=') !== -1) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: function () {
+            return Promise.resolve({
+              suggestions: [
+                { label: '4400 Forbes Avenue, Pittsburgh, Pennsylvania 15213', lat: 40.4443, lon: -79.9569 },
+                { label: '4400 Forbes Road, Murrysville, Pennsylvania', lat: 40.43, lon: -79.69 },
+              ],
+            });
+          },
+        });
+      }
       return Promise.resolve({
         ok: true,
         status: 200,
@@ -121,6 +136,10 @@ function flush(window) {
   return new Promise(function (resolve) { window.setTimeout(resolve, 0); });
 }
 
+function wait(window, ms) {
+  return new Promise(function (resolve) { window.setTimeout(resolve, ms); });
+}
+
 async function run() {
   const { window } = loadDom();
   const doc = window.document;
@@ -145,6 +164,37 @@ async function run() {
   addrRadio.checked = true;
   addrRadio.dispatchEvent(new window.Event('change', { bubbles: true }));
   assert.strictEqual(doc.getElementById('address-mode').hidden, false, 'address panel visible');
+
+  // --- Autocomplete typeahead: type -> suggestions render -> select ----
+  const addrInput = doc.getElementById('animal-address');
+  const acList = doc.getElementById('address-suggestions');
+  assert.ok(acList, 'suggestion listbox exists');
+
+  // Type a partial query and fire 'input' to trigger the debounced lookup.
+  addrInput.value = '4400 Forbes';
+  addrInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+  // Wait past the ~280ms debounce + let the mocked fetch promise settle.
+  await wait(window, 350);
+  await flush(window);
+  await flush(window);
+
+  const opts = Array.prototype.slice.call(acList.querySelectorAll('.ac-item'));
+  assert.strictEqual(acList.hidden, false, 'suggestion list is shown after typing');
+  assert.strictEqual(opts.length, 2, 'two suggestions rendered (got ' + opts.length + ')');
+  assert.strictEqual(opts[0].textContent.trim(),
+    '4400 Forbes Avenue, Pittsburgh, Pennsylvania 15213', 'first suggestion label');
+  assert.strictEqual(addrInput.getAttribute('aria-expanded'), 'true', 'aria-expanded set');
+
+  // ArrowDown highlights first, Enter selects it -> fills input, closes list,
+  // and does NOT submit (no aggregate result yet).
+  addrInput.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+  addrInput.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  await flush(window);
+  assert.strictEqual(addrInput.value, '4400 Forbes Avenue, Pittsburgh, Pennsylvania 15213',
+    'selecting a suggestion fills the input');
+  assert.strictEqual(acList.hidden, true, 'list closes after select');
+  assert.strictEqual(doc.getElementById('address-result').style.display !== 'block', true,
+    'selecting a suggestion must NOT trigger the aggregate submit');
 
   // --- Fill + submit ----------------------------------------------------
   doc.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';

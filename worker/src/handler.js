@@ -20,6 +20,7 @@
 
 const { findVolunteersInRadius } = require('./aggregate');
 const { geocodeAddress } = require('./census');
+const { autocompleteAddress } = require('./autocomplete');
 
 // KV key under which the Phase F refresh job stores the coords array (JSON).
 const KV_COORDS_KEY = 'volunteer_coords';
@@ -55,6 +56,8 @@ async function readParams(request) {
     animal_lon: null,
     address: null,
     radius_mi: null,
+    autocomplete: null,
+    limit: null,
   };
 
   let url;
@@ -184,6 +187,30 @@ async function handleRequest(request, deps) {
   }
 
   const params = await readParams(request);
+
+  // ── Address AUTOCOMPLETE route ──────────────────────────────────────
+  // ?autocomplete=<partial>&limit=<n>. Proxies a GENERIC public address
+  // provider (Photon) server-side, returns a small normalized suggestion
+  // array. NEVER touches the private KV. Short query / provider error ->
+  // graceful empty array (200), never a 500 that breaks the page.
+  if (
+    params.autocomplete !== null &&
+    params.autocomplete !== undefined &&
+    String(params.autocomplete).trim() !== ''
+  ) {
+    let suggestions;
+    try {
+      suggestions = await autocompleteAddress(
+        String(params.autocomplete),
+        params.limit,
+        deps.fetchFn
+      );
+    } catch (e) {
+      suggestions = [];
+    }
+    if (!Array.isArray(suggestions)) suggestions = [];
+    return jsonResponse(ResponseCtor, 200, { suggestions: suggestions }, allowedOrigin);
+  }
 
   // Radius: clamp happens inside findVolunteersInRadius, but reject a value
   // that is present yet non-numeric as bad input (defensive 400).

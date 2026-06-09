@@ -410,6 +410,41 @@
       line-height: 1.45;
     }
 
+    /* ─── Address autocomplete (typeahead) ────────────────────── */
+    .ac-wrap { position: relative; }
+    .ac-list {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: calc(100% + 4px);
+      z-index: 20;
+      list-style: none;
+      margin: 0;
+      padding: 4px;
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      box-shadow: var(--shadow-lg);
+      max-height: 240px;
+      overflow-y: auto;
+    }
+    .ac-list[hidden] { display: none; }
+    .ac-item {
+      padding: 8px 10px;
+      font-size: 14px;
+      color: var(--text);
+      border-radius: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .ac-item:hover,
+    .ac-item.ac-active {
+      background: var(--green-light);
+      color: var(--green-deep);
+    }
+
     /* ─── Address-mode aggregate result ───────────────────────── */
     .agg-summary {
       font-family: 'Bitter', Georgia, serif;
@@ -609,8 +644,14 @@
   <div id="address-mode" class="mode-panel" hidden>
     <section class="panel">
       <label class="field-label" for="animal-address">Animal Address</label>
-      <input type="text" id="animal-address" autocomplete="off"
-             placeholder="e.g. 4400 Forbes Ave, Pittsburgh, PA 15213" />
+      <div class="ac-wrap">
+        <input type="text" id="animal-address" autocomplete="off"
+               role="combobox" aria-autocomplete="list" aria-expanded="false"
+               aria-controls="address-suggestions" aria-haspopup="listbox"
+               placeholder="e.g. 4400 Forbes Ave, Pittsburgh, PA 15213" />
+        <ul id="address-suggestions" class="ac-list" role="listbox"
+            aria-label="Address suggestions" hidden></ul>
+      </div>
       <p class="help-text">
         Enter where the animal is. The dispatcher service geocodes the address
         (US Census, no key) and returns which volunteers are within range.

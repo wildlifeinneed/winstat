@@ -52,6 +52,12 @@
   var WORKER_URL = 'https://pa-wildlife-dispatcher.winstat.workers.dev';
   var RADIUS_DEFAULT = 20;
   var RADIUS_MAX = 100;
+  // Address autocomplete (typeahead) tuning. The Worker proxies a GENERIC
+  // public address provider (Photon) server-side via ?autocomplete=&limit= and
+  // returns { suggestions: [{label, lat?, lon?}] }. NO PII ever reaches here.
+  var AC_MIN_CHARS = 3;
+  var AC_DEBOUNCE_MS = 280;
+  var AC_LIMIT = 5;
   // PA Game Commission dispatch lines (already public on the page footer).
   var PGC_PHONE = '(833) 742-4868 or (833) 742-9453';
   // Roles that count as "qualified to respond" for the call-PGC decision.
@@ -529,6 +535,148 @@
       });
   }
 
+  // ─── Address autocomplete (typeahead) ──────────────────────────────
+  // Debounced lookup proxied THROUGH the Worker (single CORS surface, key/
+  // rate-limit stay server-side). Keyboard + click select; on select we fill
+  // the input and the existing geocode+radius submit flow runs unchanged.
+  var ac = {
+    items: [],        // current [{label, lat?, lon?}]
+    active: -1,       // highlighted index, -1 = none
+    timer: null,      // debounce timer
+    seq: 0,           // request sequence guard (drop stale responses)
+    lastQuery: ''     // query that produced the open list (suppress re-open)
+  };
+
+  function acEls() {
+    return { input: $('#animal-address'), list: $('#address-suggestions') };
+  }
+
+  function acClose() {
+    var els = acEls();
+    if (els.list) { els.list.hidden = true; els.list.innerHTML = ''; }
+    if (els.input) els.input.setAttribute('aria-expanded', 'false');
+    if (els.input) els.input.removeAttribute('aria-activedescendant');
+    ac.items = [];
+    ac.active = -1;
+  }
+
+  function acRender() {
+    var els = acEls();
+    if (!els.list) return;
+    if (!ac.items.length) { acClose(); return; }
+    var html = '';
+    for (var i = 0; i < ac.items.length; i++) {
+      var sel = (i === ac.active);
+      html += '<li id="ac-opt-' + i + '" class="ac-item' + (sel ? ' ac-active' : '') +
+              '" role="option" data-idx="' + i + '"' +
+              (sel ? ' aria-selected="true"' : '') + '>' +
+              escapeHtml(ac.items[i].label) + '</li>';
+    }
+    els.list.innerHTML = html;
+    els.list.hidden = false;
+    if (els.input) {
+      els.input.setAttribute('aria-expanded', 'true');
+      if (ac.active >= 0) {
+        els.input.setAttribute('aria-activedescendant', 'ac-opt-' + ac.active);
+      } else {
+        els.input.removeAttribute('aria-activedescendant');
+      }
+    }
+  }
+
+  function acSelect(idx) {
+    if (idx < 0 || idx >= ac.items.length) return;
+    var els = acEls();
+    var label = ac.items[idx].label;
+    if (els.input) els.input.value = label;
+    ac.lastQuery = label; // typing 'input' fires from value set? no — set manually
+    acClose();
+    if (els.input) els.input.focus();
+  }
+
+  function acFetch(query) {
+    var mySeq = ++ac.seq;
+    var url = WORKER_URL +
+      '?autocomplete=' + encodeURIComponent(query) +
+      '&limit=' + encodeURIComponent(AC_LIMIT);
+    fetch(url, { cache: 'no-store' })
+      .then(function (resp) {
+        if (!resp.ok) return { suggestions: [] };
+        return resp.json();
+      })
+      .then(function (data) {
+        if (mySeq !== ac.seq) return; // stale response — a newer keystroke won
+        var list = (data && Array.isArray(data.suggestions)) ? data.suggestions : [];
+        ac.items = list.filter(function (it) {
+          return it && typeof it.label === 'string' && it.label.trim() !== '';
+        }).slice(0, AC_LIMIT);
+        ac.active = -1;
+        acRender();
+      })
+      .catch(function () {
+        if (mySeq !== ac.seq) return;
+        acClose();
+      });
+  }
+
+  function acOnInput() {
+    var els = acEls();
+    var q = (els.input && els.input.value ? els.input.value : '').trim();
+    if (ac.timer) { clearTimeout(ac.timer); ac.timer = null; }
+    if (q === ac.lastQuery) { return; } // selection just filled the box
+    ac.lastQuery = '';
+    if (q.length < AC_MIN_CHARS) { acClose(); return; }
+    ac.timer = setTimeout(function () { acFetch(q); }, AC_DEBOUNCE_MS);
+  }
+
+  function acOnKeydown(e) {
+    var open = ac.items.length > 0;
+    if (e.key === 'ArrowDown') {
+      if (!open) return;
+      e.preventDefault();
+      ac.active = (ac.active + 1) % ac.items.length;
+      acRender();
+    } else if (e.key === 'ArrowUp') {
+      if (!open) return;
+      e.preventDefault();
+      ac.active = (ac.active - 1 + ac.items.length) % ac.items.length;
+      acRender();
+    } else if (e.key === 'Enter') {
+      if (open && ac.active >= 0) {
+        e.preventDefault();
+        acSelect(ac.active);
+      } else {
+        // No active suggestion — fall through to submit (handled separately).
+      }
+    } else if (e.key === 'Escape') {
+      if (open) { e.preventDefault(); acClose(); }
+    }
+  }
+
+  function setupAutocomplete() {
+    var els = acEls();
+    if (!els.input || !els.list) return;
+    els.input.addEventListener('input', acOnInput);
+    els.input.addEventListener('keydown', acOnKeydown);
+    // Click / tap select.
+    els.list.addEventListener('mousedown', function (e) {
+      // mousedown (not click) so it fires before the input blur closes the list.
+      var li = e.target;
+      while (li && li !== els.list && !li.getAttribute) li = li.parentNode;
+      while (li && li !== els.list && li.getAttribute && li.getAttribute('data-idx') === null) {
+        li = li.parentNode;
+      }
+      if (li && li.getAttribute && li.getAttribute('data-idx') !== null) {
+        e.preventDefault();
+        acSelect(Number(li.getAttribute('data-idx')));
+      }
+    });
+    // Close when focus leaves the input (after click handlers run).
+    els.input.addEventListener('blur', function () {
+      setTimeout(acClose, 120);
+    });
+  }
+
   function setMode(mode) {
     var isAddress = (mode === 'address');
     $('#county-mode').hidden = isAddress;
@@ -617,10 +765,16 @@
     });
     var addrBtn = $('#address-btn');
     if (addrBtn) addrBtn.addEventListener('click', onAddressSubmit);
+    setupAutocomplete();
     var addrInput = $('#animal-address');
     if (addrInput) {
       addrInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') { e.preventDefault(); onAddressSubmit(); }
+        // Only submit on Enter when the suggestion list is NOT driving the key
+        // (acOnKeydown selects a highlighted suggestion and preventDefaults).
+        if (e.key === 'Enter' && !e.defaultPrevented) {
+          e.preventDefault();
+          onAddressSubmit();
+        }
       });
     }
     var checkedMode = document.querySelector('input[name="mode"]:checked');

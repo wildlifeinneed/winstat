@@ -31,6 +31,7 @@ const {
   MAX_RADIUS_MI,
 } = require('../src/aggregate');
 const { geocodeAddress } = require('../src/census');
+const { autocompleteAddress } = require('../src/autocomplete');
 const { handleRequest } = require('../src/handler');
 
 // --- tiny test framework ---------------------------------------------------
@@ -119,6 +120,43 @@ const mockCensusNoMatch = async () => ({
 const mockCensusNetworkError = async () => {
   throw new Error('network down');
 };
+
+// Mock Photon autocomplete fetch -> two US features + one non-US (filtered).
+function mockPhotonFetch() {
+  return async (url) => ({
+    status: 200,
+    json: async () => ({
+      features: [
+        {
+          geometry: { type: 'Point', coordinates: [-79.9569, 40.4443] },
+          properties: {
+            housenumber: '4400', street: 'Forbes Avenue', city: 'Pittsburgh',
+            state: 'Pennsylvania', postcode: '15213', countrycode: 'US',
+            country: 'United States',
+          },
+        },
+        {
+          geometry: { type: 'Point', coordinates: [-79.95, 40.44] },
+          properties: {
+            name: 'Forbes Field', city: 'Pittsburgh', state: 'Pennsylvania',
+            countrycode: 'US', country: 'United States',
+          },
+        },
+        {
+          // Non-US — MUST be filtered out.
+          geometry: { type: 'Point', coordinates: [-0.12, 51.5] },
+          properties: { street: 'Forbes Street', city: 'London', countrycode: 'GB', country: 'United Kingdom' },
+        },
+      ],
+    }),
+  });
+}
+
+// Mock Photon fetch that errors at the network layer.
+const mockPhotonNetworkError = async () => { throw new Error('photon down'); };
+
+// Mock Photon fetch that returns an HTTP error.
+const mockPhotonHttpError = async () => ({ status: 503, json: async () => ({}) });
 
 
 // --- synthetic PRIVATE coords dataset --------------------------------------
@@ -323,6 +361,75 @@ async function main() {
     assert.strictEqual(body.total_in_range, 0);
     assert.deepStrictEqual(body.win_areas, []);
     assert.deepStrictEqual(Object.keys(body).sort(), ['role_counts', 'total_in_range', 'win_areas']);
+  });
+
+  // (h) AUTOCOMPLETE route --------------------------------------------
+  await test('(h1) autocomplete partial query -> normalized US suggestions', async () => {
+    const res = await handleRequest(
+      mockRequest('GET', { autocomplete: '4400 Forbes', limit: 5 }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS), fetchFn: mockPhotonFetch(), allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.ok(Array.isArray(body.suggestions), 'suggestions is an array');
+    // Non-US (London) feature filtered out -> 2 US results.
+    assert.strictEqual(body.suggestions.length, 2, 'two US suggestions');
+    assert.strictEqual(body.suggestions[0].label, '4400 Forbes Avenue, Pittsburgh, Pennsylvania 15213');
+    assert.strictEqual(typeof body.suggestions[0].lat, 'number');
+    assert.strictEqual(typeof body.suggestions[0].lon, 'number');
+    // No London / GB leakage.
+    assert.strictEqual(JSON.stringify(body.suggestions).indexOf('London'), -1, 'no non-US result');
+  });
+
+  await test('(h2) autocomplete <3 chars short-circuits to empty (no provider call)', async () => {
+    let called = false;
+    const res = await handleRequest(
+      mockRequest('GET', { autocomplete: 'ab' }),
+      {
+        ResponseCtor: MockResponse, kv: mockKV(COORDS), allowedOrigin: 'https://pages.example',
+        fetchFn: async () => { called = true; return { status: 200, json: async () => ({ features: [] }) }; },
+      }
+    );
+    assert.strictEqual(res.status, 200);
+    assert.deepStrictEqual((await res.json()).suggestions, []);
+    assert.strictEqual(called, false, 'provider must NOT be called for <3 chars');
+  });
+
+  await test('(h3) autocomplete provider network error -> graceful empty 200', async () => {
+    const res = await handleRequest(
+      mockRequest('GET', { autocomplete: 'Harrisburg' }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS), fetchFn: mockPhotonNetworkError, allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.status, 200, 'never 500-crashes the page');
+    assert.deepStrictEqual((await res.json()).suggestions, []);
+  });
+
+  await test('(h4) autocomplete provider HTTP error -> graceful empty 200', async () => {
+    const res = await handleRequest(
+      mockRequest('GET', { autocomplete: 'Harrisburg' }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS), fetchFn: mockPhotonHttpError, allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.status, 200);
+    assert.deepStrictEqual((await res.json()).suggestions, []);
+  });
+
+  await test('(h5) autocomplete response carries CORS + never leaks PII keys', async () => {
+    const res = await handleRequest(
+      mockRequest('GET', { autocomplete: '4400 Forbes' }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS), fetchFn: mockPhotonFetch(), allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.header('Access-Control-Allow-Origin'), 'https://pages.example');
+    const serialized = JSON.stringify(await res.json());
+    ['home_county', 'roles', 'win_area'].forEach(function (k) {
+      assert.strictEqual(serialized.indexOf('"' + k + '"'), -1, 'no PII key: ' + k);
+    });
+  });
+
+  await test('(h6) autocompleteAddress unit: <3 chars -> [], honors limit', async () => {
+    const none = await autocompleteAddress('ab', 5, mockPhotonFetch());
+    assert.deepStrictEqual(none, [], 'short query empty');
+    const capped = await autocompleteAddress('4400 Forbes', 1, mockPhotonFetch());
+    assert.strictEqual(capped.length, 1, 'limit=1 respected');
   });
 
   console.log('\n----------------------------------------');
