@@ -101,29 +101,39 @@ function parseFiniteNumber(value) {
 
 /**
  * Resolve the animal coordinate from params. Prefers explicit lat/lon; falls
- * back to geocoding the address via the (injectable) fetchFn. Returns
- * {lat, lon} or null. Validates lat/lon ranges.
+ * back to geocoding the address (server-side, no CORS) via the (injectable)
+ * fetchFn. Returns a discriminated result so the caller can choose the right
+ * status code:
+ *   { status: 'ok',          coord: {lat, lon} }
+ *   { status: 'bad_latlon' }                       -- lat/lon present but invalid
+ *   { status: 'address_not_found' }                -- geocoder reachable, no match
+ *   { status: 'geocoder_unavailable' }             -- geocoder network/HTTP error
+ *   { status: 'missing' }                          -- neither location supplied
  */
 async function resolveAnimalCoord(params, fetchFn) {
   const lat = parseFiniteNumber(params.animal_lat);
   const lon = parseFiniteNumber(params.animal_lon);
   if (lat !== null && lon !== null) {
     if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
-      return null;
+      return { status: 'bad_latlon' };
     }
-    return { lat, lon };
+    return { status: 'ok', coord: { lat, lon } };
   }
 
   const address = params.address !== null && params.address !== undefined
     ? String(params.address).trim()
     : '';
   if (address) {
-    const coord = await geocodeAddress(address, fetchFn);
-    if (coord) {
-      return coord;
+    const geo = await geocodeAddress(address, fetchFn);
+    if (geo && geo.status === 'ok') {
+      return { status: 'ok', coord: geo.coord };
     }
+    if (geo && geo.status === 'unavailable') {
+      return { status: 'geocoder_unavailable' };
+    }
+    return { status: 'address_not_found' };
   }
-  return null;
+  return { status: 'missing' };
 }
 
 /**
@@ -200,16 +210,27 @@ async function handleRequest(request, deps) {
     );
   }
 
-  let coord;
+  let resolved;
   try {
-    coord = await resolveAnimalCoord(params, deps.fetchFn);
+    resolved = await resolveAnimalCoord(params, deps.fetchFn);
   } catch (e) {
-    coord = null;
+    resolved = { status: 'geocoder_unavailable' };
   }
-  if (!coord) {
-    // Do NOT echo any input coordinate back in the error.
+  if (!resolved || resolved.status !== 'ok') {
+    const status = resolved ? resolved.status : 'unresolvable_location';
+    // Map the resolution failure to a precise status code so the UI can show
+    // a specific message (distinct from a generic network failure). Never echo
+    // any input coordinate or the raw address back in the error.
+    if (status === 'address_not_found') {
+      return jsonResponse(ResponseCtor, 422, { error: 'address_not_found' }, allowedOrigin);
+    }
+    if (status === 'geocoder_unavailable') {
+      return jsonResponse(ResponseCtor, 502, { error: 'geocoder_unavailable' }, allowedOrigin);
+    }
+    // bad_latlon / missing / anything else -> existing generic 400 contract.
     return jsonResponse(ResponseCtor, 400, { error: 'unresolvable_location' }, allowedOrigin);
   }
+  const coord = resolved.coord;
 
   const coords = await readCoordsFromKV(deps.kv);
 

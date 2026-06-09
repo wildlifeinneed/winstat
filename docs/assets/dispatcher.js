@@ -44,10 +44,12 @@
   };
 
   // ─── Address-mode (Phase G) configuration ──────────────────────────
-  // Live aggregate Worker. Query params are EXACT: animal_lat/animal_lon/radius_mi.
+  // Live aggregate Worker. The Worker geocodes the address SERVER-SIDE (no
+  // browser CORS) and returns the PII-free aggregate. Query params:
+  //   ?address=<urlenc>&radius_mi=<r>   (or animal_lat/animal_lon&radius_mi)
+  // The browser NEVER calls the US Census geocoder directly — doing so was the
+  // original cross-origin (CORS) failure that broke By-Animal-Address mode.
   var WORKER_URL = 'https://pa-wildlife-dispatcher.winstat.workers.dev';
-  // Free, keyless US Census geocoder (same source the backend uses).
-  var CENSUS_URL = 'https://geocoding.geo.census.gov/geocoder/locations/onelineaddress';
   var RADIUS_DEFAULT = 20;
   var RADIUS_MAX = 100;
   // PA Game Commission dispatch lines (already public on the page footer).
@@ -313,35 +315,18 @@
     return n;
   }
 
-  // Geocode an address via the keyless US Census geocoder. Resolves to
-  // {lat, lon, matched} or null when there is no match. Never throws.
-  function geocodeAddress(address) {
-    var url = CENSUS_URL +
-      '?address=' + encodeURIComponent(address) +
-      '&benchmark=Public_AR_Current&format=json';
-    return fetch(url, { cache: 'no-store' })
-      .then(function (resp) {
-        if (!resp.ok) throw new Error('census_http_' + resp.status);
-        return resp.json();
-      })
-      .then(function (json) {
-        var matches = json && json.result && json.result.addressMatches;
-        if (!matches || !matches.length) return null;
-        var c = matches[0].coordinates;
-        if (!c || typeof c.y !== 'number' || typeof c.x !== 'number') return null;
-        return { lat: c.y, lon: c.x, matched: matches[0].matchedAddress || address };
-      });
-  }
-
-  // Call the live aggregate Worker. Returns the parsed AggregateResult or
-  // throws an Error whose message is a stable code for the UI.
-  function fetchAggregate(lat, lon, radiusMi) {
+  // Call the live aggregate Worker with the typed address. The Worker geocodes
+  // SERVER-SIDE (no browser CORS) and returns the PII-free AggregateResult.
+  // Resolves to the parsed aggregate, or throws an Error whose message is a
+  // stable code for the UI to surface a precise message.
+  function fetchAggregateByAddress(address, radiusMi) {
     var url = WORKER_URL +
-      '?animal_lat=' + encodeURIComponent(lat) +
-      '&animal_lon=' + encodeURIComponent(lon) +
+      '?address=' + encodeURIComponent(address) +
       '&radius_mi=' + encodeURIComponent(radiusMi);
     return fetch(url, { cache: 'no-store' })
       .then(function (resp) {
+        if (resp.status === 422) throw new Error('address_not_found');
+        if (resp.status === 502) throw new Error('geocoder_unavailable');
         if (resp.status === 400) throw new Error('worker_400');
         if (!resp.ok) throw new Error('worker_http_' + resp.status);
         return resp.json();
@@ -449,19 +434,25 @@
         escapeHtml(PGC_PHONE) + '.'));
     }
 
-    var closest = findClosestRehabber(ctx.lat, ctx.lon);
-    if (closest) {
-      var dist = closest.distance_mi.toFixed(1);
-      var site = closest.website
-        ? ' (<a href="' + escapeHtml(closest.website) + '" target="_blank" rel="noopener">website</a>)'
-        : '';
-      var tone = closest.is_closed ? 'warn' : 'neutral';
-      var closedNote = closest.is_closed
-        ? ' <strong>Nearest is not marked OPEN — confirm before transport.</strong>'
-        : '';
-      actions.push(actionLine(tone, '⌂',
-        'Transport to closest rehabber: <strong>' + escapeHtml(closest.rehab_name) +
-        '</strong> (~' + dist + ' mi)' + site + '.' + closedNote));
+    // Closest-rehabber suggestion needs the animal coordinate. The Worker
+    // returns a PII-free aggregate ONLY (no coords), and the browser no longer
+    // geocodes (that was the CORS bug), so this is shown only if a caller still
+    // supplies lat/lon in ctx.
+    if (ctx && typeof ctx.lat === 'number' && typeof ctx.lon === 'number') {
+      var closest = findClosestRehabber(ctx.lat, ctx.lon);
+      if (closest) {
+        var dist = closest.distance_mi.toFixed(1);
+        var site = closest.website
+          ? ' (<a href="' + escapeHtml(closest.website) + '" target="_blank" rel="noopener">website</a>)'
+          : '';
+        var tone = closest.is_closed ? 'warn' : 'neutral';
+        var closedNote = closest.is_closed
+          ? ' <strong>Nearest is not marked OPEN — confirm before transport.</strong>'
+          : '';
+        actions.push(actionLine(tone, '⌂',
+          'Transport to closest rehabber: <strong>' + escapeHtml(closest.rehab_name) +
+          '</strong> (~' + dist + ' mi)' + site + '.' + closedNote));
+      }
     }
 
     if (!actions.length) {
@@ -491,29 +482,25 @@
     var btn = $('#address-btn');
     btn.disabled = true;
     $('#address-result').style.display = 'none';
-    setAddressStatus('Looking up address…');
+    setAddressStatus('Finding volunteers within ' + radius + ' mi…');
 
-    geocodeAddress(addr)
-      .then(function (coord) {
-        if (!coord) {
-          throw new Error('no_geocode_match');
-        }
-        setAddressStatus('Finding volunteers within ' + radius + ' mi…');
-        return fetchAggregate(coord.lat, coord.lon, radius).then(function (agg) {
-          setAddressStatus('');
-          renderAggregate(agg, { lat: coord.lat, lon: coord.lon, radius: radius });
-        });
+    // Single origin: send the typed address to the Worker, which geocodes it
+    // server-side (no browser CORS) and returns the PII-free aggregate.
+    fetchAggregateByAddress(addr, radius)
+      .then(function (agg) {
+        setAddressStatus('');
+        renderAggregate(agg, { radius: radius });
       })
       .catch(function (err) {
         setAddressStatus('');
         var code = err && err.message ? err.message : '';
-        if (code === 'no_geocode_match') {
+        if (code === 'address_not_found') {
           setAddressError('No match for that address. Check spelling, or try ' +
             '"street, city, PA zip".');
+        } else if (code === 'geocoder_unavailable') {
+          setAddressError('Address lookup service is temporarily unavailable. Try again shortly.');
         } else if (code === 'worker_400') {
           setAddressError('Dispatcher service could not resolve that location. Try a more specific address.');
-        } else if (code.indexOf('census_') === 0) {
-          setAddressError('Address lookup service is temporarily unavailable. Try again shortly.');
         } else {
           setAddressError('Could not reach the dispatcher service. Check your connection and try again.');
         }

@@ -109,11 +109,17 @@ function mockCensusFetch(lat, lon) {
   });
 }
 
-// Mock Census fetch that returns NO match.
+// Mock Census fetch that returns NO match (reachable, zero matches).
 const mockCensusNoMatch = async () => ({
   status: 200,
   json: async () => ({ result: { addressMatches: [] } }),
 });
+
+// Mock Census fetch that errors at the network layer (geocoder unavailable).
+const mockCensusNetworkError = async () => {
+  throw new Error('network down');
+};
+
 
 // --- synthetic PRIVATE coords dataset --------------------------------------
 // Animal anchor for distance tests: Harrisburg PA approx.
@@ -198,13 +204,22 @@ async function main() {
     assert.strictEqual((await res.json()).error, 'invalid_radius');
   });
 
-  await test('(c3) 400 on unresolvable address (mocked no-match)', async () => {
+  await test('(c3) 422 address_not_found on unresolvable address (mocked no-match)', async () => {
     const res = await handleRequest(
       mockRequest('GET', { address: '123 Nowhere Rd' }),
       { ResponseCtor: MockResponse, kv: mockKV(COORDS), fetchFn: mockCensusNoMatch, allowedOrigin: 'https://pages.example' }
     );
-    assert.strictEqual(res.status, 400);
-    assert.strictEqual((await res.json()).error, 'unresolvable_location');
+    assert.strictEqual(res.status, 422);
+    assert.strictEqual((await res.json()).error, 'address_not_found');
+  });
+
+  await test('(c3b) 502 geocoder_unavailable on Census network error', async () => {
+    const res = await handleRequest(
+      mockRequest('GET', { address: '4400 Forbes Ave, Pittsburgh, PA 15213' }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS), fetchFn: mockCensusNetworkError, allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.status, 502);
+    assert.strictEqual((await res.json()).error, 'geocoder_unavailable');
   });
 
   await test('(c4) 400 on out-of-range lat/lon', async () => {
@@ -291,9 +306,11 @@ async function main() {
   // census helper direct unit ------------------------------------------
   await test('(f) geocodeAddress parses {x:lon,y:lat} from mocked Census', async () => {
     const c = await geocodeAddress('1 Capitol, Harrisburg PA', mockCensusFetch(40.2732, -76.8867));
-    assert.deepStrictEqual(c, { lat: 40.2732, lon: -76.8867 });
+    assert.deepStrictEqual(c, { status: 'ok', coord: { lat: 40.2732, lon: -76.8867 } });
     const none = await geocodeAddress('nowhere', mockCensusNoMatch);
-    assert.strictEqual(none, null);
+    assert.deepStrictEqual(none, { status: 'not_found' });
+    const down = await geocodeAddress('1 Capitol', mockCensusNetworkError);
+    assert.deepStrictEqual(down, { status: 'unavailable' });
   });
 
   // empty / malformed KV degrades gracefully -----------------------------
