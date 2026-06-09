@@ -32,3 +32,7 @@ last_refresh_date.json
 
 # Wrangler local cache (may hold account info)
 worker/.wrangler/
+
+# Node test-only deps (jsdom harness for docs/dispatcher.js). Test-only; the
+# served site (docs/) ships no node_modules.
+node_modules/

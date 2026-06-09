@@ -60,6 +60,16 @@
   function $(sel, root) { return (root || document).querySelector(sel); }
   function $$(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
 
+  // Guarded text setter: a missing target element must NOT throw (a thrown
+  // TypeError here used to fall into the fetch .catch and masquerade as a
+  // network failure — see renderAggregate / onAddressSubmit).
+  function setText(sel, value) {
+    var el = $(sel);
+    if (el) { el.textContent = value; return true; }
+    console.warn('dispatcher: missing element ' + sel);
+    return false;
+  }
+
   function populateCounties() {
     var sel = $('#county');
     PA_COUNTIES.forEach(function (name) {
@@ -395,10 +405,10 @@
     var total = (typeof agg.total_in_range === 'number') ? agg.total_in_range : 0;
     var areas = (agg && Array.isArray(agg.win_areas)) ? agg.win_areas.slice() : [];
 
-    $('#agg-total').textContent = String(total);
-    $('#agg-ct').textContent = String(ct);
-    $('#agg-rvs').textContent = String(rvs);
-    $('#agg-courier').textContent = String(courier);
+    setText('#agg-total', String(total));
+    setText('#agg-ct', String(ct));
+    setText('#agg-rvs', String(rvs));
+    setText('#agg-courier', String(courier));
 
     var areasEl = $('#agg-areas');
     if (areas.length) {
@@ -489,7 +499,15 @@
     fetchAggregateByAddress(addr, radius)
       .then(function (agg) {
         setAddressStatus('');
-        renderAggregate(agg, { radius: radius });
+        // Render in its OWN try/catch so a rendering bug (e.g. a missing DOM
+        // target) surfaces a DISTINCT message instead of being swallowed by the
+        // network-error catch below and shown as "could not reach the service".
+        try {
+          renderAggregate(agg, { radius: radius });
+        } catch (renderErr) {
+          if (window.console && console.error) console.error('renderAggregate failed', renderErr);
+          setAddressError('Got a response but could not display it. Please report this to the site maintainer.');
+        }
       })
       .catch(function (err) {
         setAddressStatus('');

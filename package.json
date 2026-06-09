@@ -1,0 +1,12 @@
+{
+  "name": "pa-wildlife-rehab-tests",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Test-only harness for the served dispatcher UI (docs/). NOT shipped to GitHub Pages.",
+  "scripts": {
+    "test:dispatcher": "node test/dispatcher_dom.test.js"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.3"
+  }
+}
