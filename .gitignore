@@ -21,3 +21,7 @@ venv/
 # Local-only scraper utility (not served by the website)
 refresh_facilities.py
 pa_wildlife_rehab_facilities.csv
+
+# Phase B — PRIVATE volunteer coords dataset (derived from PII addresses).
+# Contains only lat/lon/roles/home_county/win_area but must NEVER be committed.
+data/volunteer_coords.json

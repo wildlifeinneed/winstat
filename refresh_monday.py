@@ -42,6 +42,8 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import requests
 
+import geocoder
+
 
 # ---------------------------------------------------------------------------
 # CONSTANTS — discovered via Monday GraphQL introspection on board 9092079933.
@@ -71,6 +73,18 @@ SIDECAR_REL_PATH = Path("docs") / "data" / ".last_remote_update"
 COL_TITLE_COUNTY = "County"
 COL_TITLE_ROLES = "Roles"
 COL_TITLE_AVAILABILITY = "Availability"
+
+# Phase B — address columns for geocoding. These are resolved by concrete
+# column ID (not human title) because the address columns are unlabeled /
+# duplicated on the board; the IDs below were confirmed via introspection.
+# The geocoded output is a PRIVATE coords dataset (see COORDS_REL_PATH) and is
+# never committed to the repo.
+ADDRESS_COL_IDS = {
+    "street": "text_mkqqsnmj",
+    "city": "text_mkqq3x8t",
+    "state": "text_mkqqka4z",
+    "zip": "text_mkqqez45",
+}
 
 # Roles that qualify a volunteer for dispatch capacity. Anyone who only has
 # Dispatch / Board / IT / TestUsers tags is filtered out.
@@ -167,6 +181,12 @@ PA_COUNTIES = (
 
 # Output file — relative to this script's directory.
 OUTPUT_REL_PATH = Path("docs") / "data" / "county_capacity.json"
+
+# Phase B — PRIVATE volunteer coords dataset. This path is GITIGNORED and the
+# file is NEVER committed to the repo (it derives from PII addresses, though it
+# itself contains only lat/lon/roles/home_county/win_area). Lives under data/
+# (NOT docs/) so it is never published by the static site.
+COORDS_REL_PATH = Path("data") / "volunteer_coords.json"
 
 TOKEN_FILE = ".monday_token"
 TOKEN_ENV = "MONDAY_API_TOKEN"
@@ -429,6 +449,9 @@ def fetch_volunteers(
         column_ids[COL_TITLE_AVAILABILITY],
         column_ids[COL_TITLE_ROLES],
     ]
+    # Phase B — also pull the 4 address columns (resolved by concrete ID) so
+    # the geocoder can build the private coords dataset.
+    col_ids.extend(ADDRESS_COL_IDS.values())
     out: List[Dict[str, Any]] = []
     cursor: Optional[str] = None
     page = 0
@@ -599,6 +622,34 @@ def build_volunteer_record(
         "has_courier": "Courier" in role_set,
         "available": is_available(availability_text),
         "connecteam_user": connecteam_user,
+    }
+
+
+def build_geocode_input(
+    item: Dict[str, Any], column_ids: Dict[str, str]
+) -> Optional[Dict[str, Any]]:
+    """Build a geocoder-input dict (with address fields) from a raw item.
+
+    Returns None for non-qualifying volunteers (same role filter as
+    build_volunteer_record). The returned dict carries the raw address columns
+    (street/city/state/zip) plus county + roles so geocoder.batch_geocode_
+    volunteers can derive {lat,lon,roles,home_county,win_area}. The address
+    fields are PII and are consumed only in-memory by the geocoder; they are
+    NEVER written to the output dataset.
+    """
+    county = _column_text(item, column_ids[COL_TITLE_COUNTY])
+    roles_text = _column_text(item, column_ids[COL_TITLE_ROLES])
+    roles = parse_roles(roles_text)
+    if not (set(roles) & QUALIFYING_ROLES):
+        return None
+
+    return {
+        "county": county,
+        "roles": roles,
+        "street": _column_text(item, ADDRESS_COL_IDS["street"]),
+        "city": _column_text(item, ADDRESS_COL_IDS["city"]),
+        "state": _column_text(item, ADDRESS_COL_IDS["state"]),
+        "zip": _column_text(item, ADDRESS_COL_IDS["zip"]),
     }
 
 
@@ -1211,6 +1262,36 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 sidecar_path,
                 _format_iso_z(remote_ts),
             )
+
+    # Phase B — geocode volunteer addresses into the PRIVATE coords dataset.
+    # Built from the same raw items; the geocoder strips all PII and emits only
+    # {lat,lon,roles,home_county,win_area}. Written to a GITIGNORED path
+    # (COORDS_REL_PATH) and never committed. Idempotent: reuses cached coords
+    # from any existing output when the address signature is unchanged.
+    coords_path = Path(__file__).resolve().parent / COORDS_REL_PATH
+    geocode_inputs: List[Dict[str, Any]] = []
+    for item in all_raw_items:
+        gin = build_geocode_input(item, column_ids)
+        if gin is not None:
+            geocode_inputs.append(gin)
+
+    existing_coords = load_existing_snapshot(coords_path)
+    existing_coord_records = (
+        existing_coords if isinstance(existing_coords, list) else None
+    )
+    coords = geocoder.batch_geocode_volunteers(
+        geocode_inputs, existing=existing_coord_records, session=session
+    )
+
+    if args.dry_run:
+        logger.info(
+            "[dry-run] would write %d coord records to %s",
+            len(coords),
+            coords_path,
+        )
+    else:
+        atomic_write_json(coords_path, coords)
+        logger.info("Wrote %d coord records to %s", len(coords), coords_path)
 
     matched = len(volunteers)
     n_counties = len(snapshot["counties"])

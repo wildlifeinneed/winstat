@@ -639,14 +639,16 @@ def test_volunteer_items_query_uses_narrow_columns():
     # Query must use the col_ids variable on column_values
     assert "$col_ids" in items_call["query"]
     assert "column_values(ids: $col_ids)" in items_call["query"]
-    # Variables must include exactly the 3 resolved column ids (not titles)
+    # Variables must include the 3 resolved capacity column ids (not titles)
+    # plus the 4 Phase B address column ids (resolved by concrete id) — 7 total.
     sent = items_call["variables"]["col_ids"]
     assert isinstance(sent, list)
-    assert len(sent) == 3
+    assert len(sent) == 7
     assert set(sent) == {
         COLUMN_IDS[rm.COL_TITLE_COUNTY],
         COLUMN_IDS[rm.COL_TITLE_ROLES],
         COLUMN_IDS[rm.COL_TITLE_AVAILABILITY],
+        *rm.ADDRESS_COL_IDS.values(),
     }
     # Sanity: must NOT be the human titles
     assert rm.COL_TITLE_COUNTY not in sent
