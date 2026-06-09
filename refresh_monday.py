@@ -199,12 +199,31 @@ REHAB_COL_IDS = {
     "website": "text_mkv8njgj",
 }
 
+# Area Coordinators board. The county->area map stays in counties.xlsx
+# (stable); only the volatile coordinator NAME is sourced here so a Monday
+# rename flows through the normal refresh. The board's ITEM NAME is the WIN
+# area string (e.g. "15N"/"10"); long_text_mm455k2n is the coordinator name.
+#
+# HARD PII RULE: the coordinator PHONE column (phone_mm45s2h0) is NEVER
+# fetched, stored, or emitted — the dispatcher site is public GitHub Pages.
+# Only the area (item name) + coordinator name are read.
+COORDINATORS_BOARD_ID = "18416913502"   # Area Coordinators
+COORDINATORS_GROUP_TITLE = "Coordinators"
+COORD_COL_IDS = {
+    "name": "long_text_mm455k2n",
+}
+
 # Output file — relative to this script's directory.
 OUTPUT_REL_PATH = Path("docs") / "data" / "county_capacity.json"
 
 # Phase C — PUBLIC rehabber dataset. Unlike the volunteer coords (private,
 # gitignored), this file IS committed: rehabbers are public-facing facilities.
 REHABBERS_REL_PATH = Path("docs") / "data" / "rehabbers.json"
+
+# Area-coordinator NAME dataset. PUBLIC-safe (coordinator names are agreed
+# public; phone is excluded). Maps area-string -> coordinator name. Consumed
+# by county_win.py as an override on top of the static counties.xlsx column.
+COORDINATORS_REL_PATH = Path("docs") / "data" / "coordinators.json"
 
 # Phase B — PRIVATE volunteer coords dataset. This path is GITIGNORED and the
 # file is NEVER committed to the repo (it derives from PII addresses, though it
@@ -803,6 +822,143 @@ def build_rehabbers(items: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
         rec = build_rehabber_record(it)
         if rec is not None:
             out.append(rec)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Area-coordinator NAME fetch + transform (PUBLIC-safe area->name dataset)
+# ---------------------------------------------------------------------------
+#
+# The county->area map stays in counties.xlsx (stable). Only the volatile
+# coordinator NAME is refreshed from Monday so a coordinator change flows
+# through the normal refresh. The board ITEM NAME is the WIN area string
+# (matched EXACTLY against county_win area values like "15N"/"10"); the
+# coordinator name lives in long_text_mm455k2n.
+#
+# HARD PII RULE: the phone column (phone_mm45s2h0) is NEVER requested, stored,
+# or emitted. We only ever ask Monday for COORD_COL_IDS (the name column) and
+# read the item name — phone never enters this pipeline.
+
+# Group-scoped query: coordinators live in the 'Coordinators' topics group.
+COORDINATORS_ITEMS_QUERY = """
+query ($board_ids: [ID!], $group_ids: [String], $col_ids: [String!], $limit: Int!, $cursor: String) {
+  boards(ids: $board_ids) {
+    groups(ids: $group_ids) {
+      id
+      items_page(limit: $limit, cursor: $cursor) {
+        cursor
+        items {
+          id
+          name
+          column_values(ids: $col_ids) {
+            id
+            text
+            value
+            type
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+
+def discover_coordinators_group_id(
+    token: Optional[str] = None,
+    session: Optional[requests.Session] = None,
+) -> str:
+    """Resolve the 'Coordinators' group id on the Area Coordinators board.
+
+    Mirrors the volunteer group resolution but is scoped to
+    COORDINATORS_BOARD_ID so it can run independently of the volunteer
+    board introspection.
+    """
+    data = graphql_request(
+        INTROSPECT_QUERY,
+        variables={"board_ids": [COORDINATORS_BOARD_ID]},
+        token=token,
+        session=session,
+    )
+    boards = data.get("boards") or []
+    if not boards:
+        raise MondayAPIError(
+            f"Board {COORDINATORS_BOARD_ID} not visible to this token."
+        )
+    groups = boards[0].get("groups") or []
+    by_title = {g.get("title"): g.get("id") for g in groups if g.get("title")}
+    gid = by_title.get(COORDINATORS_GROUP_TITLE)
+    if not gid:
+        raise MondayAPIError(
+            f"Group {COORDINATORS_GROUP_TITLE!r} not found on board "
+            f"{COORDINATORS_BOARD_ID}. Available groups: "
+            f"{sorted(by_title.keys())}"
+        )
+    return gid
+
+
+def fetch_coordinators(
+    group_id: str,
+    token: Optional[str] = None,
+    session: Optional[requests.Session] = None,
+) -> List[Dict[str, Any]]:
+    """Fetch coordinator items and return raw item dicts.
+
+    Narrow-fetch: ONLY the COORD_COL_IDS name column is requested (the phone
+    column is deliberately excluded — see HARD PII RULE above). Paginates via
+    items_page cursor like the other board fetches.
+    """
+    col_ids = list(COORD_COL_IDS.values())
+    out: List[Dict[str, Any]] = []
+    cursor: Optional[str] = None
+    page = 0
+    while True:
+        page += 1
+        data = graphql_request(
+            COORDINATORS_ITEMS_QUERY,
+            variables={
+                "board_ids": [COORDINATORS_BOARD_ID],
+                "group_ids": [group_id],
+                "col_ids": col_ids,
+                "limit": PAGE_LIMIT,
+                "cursor": cursor,
+            },
+            token=token,
+            session=session,
+        )
+        boards = data.get("boards") or []
+        if not boards:
+            break
+        groups = boards[0].get("groups") or []
+        if not groups:
+            break
+        page_block = groups[0].get("items_page") or {}
+        items = page_block.get("items") or []
+        logger.debug("Coordinators page %d: %d items", page, len(items))
+        for it in items:
+            out.append(it)
+        cursor = page_block.get("cursor")
+        if not cursor:
+            break
+    return out
+
+
+def build_coordinators(items: Iterable[Dict[str, Any]]) -> Dict[str, str]:
+    """Transform raw coordinator items into an area-string -> name mapping.
+
+    The item NAME is the WIN area string (kept verbatim so it matches the
+    county_win area values exactly). The coordinator name comes from the
+    COORD_COL_IDS["name"] long-text column. Items with a blank area name or a
+    blank coordinator name are skipped (nothing to override with). Phone is
+    never read. Returns a plain dict suitable for atomic_write_json.
+    """
+    out: Dict[str, str] = {}
+    for it in items:
+        area = (it.get("name") or "").strip()
+        name = _column_text(it, COORD_COL_IDS["name"])
+        if not area or not name:
+            continue
+        out[area] = name
     return out
 
 
@@ -1467,6 +1623,32 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         atomic_write_json(rehabbers_path, rehabbers)
         logger.info(
             "Wrote %d rehabber records to %s", len(rehabbers), rehabbers_path
+        )
+
+    # Area coordinators — fetch the coordinator NAME per WIN area and emit the
+    # PUBLIC-safe area->name dataset. The phone column is NEVER requested or
+    # written (see fetch_coordinators / build_coordinators). Consumed by
+    # county_win.py as an override on top of the static counties.xlsx column.
+    coordinators_path = Path(__file__).resolve().parent / COORDINATORS_REL_PATH
+    try:
+        coord_gid = discover_coordinators_group_id(token=token, session=session)
+        coord_items = fetch_coordinators(coord_gid, token=token, session=session)
+    except MondayAPIError as exc:
+        print(f"ERROR: coordinators fetch failed: {exc}", file=sys.stderr)
+        return 9
+    coordinators = build_coordinators(coord_items)
+    if args.dry_run:
+        logger.info(
+            "[dry-run] would write %d coordinator names to %s",
+            len(coordinators),
+            coordinators_path,
+        )
+    else:
+        atomic_write_json(coordinators_path, coordinators)
+        logger.info(
+            "Wrote %d coordinator names to %s",
+            len(coordinators),
+            coordinators_path,
         )
 
     matched = len(volunteers)
