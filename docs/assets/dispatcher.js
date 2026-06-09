@@ -88,6 +88,7 @@
     mapBuilt: false,        // true once the SVG choropleth is drawn
     mapAreas: {},           // area-string -> array of county-path <path> nodes
     mapCounties: {},        // county name -> its county-path <path> node
+    countyCentroids: {},    // county name -> { lat, lon } area-weighted centroid (from geojson)
     currentCounty: null     // county name currently distinctly highlighted (hl-county)
   };
 
@@ -450,6 +451,36 @@
     return bestOpen || bestAny;
   }
 
+  // Rank the public rehabbers by straight-line (haversine) distance from an
+  // origin point (animal coords OR a county centroid) and return the nearest
+  // `n` as plain row objects. Rehabbers missing numeric coords are skipped.
+  // Returns [{ rehab_name, county, distance_mi, open_closed, is_open, is_closed,
+  //            availability, website }], sorted ascending by distance, length<=n.
+  function nearestRehabbers(lat, lon, n) {
+    var limit = (typeof n === 'number' && n > 0) ? n : 3;
+    var list = state.rehabbers || [];
+    var scored = [];
+    for (var i = 0; i < list.length; i++) {
+      var rec = list[i];
+      if (!rec || typeof rec.lat !== 'number' || typeof rec.lon !== 'number') continue;
+      var oc = String(rec.open_closed || '');
+      var ocNorm = oc.trim().toLowerCase();
+      scored.push({
+        rehab_name: String(rec.rehab_name || ''),
+        county: String(rec.county || ''),
+        distance_mi: haversineMiles(lat, lon, rec.lat, rec.lon),
+        open_closed: oc,
+        is_open: ocNorm === 'open',
+        is_closed: ocNorm === 'closed',
+        availability: String(rec.availability || ''),
+        website: String(rec.website || '').trim()
+      });
+    }
+    // Stable ascending sort by distance (ties keep dataset order via index).
+    scored.sort(function (a, b) { return a.distance_mi - b.distance_mi; });
+    return scored.slice(0, limit);
+  }
+
   // Tier 1 notify line: resolve a county to its WIN area + coordinator NAME
   // (name only, never phone). county -> area via state.countyWin (county_win.json),
   // area -> name via state.coordinators (coordinators.json). Returns
@@ -696,6 +727,102 @@
     }
   }
 
+  // Render the "Nearest rehabbers" top-3 panel. `origin` is the point distances
+  // are measured from:
+  //   { lat, lon, source:'animal' }            — animal-address geocode
+  //   { lat, lon, source:'county', county:'X' } — county-centroid fallback
+  // Falsy origin (no animal coords AND no county centroid) hides the panel.
+  // Each row shows: name, distance, open/closed status, the verbatim
+  // availability text (line breaks preserved via CSS white-space:pre-line), and
+  // a website link ONLY when a non-empty website exists.
+  function renderNearestRehabbers(origin) {
+    var T2 = MSG.tier2Aggregate;
+    var block = $('#rehab-block');
+    var headerEl = $('#rehab-header');
+    var listEl = $('#rehab-list');
+    var emptyEl = $('#rehab-empty');
+    if (!block) return;
+
+    // No usable origin → keep the panel hidden entirely (caller fell back).
+    if (!origin || typeof origin.lat !== 'number' || typeof origin.lon !== 'number') {
+      block.style.display = 'none';
+      if (listEl) listEl.innerHTML = '';
+      if (emptyEl) { emptyEl.style.display = 'none'; emptyEl.textContent = ''; }
+      return;
+    }
+
+    var rows = nearestRehabbers(origin.lat, origin.lon, 3);
+    var originNote = (origin.source === 'county' && origin.county)
+      ? fmt(T2.rehabOriginCounty, { county: escapeHtml(origin.county) })
+      : T2.rehabOriginAnimal;
+
+    if (headerEl) {
+      headerEl.innerHTML = fmt(T2.rehabHeader, { count: rows.length }) +
+        ' <span style="font-weight:400;font-size:12.5px;color:var(--text-muted);">· ' +
+        originNote + '</span>';
+    }
+
+    if (!rows.length) {
+      if (listEl) listEl.innerHTML = '';
+      if (emptyEl) { emptyEl.textContent = T2.rehabNone; emptyEl.style.display = 'block'; }
+      block.style.display = 'block';
+      return;
+    }
+    if (emptyEl) { emptyEl.style.display = 'none'; emptyEl.textContent = ''; }
+
+    if (listEl) {
+      listEl.innerHTML = rows.map(function (r) {
+        var distTxt = fmt(T2.rehabDistance, { dist: r.distance_mi.toFixed(1) });
+        var statusClass, statusText;
+        if (r.is_open) { statusClass = 'open'; statusText = T2.rehabStatusOpen; }
+        else if (r.is_closed) { statusClass = 'closed'; statusText = T2.rehabStatusClosed; }
+        else { statusClass = 'unknown'; statusText = T2.rehabStatusUnknown; }
+
+        var avail = r.availability && r.availability.trim()
+          ? '<div class="rehab-avail">' + escapeHtml(r.availability) + '</div>'
+          : '';
+        var site = r.website
+          ? '<div class="rehab-site"><a href="' + escapeHtml(r.website) +
+            '" target="_blank" rel="noopener">' + escapeHtml(T2.rehabWebsiteLabel) + '</a></div>'
+          : '';
+
+        return '<li class="rehab-row">' +
+               '<div class="rehab-top">' +
+               '<span class="rehab-name">' + escapeHtml(r.rehab_name) + '</span>' +
+               '<span class="rehab-status ' + statusClass + '">' + escapeHtml(statusText) + '</span>' +
+               '<span class="rehab-dist">' + escapeHtml(distTxt) + '</span>' +
+               '</div>' +
+               avail + site +
+               '</li>';
+      }).join('');
+    }
+    block.style.display = 'block';
+  }
+
+  // Pick the rehabber-ranking origin for a finished aggregate lookup:
+  //   1. ANIMAL ADDRESS path — the Worker echoes top-level animal_lat/animal_lon
+  //      on a successful geocode; use them as the origin.
+  //   2. COUNTY path — no geocode coords; fall back to the county CENTROID
+  //      (derived from pa_counties.geojson in buildMap → state.countyCentroids).
+  //      The county is the Tier-1 carry-over (ctx.excludeCounty) or, failing
+  //      that, the county currently selected in the form.
+  // Returns an origin object or null when neither path yields coordinates.
+  function pickRehabberOrigin(agg, ctx) {
+    if (agg && typeof agg.animal_lat === 'number' && typeof agg.animal_lon === 'number') {
+      return { lat: agg.animal_lat, lon: agg.animal_lon, source: 'animal' };
+    }
+    var county = (ctx && ctx.excludeCounty) ? ctx.excludeCounty : null;
+    if (!county) {
+      var sel = $('#county');
+      if (sel && sel.value) county = sel.value;
+    }
+    if (county && state.countyCentroids && state.countyCentroids[county]) {
+      var c = state.countyCentroids[county];
+      return { lat: c.lat, lon: c.lon, source: 'county', county: county };
+    }
+    return null;
+  }
+
   function renderAggregate(agg, ctx) {
     var roles = (agg && agg.role_counts) || {};
     var avail = (agg && agg.role_available) || null;
@@ -854,6 +981,7 @@
 
     $('#agg-actions').innerHTML = actions.join('');
     renderContextList(agg, ctx);
+    renderNearestRehabbers(pickRehabberOrigin(agg, ctx));
     $('#address-result').style.display = 'block';
   }
 
@@ -1193,6 +1321,42 @@
     return best;
   }
 
+  // Area-weighted (shoelace) centroid of a geometry in RAW lon/lat degrees,
+  // computed over the largest ring (the visual body of a Polygon/MultiPolygon)
+  // so the result sits inside the county. Independent of the SVG projection —
+  // this is the COUNTY-PATH origin used to rank rehabbers when the dispatcher
+  // only picks a county (no animal address). Returns { lat, lon } or null.
+  function geoCentroidLatLon(geom) {
+    var best = null; // { area, lat, lon }
+    eachRing(geom, function (ring) {
+      var n = ring.length;
+      if (n < 3) return;
+      var a = 0, cx = 0, cy = 0;
+      for (var i = 0, j = n - 1; i < n; j = i++) {
+        var xi = ring[i][0], yi = ring[i][1];
+        var xj = ring[j][0], yj = ring[j][1];
+        var cross = xj * yi - xi * yj;
+        a += cross;
+        cx += (xi + xj) * cross;
+        cy += (yi + yj) * cross;
+      }
+      a = a / 2;
+      var lon, lat;
+      if (Math.abs(a) < 1e-12) {
+        var sx = 0, sy = 0;
+        for (var k = 0; k < n; k++) { sx += ring[k][0]; sy += ring[k][1]; }
+        lon = sx / n; lat = sy / n;
+        a = 0;
+      } else {
+        lon = cx / (6 * a);
+        lat = cy / (6 * a);
+      }
+      var absA = Math.abs(a);
+      if (!best || absA > best.area) best = { area: absA, lat: lat, lon: lon };
+    });
+    return best ? { lat: best.lat, lon: best.lon } : null;
+  }
+
   // Draw the choropleth: 67 county <path>s colored by win_area, into an inline
   // SVG. Builds state.mapAreas (area -> [<path>]) for fast highlight toggling.
   function buildMap(geojson) {
@@ -1214,6 +1378,7 @@
 
     state.mapAreas = {};
     state.mapCounties = {};
+    state.countyCentroids = {};
     var labelInfos = [];
     features.forEach(function (f) {
       var props = f.properties || {};
@@ -1234,6 +1399,10 @@
       if (!state.mapAreas[area]) state.mapAreas[area] = [];
       state.mapAreas[area].push(path);
       if (county) state.mapCounties[county] = path;
+      if (county) {
+        var ctr = geoCentroidLatLon(f.geometry);
+        if (ctr) state.countyCentroids[county] = ctr;
+      }
       var anchor = labelAnchor(f.geometry, proj);
       if (county && anchor) {
         labelInfos.push({ county: county, anchor: anchor });

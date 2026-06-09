@@ -599,6 +599,60 @@
       border: 1px solid #f0b8b0;
     }
 
+    /* ─── Nearest-rehabber top-3 list ──────────────────────────── */
+    .rehab-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .rehab-row {
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      font-size: 14px;
+    }
+    .rehab-row .rehab-top {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .rehab-row .rehab-name { font-weight: 700; color: var(--text); }
+    .rehab-row .rehab-dist {
+      margin-left: auto;
+      font-weight: 700;
+      color: var(--text);
+      white-space: nowrap;
+    }
+    .rehab-status {
+      display: inline-block;
+      padding: 2px 9px;
+      font-size: 11.5px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+    .rehab-status.open {
+      background: var(--green-light);
+      color: var(--green-deep);
+      border: 1px solid #c8e6d2;
+    }
+    .rehab-status.closed {
+      background: var(--red-light);
+      color: var(--red);
+      border: 1px solid #f0b8b0;
+    }
+    .rehab-status.unknown {
+      background: #f0efeb;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    .rehab-row .rehab-avail {
+      margin: 6px 0 0;
+      font-size: 13px;
+      color: var(--text);
+      white-space: pre-line;
+    }
+    .rehab-row .rehab-site { margin-top: 6px; font-size: 13px; }
+
     .actions-header {
       font-size: 12px;
       font-weight: 700;
@@ -968,6 +1022,12 @@
         <div id="ctx-notice" class="ctx-notice" style="display:none;"></div>
         <div id="ctx-empty" class="ctx-empty" style="display:none;"></div>
         <ul id="ctx-list" class="ctx-list"></ul>
+      </div>
+
+      <div id="rehab-block" style="display:none;">
+        <div class="ctx-header" id="rehab-header">Nearest rehabbers</div>
+        <div id="rehab-empty" class="ctx-empty" style="display:none;"></div>
+        <ul id="rehab-list" class="rehab-list"></ul>
       </div>
 
       <div class="agg-meta">

@@ -133,6 +133,118 @@ async function testCoordBothEmpty() {
   assertEqual(sandbox.__coordinatorsForAreas(['5']).length, 0, 'no names rendered');
 }
 
+// Build a sandbox exposing the REAL nearestRehabbers / haversineMiles /
+// geoCentroidLatLon, backed by an injectable state.rehabbers. Exercises the
+// committed top-3 ranking + county-centroid logic (no reimplementation).
+function buildRehabSandbox(rehabbers) {
+  const state = { rehabbers: rehabbers || [] };
+  const sandbox = {
+    state: state,
+    Math: Math,
+    Number: Number,
+    String: String,
+    Array: Array,
+    Object: Object,
+    console: console
+  };
+  vm.createContext(sandbox);
+  const code =
+    extractFunction('haversineMiles') + '\n' +
+    extractFunction('nearestRehabbers') + '\n' +
+    extractFunction('eachRing') + '\n' +
+    extractFunction('geoCentroidLatLon') + '\n' +
+    'this.__haversineMiles = haversineMiles;\n' +
+    'this.__nearestRehabbers = nearestRehabbers;\n' +
+    'this.__geoCentroidLatLon = geoCentroidLatLon;\n';
+  vm.runInContext(code, sandbox);
+  return { sandbox: sandbox, state: state };
+}
+
+// Realistic small fixture: 5 rehabbers around western PA. Distances increase
+// roughly from the Pittsburgh-ish origin used below.
+const REHAB_FIXTURE = [
+  { rehab_name: 'Alpha (closest, open, has site)', county: 'Allegheny', lat: 40.44, lon: -79.99,
+    availability: 'Songbirds only\nM,P,R RVS', open_closed: 'Open', website: 'https://alpha.example' },
+  { rehab_name: 'Bravo (2nd, closed, no site)', county: 'Allegheny', lat: 40.50, lon: -80.10,
+    availability: 'Mammals', open_closed: 'Closed', website: '' },
+  { rehab_name: 'Charlie (3rd, open, no site)', county: 'Butler', lat: 40.86, lon: -79.90,
+    availability: 'Raptors', open_closed: 'Open', website: '' },
+  { rehab_name: 'Delta (4th)', county: 'Westmoreland', lat: 40.30, lon: -79.50,
+    availability: '', open_closed: 'Open', website: 'https://delta.example' },
+  { rehab_name: 'Echo (far)', county: 'Erie', lat: 42.13, lon: -80.08,
+    availability: 'All', open_closed: 'Open', website: 'https://echo.example' }
+];
+
+function testRehabTop3Ranking() {
+  console.log('\n[rehab] nearestRehabbers returns top-3 sorted ascending by distance');
+  const { sandbox } = buildRehabSandbox(REHAB_FIXTURE);
+  const rows = sandbox.__nearestRehabbers(40.44, -79.99, 3);
+  assertEqual(rows.length, 3, 'returns exactly 3 rows');
+  assertEqual(rows[0].rehab_name, 'Alpha (closest, open, has site)', 'rank 1 is the closest');
+  assert(rows[0].distance_mi <= rows[1].distance_mi, 'row0 <= row1 distance');
+  assert(rows[1].distance_mi <= rows[2].distance_mi, 'row1 <= row2 distance');
+  assert(rows[0].distance_mi < 0.001, 'closest distance ~0 mi for coincident origin');
+  const names = rows.map(function (r) { return r.rehab_name; });
+  assert(names.indexOf('Echo (far)') < 0, 'far rehabber excluded from top-3');
+}
+
+function testRehabDistanceFormatting() {
+  console.log('\n[rehab] distance formats to one decimal place (X.X mi)');
+  const { sandbox } = buildRehabSandbox(REHAB_FIXTURE);
+  const rows = sandbox.__nearestRehabbers(40.44, -79.99, 3);
+  rows.forEach(function (r) {
+    const txt = r.distance_mi.toFixed(1);
+    assert(/^\d+\.\d$/.test(txt), 'distance ' + txt + ' has exactly one decimal');
+  });
+  assert(rows[1].distance_mi > 0, 'second row has a positive distance');
+}
+
+function testRehabWebsiteFlag() {
+  console.log('\n[rehab] empty website normalized to "" (link omitted by renderer)');
+  const { sandbox } = buildRehabSandbox(REHAB_FIXTURE);
+  const rows = sandbox.__nearestRehabbers(40.44, -79.99, 3);
+  const alpha = rows.find(function (r) { return r.rehab_name.indexOf('Alpha') === 0; });
+  const bravo = rows.find(function (r) { return r.rehab_name.indexOf('Bravo') === 0; });
+  assertEqual(alpha.website, 'https://alpha.example', 'non-empty website preserved');
+  assertEqual(bravo.website, '', 'empty website stays empty (renderer omits link)');
+  assertEqual(bravo.is_open, false, 'closed rehabber is_open=false');
+  assertEqual(bravo.is_closed, true, 'closed rehabber is_closed=true');
+}
+
+function testRehabFewerThan3() {
+  console.log('\n[rehab] fewer than 3 -> returns what exists; skips missing coords');
+  const { sandbox } = buildRehabSandbox([
+    REHAB_FIXTURE[0],
+    { rehab_name: 'NoCoords', availability: 'x', open_closed: 'Open', website: '' }
+  ]);
+  const rows = sandbox.__nearestRehabbers(40.44, -79.99, 3);
+  assertEqual(rows.length, 1, 'only the one rehabber with numeric coords is ranked');
+  assertEqual(rows[0].rehab_name, 'Alpha (closest, open, has site)', 'coord-bearing row kept');
+}
+
+function testCountyCentroidFromGeojson() {
+  console.log('\n[rehab] county centroid from pa_counties.geojson is inside PA');
+  const { sandbox } = buildRehabSandbox([]);
+  const geo = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '..', 'docs', 'data', 'pa_counties.geojson'), 'utf8'));
+  const alleg = geo.features.find(function (f) {
+    return f.properties && f.properties.county === 'Allegheny';
+  });
+  assert(!!alleg, 'Allegheny feature present in geojson');
+  const c = sandbox.__geoCentroidLatLon(alleg.geometry);
+  assert(!!c, 'centroid computed');
+  assert(c.lat > 40.2 && c.lat < 40.8, 'centroid lat in Allegheny range (got ' + c.lat + ')');
+  assert(c.lon > -80.4 && c.lon < -79.7, 'centroid lon in Allegheny range (got ' + c.lon + ')');
+  let allInPa = true;
+  geo.features.forEach(function (f) {
+    const ctr = sandbox.__geoCentroidLatLon(f.geometry);
+    if (!ctr || ctr.lat < 39.5 || ctr.lat > 42.6 || ctr.lon < -80.7 || ctr.lon > -74.5) {
+      allInPa = false;
+    }
+  });
+  assert(allInPa, 'all 67 county centroids fall within PA bounding box');
+}
+
 function testCountyCount() {
   console.log('\n[county] PA_COUNTIES still enumerates 67 counties');
   const m = SRC.match(/var PA_COUNTIES = \[([\s\S]*?)\];/);
@@ -178,6 +290,11 @@ async function testLiveWorker() {
 (async function main() {
   console.log('== Phase G live-Worker + coordinator-source harness ==');
   testCountyCount();
+  testRehabTop3Ranking();
+  testRehabDistanceFormatting();
+  testRehabWebsiteFlag();
+  testRehabFewerThan3();
+  testCountyCentroidFromGeojson();
   await testCoordPreferBoard();
   await testCoordFallbackEmpty();
   await testCoordFallbackMissing();

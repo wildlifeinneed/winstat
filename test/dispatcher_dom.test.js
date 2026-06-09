@@ -1017,6 +1017,131 @@ async function runTier1Highlight() {
   console.log('PASS: Tier 1 county select highlights only that county area (animal) + adds hl-county to exactly one path; deselect clears both.');
 }
 
+// ── Nearest-rehabber top-3 panel: 4-facility fixture so the top-3 cap is
+//    actually exercised; includes a Closed facility and an empty-website
+//    facility (link must be omitted). ─────────────────────────────────────
+const REHAB_DATA = [
+  { rehab_name: 'Near Open Site', county: 'Allegheny', lat: 40.45, lon: -79.99,
+    availability: 'Songbirds\nM,P,R RVS', open_closed: 'Open', website: 'https://near.example' },
+  { rehab_name: 'Mid Closed NoSite', county: 'Allegheny', lat: 40.60, lon: -80.20,
+    availability: 'Mammals only', open_closed: 'Closed', website: '' },
+  { rehab_name: 'Far Open Site', county: 'Butler', lat: 41.00, lon: -79.80,
+    availability: 'Raptors', open_closed: 'Open', website: 'https://far.example' },
+  { rehab_name: 'Farthest', county: 'Erie', lat: 42.13, lon: -80.08,
+    availability: 'All', open_closed: 'Open', website: 'https://farthest.example' }
+];
+
+// Animal-address path: Worker echoes animal_lat/animal_lon; the panel ranks the
+// rehabber dataset by distance from those coords.
+async function runRehabAddressPath() {
+  const aggWithCoords = Object.assign({}, WORKER_AGG, {
+    animal_lat: 40.4443, animal_lon: -79.9569,
+  });
+  const { window } = loadDom({
+    workerAgg: aggWithCoords,
+    data: { 'rehabbers.json': REHAB_DATA },
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  const addrRadio = doc.querySelector('input[name="mode"][value="address"]');
+  addrRadio.checked = true;
+  addrRadio.dispatchEvent(new window.Event('change', { bubbles: true }));
+  doc.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  const block = doc.getElementById('rehab-block');
+  assert.ok(block, '#rehab-block exists');
+  assert.strictEqual(block.style.display, 'block', 'rehab panel is shown on the animal path');
+
+  const rows = Array.prototype.slice.call(doc.querySelectorAll('#rehab-list .rehab-row'));
+  assert.strictEqual(rows.length, 3, 'shows exactly the top 3 (got ' + rows.length + ')');
+
+  const names = rows.map(function (r) {
+    return (r.querySelector('.rehab-name').textContent || '').trim();
+  });
+  assert.deepStrictEqual(names, ['Near Open Site', 'Mid Closed NoSite', 'Far Open Site'],
+    'rows ranked ascending by distance (got ' + JSON.stringify(names) + ')');
+  assert.ok(names.indexOf('Farthest') < 0, 'farthest facility excluded from top-3');
+
+  rows.forEach(function (r) {
+    const d = (r.querySelector('.rehab-dist').textContent || '').trim();
+    assert.ok(/^\d+\.\d mi$/.test(d), 'distance formatted "X.X mi" (got "' + d + '")');
+  });
+
+  assert.ok(rows[0].querySelector('.rehab-status.open'), 'row0 shows Open status chip');
+  assert.ok(rows[1].querySelector('.rehab-status.closed'), 'row1 shows Closed status chip');
+
+  assert.ok(rows[0].querySelector('.rehab-site a'), 'row0 (has website) renders a link');
+  const row0Href = rows[0].querySelector('.rehab-site a').getAttribute('href');
+  assert.strictEqual(row0Href, 'https://near.example', 'row0 link points at its website');
+  assert.strictEqual(rows[1].querySelector('.rehab-site a'), null,
+    'row1 (empty website) renders NO link');
+
+  const row0Avail = (rows[0].querySelector('.rehab-avail').textContent || '');
+  assert.ok(row0Avail.indexOf('M,P,R RVS') !== -1,
+    'verbatim availability text preserved (got "' + row0Avail + '")');
+
+  const header = (doc.getElementById('rehab-header').textContent || '');
+  assert.ok(/animal location/i.test(header),
+    'header notes distance is from the animal location (got "' + header + '")');
+  assert.ok(/Nearest rehabbers \(3\)/.test(header),
+    'header shows the count (got "' + header + '")');
+
+  console.log('PASS: rehab panel (animal path) ranks top-3, formats distance, omits empty-website link, preserves verbatim availability.');
+}
+
+// County-centroid path: the Worker returns NO animal_lat/animal_lon. The panel
+// falls back to the selected county's centroid (from pa_counties.geojson).
+async function runRehabCountyPath() {
+  const { window } = loadDom({
+    workerAgg: WORKER_AGG, // no animal_lat/animal_lon
+    data: { 'rehabbers.json': REHAB_DATA },
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  const countySel = doc.getElementById('county');
+  countySel.value = 'Allegheny';
+  countySel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+
+  const addrRadio = doc.querySelector('input[name="mode"][value="address"]');
+  addrRadio.checked = true;
+  addrRadio.dispatchEvent(new window.Event('change', { bubbles: true }));
+  doc.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  const block = doc.getElementById('rehab-block');
+  assert.strictEqual(block.style.display, 'block',
+    'rehab panel is shown on the county-centroid fallback path');
+
+  const rows = Array.prototype.slice.call(doc.querySelectorAll('#rehab-list .rehab-row'));
+  assert.strictEqual(rows.length, 3, 'county path also shows top-3 (got ' + rows.length + ')');
+
+  const names = rows.map(function (r) {
+    return (r.querySelector('.rehab-name').textContent || '').trim();
+  });
+  assert.strictEqual(names[0], 'Near Open Site',
+    'county-centroid ranking puts the nearest Allegheny facility first (got ' + JSON.stringify(names) + ')');
+
+  const header = (doc.getElementById('rehab-header').textContent || '');
+  assert.ok(/Allegheny County center/i.test(header),
+    'header notes distance is from the county center (got "' + header + '")');
+
+  console.log('PASS: rehab panel (county path) falls back to the Allegheny geojson centroid and ranks top-3.');
+}
+
 async function run() {
   await runAddressMode();
   await runTier1Coordinator();
@@ -1034,7 +1159,9 @@ async function run() {
   await runHighlightAreas();
   await runTier2Highlight();
   await runTier1Highlight();
-  console.log('\nALL DOM TESTS PASSED (16 scenarios).');
+  await runRehabAddressPath();
+  await runRehabCountyPath();
+  console.log('\nALL DOM TESTS PASSED (18 scenarios).');
 }
 
 run().then(function () {

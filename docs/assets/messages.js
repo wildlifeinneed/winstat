@@ -158,6 +158,25 @@
       closestRehabber: 'Transport to closest rehabber: <strong>{name}</strong> (~{dist} mi){site}.{closedNote}',
       rehabberWebsiteLabel: 'website',
       rehabberClosedNote: ' <strong>Nearest is not marked OPEN — confirm before transport.</strong>',
+      // ── Nearest-rehabber top-3 panel (dispatcher.js renderNearestRehabbers) ──
+      // Header shown above the ranked list. {count} = how many rows shown (1-3).
+      rehabHeader: 'Nearest rehabbers ({count})',
+      // Origin note appended to the header, clarifying what distances measure from.
+      // Animal-address path uses rehabOriginAnimal; county-only path uses
+      // rehabOriginCounty with {county} = the county whose centroid is the origin.
+      rehabOriginAnimal: 'distance from the animal location',
+      rehabOriginCounty: 'distance from {county} County center',
+      // Per-row distance text. {dist} = miles, one decimal place.
+      rehabDistance: '{dist} mi',
+      // Open/Closed status chip text.
+      rehabStatusOpen: 'Open',
+      rehabStatusClosed: 'Closed',
+      // Status chip text when the dataset has no Open/Closed marker.
+      rehabStatusUnknown: 'Status unknown',
+      // Link text for a rehabber website (only rendered when a website exists).
+      rehabWebsiteLabel: 'website',
+      // Shown when no rehabber coordinates are available to rank.
+      rehabNone: 'No rehabber locations available to rank.',
       // No data at all. {phone}.
       noVolunteersNoData: 'No volunteers in range and no rehabber data available — ask the finder to call <strong>PA Game Commission</strong>: {phone}.',
       // Context list (out-of-county). {radius}, {county}.
