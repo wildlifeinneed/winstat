@@ -23,9 +23,31 @@ const PHOTON_URL = 'https://photon.komoot.io/api/';
 // Bias results toward Pennsylvania / US. ~PA centroid.
 const PA_BIAS_LAT = 40.9;
 const PA_BIAS_LON = -77.8;
+// SOFT bias: a Pennsylvania bounding box passed to Photon (?bbox=minLon,minLat,
+// maxLon,maxLat) so the provider ranks/limits candidates inside PA. Approximate
+// PA extent (lon -80.519891..-74.689516, lat 39.719799..42.269860).
+const PA_BBOX = { minLon: -80.519891, minLat: 39.719799, maxLon: -74.689516, maxLat: 42.269860 };
+const PA_BBOX_PARAM = PA_BBOX.minLon + ',' + PA_BBOX.minLat + ',' + PA_BBOX.maxLon + ',' + PA_BBOX.maxLat;
 const MIN_QUERY_LEN = 3;
 const DEFAULT_LIMIT = 5;
 const MAX_LIMIT = 10;
+
+// HARD filter: the dispatcher only ever needs PA addresses, so non-PA candidates
+// are dropped from the dropdown. A feature passes when its state explicitly reads
+// Pennsylvania/PA. When the provider returns NO state (some house/POI features),
+// we fall back to the PA bounding box on its coordinates (assume-PA within PA).
+function isPennsylvania(props, lat, lon) {
+  var st = props && props.state ? String(props.state).trim().toLowerCase() : '';
+  if (st) {
+    return st === 'pennsylvania' || st === 'pa';
+  }
+  // No state field: accept only if the coordinate falls inside the PA bbox.
+  if (Number.isFinite(lat) && Number.isFinite(lon)) {
+    return lon >= PA_BBOX.minLon && lon <= PA_BBOX.maxLon &&
+           lat >= PA_BBOX.minLat && lat <= PA_BBOX.maxLat;
+  }
+  return false;
+}
 
 function clampLimit(raw) {
   var n = Number(raw);
@@ -96,6 +118,9 @@ async function autocompleteAddress(query, limit, fetchFn) {
   // Bias toward PA / US.
   url.searchParams.set('lat', String(PA_BIAS_LAT));
   url.searchParams.set('lon', String(PA_BIAS_LON));
+  // SOFT bias: constrain ranking/limit to the PA bounding box so out-of-state
+  // noise is pushed out before the limit cap.
+  url.searchParams.set('bbox', PA_BBOX_PARAM);
 
   var resp;
   try {
@@ -128,20 +153,29 @@ async function autocompleteAddress(query, limit, fetchFn) {
         !props.countrycode) {
       continue;
     }
+
+    // Parse coords up front (Photon GeoJSON is [lon, lat]) so the PA filter can
+    // fall back to the bounding box when a feature carries no state field.
+    var geom = f.geometry || {};
+    var coords = Array.isArray(geom.coordinates) ? geom.coordinates : null;
+    var lon, lat;
+    if (coords && coords.length >= 2) {
+      lon = Number(coords[0]);
+      lat = Number(coords[1]);
+    }
+
+    // HARD filter: only Pennsylvania candidates reach the dropdown.
+    if (!isPennsylvania(props, lat, lon)) {
+      continue;
+    }
+
     var label = labelFromProps(props);
     if (!label) continue;
 
     var item = { label: label };
-    var geom = f.geometry || {};
-    var coords = Array.isArray(geom.coordinates) ? geom.coordinates : null;
-    // Photon GeoJSON is [lon, lat].
-    if (coords && coords.length >= 2) {
-      var lon = Number(coords[0]);
-      var lat = Number(coords[1]);
-      if (Number.isFinite(lat) && Number.isFinite(lon)) {
-        item.lat = lat;
-        item.lon = lon;
-      }
+    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+      item.lat = lat;
+      item.lon = lon;
     }
     out.push(item);
   }

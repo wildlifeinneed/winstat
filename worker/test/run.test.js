@@ -608,6 +608,57 @@ async function main() {
     assert.strictEqual(capped.length, 1, 'limit=1 respected');
   });
 
+  await test('(h7) autocompleteAddress PA-only: drops non-PA, keeps PA + no-state-in-bbox', async () => {
+    // Mixed provider response: a NJ result, a PA result, and a PA-area result
+    // with NO state field but coords inside the PA bbox (assume-PA).
+    const mixed = async () => ({
+      status: 200,
+      json: async () => ({
+        features: [
+          { // New Jersey -> MUST be dropped.
+            geometry: { type: 'Point', coordinates: [-74.2, 40.7] },
+            properties: { street: 'Main St', city: 'Newark', state: 'New Jersey',
+              countrycode: 'US', country: 'United States' },
+          },
+          { // Pennsylvania -> kept.
+            geometry: { type: 'Point', coordinates: [-76.886, 40.273] },
+            properties: { street: 'Main St', city: 'Lewisburg', state: 'Pennsylvania',
+              postcode: '17837', countrycode: 'US', country: 'United States' },
+          },
+          { // No state, coords INSIDE the PA bbox -> kept (assume-PA).
+            geometry: { type: 'Point', coordinates: [-77.8, 40.9] },
+            properties: { name: 'Some Place', city: 'Coudersport',
+              countrycode: 'US', country: 'United States' },
+          },
+          { // No state, coords OUTSIDE the PA bbox (Ohio-ish) -> dropped.
+            geometry: { type: 'Point', coordinates: [-82.0, 40.0] },
+            properties: { name: 'Elsewhere', countrycode: 'US', country: 'United States' },
+          },
+        ],
+      }),
+    });
+    const items = await autocompleteAddress('Main St', 10, mixed);
+    assert.strictEqual(items.length, 2, 'only the 2 PA candidates survive (got ' + items.length + ')');
+    assert.ok(items.every((it) => it.label.indexOf('New Jersey') === -1),
+      'no New Jersey candidate in the list');
+    assert.ok(items.some((it) => it.label.indexOf('Lewisburg') !== -1),
+      'PA address (Lewisburg) is present');
+    assert.ok(items.some((it) => Math.abs(it.lat - 40.9) < 1e-6 && Math.abs(it.lon - (-77.8)) < 1e-6),
+      'no-state but in-PA-bbox candidate is kept');
+  });
+
+  await test('(h8) autocompleteAddress sends PA bbox to Photon', async () => {
+    let seenUrl = '';
+    const capture = async (url) => {
+      seenUrl = String(url);
+      return { status: 200, json: async () => ({ features: [] }) };
+    };
+    await autocompleteAddress('123 Main St, Lewisburg, PA', 5, capture);
+    assert.ok(/[?&]bbox=-80\.519891%2C39\.719799%2C-74\.689516%2C42\.26986/.test(seenUrl) ||
+      seenUrl.indexOf('bbox=-80.519891,39.719799,-74.689516,42.26986') !== -1,
+      'Photon query carries the PA bbox (url: ' + seenUrl + ')');
+  });
+
   // (i) TIER 2 -- out-of-county context list (PII-safe) ----------------
   // Forbidden keys that must NEVER appear at any depth of a Tier 2 response.
   const TIER2_FORBIDDEN_KEYS = [
