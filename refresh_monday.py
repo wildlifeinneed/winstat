@@ -179,8 +179,32 @@ PA_COUNTIES = (
     "Washington", "Wayne", "Westmoreland", "Wyoming", "York",
 )
 
+# Phase C — RehabDB board. Rehabbers are PUBLIC-FACING facilities (public
+# websites + addresses); their data needs NO anonymization and IS committed to
+# the public docs/ folder. Lat/lon are ALREADY present on the board, so no
+# geocoding is needed. Column IDs were confirmed via introspection and are
+# addressed by concrete ID (the human titles are duplicated/ambiguous on the
+# board).
+REHAB_BOARD_ID = "9092004762"          # RehabDB
+REHAB_COL_IDS = {
+    "rehab_name": "text_mkv6bp9s",
+    "city": "text_mkqqc1s1",
+    "address": "text_mkqqff5k",
+    "state": "text_mkqqk1xk",
+    "zip": "text_mkqqe6qe",
+    "county": "text_mkqqk5cb",
+    "latitude": "text_mkqqj30w",
+    "longitude": "text_mkqqrt6e",
+    "open_closed": "color_mkv6xbc",
+    "website": "text_mkv8njgj",
+}
+
 # Output file — relative to this script's directory.
 OUTPUT_REL_PATH = Path("docs") / "data" / "county_capacity.json"
+
+# Phase C — PUBLIC rehabber dataset. Unlike the volunteer coords (private,
+# gitignored), this file IS committed: rehabbers are public-facing facilities.
+REHABBERS_REL_PATH = Path("docs") / "data" / "rehabbers.json"
 
 # Phase B — PRIVATE volunteer coords dataset. This path is GITIGNORED and the
 # file is NEVER committed to the repo (it derives from PII addresses, though it
@@ -651,6 +675,135 @@ def build_geocode_input(
         "state": _column_text(item, ADDRESS_COL_IDS["state"]),
         "zip": _column_text(item, ADDRESS_COL_IDS["zip"]),
     }
+
+
+# ---------------------------------------------------------------------------
+# Phase C — RehabDB fetch + transform (PUBLIC rehabber dataset)
+# ---------------------------------------------------------------------------
+
+# Board-level items query (no group filter): RehabDB rehabbers are not split
+# into the users/non-users groups the volunteer board uses.
+REHAB_ITEMS_QUERY = """
+query ($board_ids: [ID!], $col_ids: [String!], $limit: Int!, $cursor: String) {
+  boards(ids: $board_ids) {
+    items_page(limit: $limit, cursor: $cursor) {
+      cursor
+      items {
+        id
+        name
+        column_values(ids: $col_ids) {
+          id
+          text
+          value
+          type
+        }
+      }
+    }
+  }
+}
+"""
+
+
+def fetch_rehabbers(
+    token: Optional[str] = None,
+    session: Optional[requests.Session] = None,
+) -> List[Dict[str, Any]]:
+    """Fetch all items on the RehabDB board and return raw item dicts.
+
+    Narrow-fetch: only the REHAB_COL_IDS column_values are requested (mirrors
+    the volunteer fetch pattern) to stay under Monday's per-query complexity
+    budget. Paginates via items_page cursor.
+    """
+    col_ids = list(REHAB_COL_IDS.values())
+    out: List[Dict[str, Any]] = []
+    cursor: Optional[str] = None
+    page = 0
+    while True:
+        page += 1
+        data = graphql_request(
+            REHAB_ITEMS_QUERY,
+            variables={
+                "board_ids": [REHAB_BOARD_ID],
+                "col_ids": col_ids,
+                "limit": PAGE_LIMIT,
+                "cursor": cursor,
+            },
+            token=token,
+            session=session,
+        )
+        boards = data.get("boards") or []
+        if not boards:
+            break
+        page_block = boards[0].get("items_page") or {}
+        items = page_block.get("items") or []
+        logger.debug("RehabDB page %d: %d items", page, len(items))
+        for it in items:
+            out.append(it)
+        cursor = page_block.get("cursor")
+        if not cursor:
+            break
+    return out
+
+
+def _parse_float(text: str) -> Optional[float]:
+    """Parse a coordinate string to float, or None if blank/unparseable."""
+    if text is None:
+        return None
+    s = text.strip()
+    if not s:
+        return None
+    try:
+        return float(s)
+    except (ValueError, TypeError):
+        return None
+
+
+def build_rehabber_record(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Convert a raw RehabDB item to a PUBLIC-safe rehabber dict.
+
+    Emits ONLY the 6 public fields {rehab_name, lat, lon, county,
+    open_closed, website} (lat/lon as floats). Rows missing a parseable
+    lat OR lon are skipped with a logged warning. The rehab_name falls back
+    to the item name (rehabber's last name) when the dedicated column is
+    blank, so the record is still identifiable.
+    """
+    rehab_name = _column_text(item, REHAB_COL_IDS["rehab_name"])
+    if not rehab_name:
+        rehab_name = (item.get("name") or "").strip()
+
+    lat = _parse_float(_column_text(item, REHAB_COL_IDS["latitude"]))
+    lon = _parse_float(_column_text(item, REHAB_COL_IDS["longitude"]))
+    if lat is None or lon is None:
+        logger.warning(
+            "Skipping rehabber %r: missing/unparseable lat/lon "
+            "(lat=%r, lon=%r)",
+            rehab_name or item.get("id"),
+            _column_text(item, REHAB_COL_IDS["latitude"]),
+            _column_text(item, REHAB_COL_IDS["longitude"]),
+        )
+        return None
+
+    return {
+        "rehab_name": rehab_name,
+        "lat": lat,
+        "lon": lon,
+        "county": _column_text(item, REHAB_COL_IDS["county"]),
+        "open_closed": _column_text(item, REHAB_COL_IDS["open_closed"]),
+        "website": _column_text(item, REHAB_COL_IDS["website"]),
+    }
+
+
+def build_rehabbers(items: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Transform raw RehabDB items into the list of public rehabber records.
+
+    Rows missing lat/lon are skipped (build_rehabber_record warns).
+    """
+    out: List[Dict[str, Any]] = []
+    for it in items:
+        rec = build_rehabber_record(it)
+        if rec is not None:
+            out.append(rec)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1292,6 +1445,29 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     else:
         atomic_write_json(coords_path, coords)
         logger.info("Wrote %d coord records to %s", len(coords), coords_path)
+
+    # Phase C — fetch the RehabDB board and emit the PUBLIC rehabber dataset.
+    # Unlike volunteer coords, rehabbers are public-facing facilities; this
+    # file IS committed to docs/. Lat/lon are already on the board (no
+    # geocoding). Rows missing lat/lon are skipped with a warning.
+    rehabbers_path = Path(__file__).resolve().parent / REHABBERS_REL_PATH
+    try:
+        rehab_items = fetch_rehabbers(token=token, session=session)
+    except MondayAPIError as exc:
+        print(f"ERROR: RehabDB fetch failed: {exc}", file=sys.stderr)
+        return 8
+    rehabbers = build_rehabbers(rehab_items)
+    if args.dry_run:
+        logger.info(
+            "[dry-run] would write %d rehabber records to %s",
+            len(rehabbers),
+            rehabbers_path,
+        )
+    else:
+        atomic_write_json(rehabbers_path, rehabbers)
+        logger.info(
+            "Wrote %d rehabber records to %s", len(rehabbers), rehabbers_path
+        )
 
     matched = len(volunteers)
     n_counties = len(snapshot["counties"])
