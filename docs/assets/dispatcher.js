@@ -585,6 +585,17 @@
     }
     if (emptyEl) { emptyEl.style.display = 'none'; emptyEl.textContent = ''; }
 
+    // R2 qualification tagging: when the shared animal base info (rvs/issue) is
+    // present, tag each row qualified/not for THIS animal using the SHARED
+    // decision.js predicate (qualifiesForAnimal) — the SAME rule Tier 1 uses.
+    // ALL rows are shown regardless of qualification (no filtering). When base
+    // info is absent (backward compat) no tag is rendered.
+    var qualifyFn = (window.WildlifeDecision &&
+                     typeof window.WildlifeDecision.qualifiesForAnimal === 'function')
+      ? window.WildlifeDecision.qualifiesForAnimal : null;
+    var hasBase = ctx && typeof ctx.issue === 'string' && ctx.issue !== '';
+    var tagEnabled = !!(qualifyFn && hasBase);
+
     var radiusNum = Number(radius);
     var html = rows.map(function (row) {
       var roleList = Array.isArray(row.roles) ? row.roles : [];
@@ -593,6 +604,16 @@
         return '<span class="role-badge' + (cls ? ' ' + cls : '') + '">' +
                escapeHtml(r) + '</span>';
       }).join('');
+
+      var qualBadge = '';
+      if (tagEnabled) {
+        var ok = qualifyFn(roleList, !!ctx.rvs, ctx.issue);
+        qualBadge = ok
+          ? '<span class="qual-badge qual-yes" title="Qualified for this animal">' +
+            '<span class="qual-icon" aria-hidden="true">\u2713</span> Qualified</span>'
+          : '<span class="qual-badge qual-no" title="Not qualified for this animal">' +
+            '<span class="qual-icon" aria-hidden="true">\u2717</span> Not qualified</span>';
+      }
 
       var dist = (typeof row.distance_mi === 'number') ? row.distance_mi : Number(row.distance_mi);
       var distTxt = Number.isFinite(dist) ? dist.toFixed(1) : '?';
@@ -608,6 +629,7 @@
 
       return '<li class="ctx-row">' +
              '<span class="role-badges">' + badges + '</span>' +
+             qualBadge +
              '<span class="ctx-dist">' + distTxt + ' mi</span>' +
              ctxTxt + edge +
              '</li>';
@@ -710,7 +732,73 @@
         coordinators.map(escapeHtml).join(', ') + '</strong>.'));
     }
 
-    if (!hasQualified) {
+    // ── R2 LENIENT recommendation (Tier 2 widen / out-of-county) ─────────
+    // When the shared animal base info (rvs/issue) is present AND the response
+    // carries the out-of-county context list, recommend using the SAME strict
+    // qualification rule as the per-row tag (decision.js qualifiesForAnimal),
+    // but be FORGIVING: prefer fully-qualified helpers; when there are none in
+    // range, SURFACE the close-but-not-qualified helpers as BACKUP options with
+    // the gap stated ("find another way to get help"). The per-row TAG stays
+    // honest/strict; this text is where the flexibility lives.
+    var qualifyFn = (window.WildlifeDecision &&
+                     typeof window.WildlifeDecision.qualifiesForAnimal === 'function')
+      ? window.WildlifeDecision.qualifiesForAnimal : null;
+    var ooc = (agg && Array.isArray(agg.out_of_county)) ? agg.out_of_county : null;
+    var leniencyHandled = false;
+
+    if (qualifyFn && ooc && ctx && typeof ctx.issue === 'string' && ctx.issue !== '') {
+      var qualifiedAreas = {};
+      var backupAreas = {};
+      var qualifiedCount = 0;
+      var backupCount = 0;
+      ooc.forEach(function (row) {
+        var roleList = Array.isArray(row.roles) ? row.roles : [];
+        var area = (row.win_area !== null && row.win_area !== undefined &&
+                    String(row.win_area).trim() !== '') ? String(row.win_area).trim() : null;
+        if (qualifyFn(roleList, !!ctx.rvs, ctx.issue)) {
+          qualifiedCount += 1;
+          if (area) qualifiedAreas[area] = true;
+        } else {
+          // Close-but-not-qualified: in range with a qualifying role, just not
+          // the right one for THIS animal's RVS+Issue (e.g. a plain C&T for an
+          // RVS capture, or a COURIER for a capture).
+          backupCount += 1;
+          if (area) backupAreas[area] = true;
+        }
+      });
+
+      var qAreaList = Object.keys(qualifiedAreas).sort();
+      var bAreaList = Object.keys(backupAreas).sort();
+      var needRvs = (ctx.rvs === true);
+      var needLabel = needRvs ? 'RVS C&T'
+        : (ctx.issue === 'transport' ? 'C&T / RVS C&T / Courier' : 'C&T / RVS C&T');
+
+      if (qualifiedCount > 0) {
+        var qAreaTxt = qAreaList.length
+          ? ' in WIN area(s) <strong>' + qAreaList.map(escapeHtml).join(', ') + '</strong>'
+          : '';
+        actions.push(actionLine('go', '→',
+          'Out-of-county: <strong>' + qualifiedCount + '</strong> qualified helper(s)' +
+          qAreaTxt + ' within ' + ctx.radius + ' mi — task via <strong>Connecteam</strong>.'));
+        leniencyHandled = true;
+      } else if (backupCount > 0) {
+        // No fully-qualified helper in range: surface the backups WITH the gap.
+        var bAreaTxt = bAreaList.length
+          ? ' (WIN area(s) <strong>' + bAreaList.map(escapeHtml).join(', ') + '</strong>)'
+          : '';
+        actions.push(actionLine('escalate', '!',
+          'No qualified <strong>' + escapeHtml(needLabel) + '</strong> within ' +
+          ctx.radius + ' mi. <strong>' + backupCount + '</strong> nearby helper(s)' +
+          bAreaTxt + ' could assist as <strong>backup</strong>' +
+          (needRvs
+            ? ' (e.g. help with transport) — call <strong>PA Game Commission</strong> for the RVS capture: '
+            : ' — confirm capability, or call <strong>PA Game Commission</strong>: ') +
+          escapeHtml(PGC_PHONE) + '.'));
+        leniencyHandled = true;
+      }
+    }
+
+    if (!hasQualified && !leniencyHandled) {
       actions.push(actionLine('escalate', '!',
         'No qualified volunteers within ' + ctx.radius + ' mi — ' +
         'ask the finder to call <strong>PA Game Commission</strong>: ' +

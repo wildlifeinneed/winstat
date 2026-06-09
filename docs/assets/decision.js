@@ -82,6 +82,47 @@
     return rec;
   }
 
+  // ─── Per-volunteer qualification (SINGLE SOURCE OF TRUTH) ─────────────
+  // Decide whether a volunteer (by their declared qualifying roles) can respond
+  // to THIS animal given its RVS flag + Issue. This is the SAME rule Tier 1's
+  // recommend() enforces via its bucket selection, lifted into one named
+  // predicate so Tier 1 and Tier 2 can never drift:
+  //   RVS animal      -> requires 'RVS C&T'
+  //   Capture (non-RVS)-> 'C&T' or 'RVS C&T'
+  //   Transport       -> 'C&T' or 'RVS C&T' or 'COURIER'
+  // `roles` is an array of canonical role labels (e.g. ['C&T'], ['RVS C&T'],
+  // ['COURIER']). Comparison is whitespace/case-insensitive so 'rvs c&t' etc.
+  // still match. Unknown issue -> not qualified (mirrors recommend's E-branch).
+  function normRole(r) {
+    return String(r).replace(/\s+/g, '').toLowerCase();
+  }
+
+  function qualifiesForAnimal(roles, animalRvs, issue) {
+    var declared = {};
+    var arr = Array.isArray(roles) ? roles : (roles ? [roles] : []);
+    for (var i = 0; i < arr.length; i++) {
+      declared[normRole(arr[i])] = true;
+    }
+    var hasCt = !!declared[normRole('C&T')];
+    var hasRvs = !!declared[normRole('RVS C&T')];
+    var hasCourier = !!declared[normRole('COURIER')];
+    var issueNorm = (typeof issue === 'string') ? issue.toLowerCase().trim() : '';
+
+    if (issueNorm !== 'capture' && issueNorm !== 'transport') {
+      return false;
+    }
+    if (issueNorm === 'capture') {
+      if (animalRvs === true) {
+        // Capture + RVS animal -> RVS-capable C&T required.
+        return hasRvs;
+      }
+      // Capture + non-RVS animal -> any C&T volunteer acceptable.
+      return hasCt || hasRvs;
+    }
+    // Transport -> couriers preferred; C&T volunteers also eligible.
+    return hasCt || hasRvs || hasCourier;
+  }
+
   function recommend(capacity, animalRvs, issue, resolvedConfig) {
     var cfg = resolveConfig(resolvedConfig);
     var rec = {
@@ -165,7 +206,7 @@
     return rec;
   }
 
-  var api = { recommend: recommend, ACTIONS: ACTIONS };
+  var api = { recommend: recommend, qualifiesForAnimal: qualifiesForAnimal, ACTIONS: ACTIONS };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {
