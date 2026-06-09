@@ -399,6 +399,70 @@ async function runSuggestionCoordSubmit() {
     'editing the text clears the captured coord and reverts to the address path.');
 }
 
+// PASTE-AND-GO (primary workflow): pasting a FULL address must fire the picker
+// IMMEDIATELY (no debounce) so the matched candidate(s) appear in the SAME
+// dropdown for verification; picking one submits via animal_lat/animal_lon
+// (Census not required). This is the user's confirmed target behavior.
+async function runPasteAndGo() {
+  const { window, opts: domOpts } = loadDom();
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  const addrRadio = doc.querySelector('input[name="mode"][value="address"]');
+  addrRadio.checked = true;
+  addrRadio.dispatchEvent(new window.Event('change', { bubbles: true }));
+
+  const addrInput = doc.getElementById('animal-address');
+  const acList = doc.getElementById('address-suggestions');
+
+  // Simulate a PASTE: the value is set (as the browser does once paste applies)
+  // and a 'paste' event is fired. The handler defers a tick then queries Photon
+  // with NO debounce, so a SHORT flush (no 280ms wait) must already populate the
+  // dropdown — proving the paste path is immediate, not debounced.
+  addrInput.value = '123 Main St, Lewisburg, PA 17837';
+  addrInput.dispatchEvent(new window.Event('paste', { bubbles: true }));
+  await flush(window); // run the deferred acOnInput(true)
+  await flush(window); // settle the mocked fetch promise
+  await flush(window);
+
+  const cands = Array.prototype.slice.call(acList.querySelectorAll('.ac-item'));
+  assert.strictEqual(acList.hidden, false, 'paste populates the dropdown immediately (no typing)');
+  assert.ok(cands.length >= 1, 'paste yields at least one selectable candidate (got ' + cands.length + ')');
+  assert.strictEqual(addrInput.getAttribute('aria-expanded'), 'true',
+    'dropdown is expanded after paste');
+  // Best-first: first candidate is the top Photon match (shown for the dispatcher
+  // to eyeball). When ambiguous, multiple candidates are listed.
+  assert.strictEqual(cands[0].textContent.trim(),
+    '4400 Forbes Avenue, Pittsburgh, Pennsylvania 15213',
+    'first pasted-address candidate is the best Photon match');
+
+  // Pick the first candidate (click via mousedown, as the UI binds) -> fills the
+  // input with its label and captures its Photon coords.
+  cands[0].dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+  await flush(window);
+  assert.strictEqual(addrInput.value, '4400 Forbes Avenue, Pittsburgh, Pennsylvania 15213',
+    'picking the pasted candidate fills the input with its label');
+
+  // Submit -> must use the candidate's Photon coords directly (Census bypassed).
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  const url = domOpts.aggCalls[domOpts.aggCalls.length - 1] || '';
+  assert.ok(/[?&]animal_lat=40\.4443(&|$)/.test(url),
+    'paste->pick submits animal_lat (url: ' + url + ')');
+  assert.ok(/[?&]animal_lon=-79\.9569(&|$)/.test(url),
+    'paste->pick submits animal_lon (url: ' + url + ')');
+  assert.ok(!/[?&]address=/.test(url),
+    'paste->pick must NOT use the Census address= path (url: ' + url + ')');
+
+  console.log('PASS: pasting a full address fires the picker immediately, candidates appear in ' +
+    'the dropdown, and picking one submits via animal_lat/animal_lon (Census bypassed).');
+}
+
 // ── Tier 1: selecting a county renders the COORDINATOR NAME (name only, no
 //    phone) resolved county -> WIN area (county_win.json) -> name
 //    (coordinators.json), plus the "Widen search" affordance. ──────────────
@@ -2212,6 +2276,7 @@ async function run() {
   await runHelpViewerRenders();
   await runAddressMode();
   await runSuggestionCoordSubmit();
+  await runPasteAndGo();
   await runStandaloneAddressContextList();
   await runStandaloneNoRvsCaptureAllCtCapable();
   await runTier1Coordinator();
@@ -2242,7 +2307,7 @@ async function run() {
   await runAddressResolvedArea();
   await runDeconfliction();
   await runAddressNoHorizontalOverflowCss();
-  console.log('\nALL DOM TESTS PASSED (32 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (33 scenarios).');
 }
 
 run().then(function () {

@@ -1537,7 +1537,7 @@
       });
   }
 
-  function acOnInput() {
+  function acOnInput(immediate) {
     var els = acEls();
     var q = (els.input && els.input.value ? els.input.value : '').trim();
     if (ac.timer) { clearTimeout(ac.timer); ac.timer = null; }
@@ -1548,7 +1548,18 @@
     // then reverts to the address-string path until a new suggestion is picked.
     state.selectedAnimalCoord = null;
     if (q.length < AC_MIN_CHARS) { acClose(); return; }
+    // PASTE-AND-GO: a paste delivers a full address in one shot, so query Photon
+    // IMMEDIATELY (no debounce) — the matched candidate then appears in the same
+    // dropdown for the dispatcher to eyeball and pick (which reuses its Photon
+    // coords and bypasses Census). Typing still debounces.
+    if (immediate === true) { acFetch(q); return; }
     ac.timer = setTimeout(function () { acFetch(q); }, AC_DEBOUNCE_MS);
+  }
+
+  // A paste fires BEFORE the input value is updated, so defer to the next tick
+  // to read the settled value, then run the same query path with no debounce.
+  function acOnPaste() {
+    setTimeout(function () { acOnInput(true); }, 0);
   }
 
   function acOnKeydown(e) {
@@ -1578,7 +1589,8 @@
   function setupAutocomplete() {
     var els = acEls();
     if (!els.input || !els.list) return;
-    els.input.addEventListener('input', acOnInput);
+    els.input.addEventListener('input', function () { acOnInput(false); });
+    els.input.addEventListener('paste', acOnPaste);
     els.input.addEventListener('keydown', acOnKeydown);
     // Click / tap select.
     els.list.addEventListener('mousedown', function (e) {

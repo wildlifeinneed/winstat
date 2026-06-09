@@ -252,7 +252,7 @@
       finding: 'Finding volunteers within {radius} mi…',
       enterAddress: 'Enter the animal address first.',
       renderFailed: 'Got a response but could not display it. Please report this to the site maintainer.',
-      addressNotFound: 'No match for that address. Type a few characters and pick from the dropdown, or try "street, city, PA zip".',
+      addressNotFound: 'No match for that address. Paste the full street, city, state and ZIP, or type a few characters and pick from the dropdown.',
       geocoderUnavailable: 'Address lookup service is temporarily unavailable. Try again shortly.',
       worker400: 'Dispatcher service could not resolve that location. Try a more specific address.',
       networkError: 'Could not reach the dispatcher service. Check your connection and try again.'
