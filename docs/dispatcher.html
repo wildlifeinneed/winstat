@@ -787,6 +787,25 @@
 <div id="refresh-banner" class="refresh-banner">Loading snapshot…</div>
 
 <main>
+  <section class="panel" id="animal-base-info">
+    <div class="form-row form-row--inline">
+      <div>
+        <label class="field-label">RVS Animal?</label>
+        <div class="radio-group" id="rvs-group">
+          <label><input type="radio" name="rvs" value="yes" /> Yes</label>
+          <label><input type="radio" name="rvs" value="no" checked /> No</label>
+        </div>
+      </div>
+      <div>
+        <label class="field-label">Issue</label>
+        <div class="radio-group" id="issue-group">
+          <label><input type="radio" name="issue" value="capture" checked /> Capture</label>
+          <label><input type="radio" name="issue" value="transport" /> Transport</label>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <div class="mode-toggle" role="radiogroup" aria-label="Lookup mode">
     <label><input type="radio" name="mode" value="county" checked /> By County</label>
     <label><input type="radio" name="mode" value="address" /> By Animal Address</label>
@@ -827,23 +846,6 @@
   </section>
 
   <section class="panel">
-    <div class="form-row form-row--inline">
-      <div>
-        <label class="field-label">RVS Animal?</label>
-        <div class="radio-group" id="rvs-group">
-          <label><input type="radio" name="rvs" value="yes" /> Yes</label>
-          <label><input type="radio" name="rvs" value="no" checked /> No</label>
-        </div>
-      </div>
-      <div>
-        <label class="field-label">Issue</label>
-        <div class="radio-group" id="issue-group">
-          <label><input type="radio" name="issue" value="capture" checked /> Capture</label>
-          <label><input type="radio" name="issue" value="transport" /> Transport</label>
-        </div>
-      </div>
-    </div>
-
     <button id="recommend-btn" class="btn-primary" type="button">Get Recommendation</button>
 
     <p class="finder-fallback-note">

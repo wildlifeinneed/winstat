@@ -74,6 +74,9 @@ function makeFetch(workerHost, opts) {
   opts = opts || {};
   const workerAgg = opts.workerAgg || WORKER_AGG;
   const dataRoutes = opts.data || {};
+  // Record aggregate (non-autocomplete) Worker request URLs so a scenario can
+  // assert which params a path sent (e.g. Tier 2 carrying the shared rvs/issue).
+  const aggCalls = opts.aggCalls || (opts.aggCalls = []);
   return function fetchMock(url) {
     const u = String(url);
     if (u.indexOf(workerHost) === 0 || u.indexOf('workers.dev') !== -1) {
@@ -92,6 +95,7 @@ function makeFetch(workerHost, opts) {
           },
         });
       }
+      aggCalls.push(u);
       return Promise.resolve({
         ok: true,
         status: 200,
@@ -140,6 +144,8 @@ function makeFetch(workerHost, opts) {
 }
 
 function loadDom(opts) {
+  opts = opts || {};
+  if (!opts.aggCalls) opts.aggCalls = [];
   const html = fs.readFileSync(HTML_PATH, 'utf8');
   const dom = new JSDOM(html, {
     runScripts: 'outside-only',
@@ -169,7 +175,7 @@ function loadDom(opts) {
   // The IIFE registers DOMContentLoaded; fire it to run init().
   window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
 
-  return { dom, window };
+  return { dom, window, opts };
 }
 
 function flush(window) {
@@ -182,12 +188,31 @@ function wait(window, ms) {
 }
 
 async function runAddressMode() {
-  const { window } = loadDom();
+  const { window, opts: domOpts } = loadDom();
   const doc = window.document;
 
   // init() awaits Promise.all of the data loads; flush a couple of turns.
   await flush(window);
   await flush(window);
+
+  // --- Shared animal base-info block lives at the TOP, OUTSIDE either mode --
+  // panel (R1 input reorder): both search paths read these same radios.
+  const baseInfo = doc.getElementById('animal-base-info');
+  assert.ok(baseInfo, 'shared #animal-base-info block exists');
+  const toggle = doc.querySelector('.mode-toggle');
+  assert.ok(toggle, 'mode toggle exists');
+  // It must precede the mode toggle in document order (entered first).
+  assert.ok(
+    baseInfo.compareDocumentPosition(toggle) & window.Node.DOCUMENT_POSITION_FOLLOWING,
+    'base-info block comes BEFORE the mode toggle');
+  // ...and it must NOT live inside either mode panel.
+  assert.ok(!doc.getElementById('county-mode').contains(baseInfo),
+    'base-info block is not nested inside #county-mode');
+  assert.ok(!doc.getElementById('address-mode').contains(baseInfo),
+    'base-info block is not nested inside #address-mode');
+  // The rvs/issue radios live in the shared block.
+  assert.ok(baseInfo.querySelector('input[name="rvs"]'), 'rvs radios in shared block');
+  assert.ok(baseInfo.querySelector('input[name="issue"]'), 'issue radios in shared block');
 
   // --- County mode still renders (sanity) -------------------------------
   const countySel = doc.getElementById('county');
@@ -238,6 +263,11 @@ async function runAddressMode() {
     'selecting a suggestion must NOT trigger the aggregate submit');
 
   // --- Fill + submit ----------------------------------------------------
+  // Set the SHARED base info to NON-defaults (RVS=yes, Issue=transport) before
+  // submitting via the Address path, then assert the Worker request carried
+  // those exact values (both paths consume the same top-of-page input).
+  doc.querySelector('input[name="rvs"][value="yes"]').checked = true;
+  doc.querySelector('input[name="issue"][value="transport"]').checked = true;
   doc.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';
   doc.getElementById('radius-mi').value = '50';
   doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
@@ -246,6 +276,13 @@ async function runAddressMode() {
   await flush(window);
   await flush(window);
   await flush(window);
+
+  // The Address path must forward the shared base info to the Worker.
+  const aggUrl = domOpts.aggCalls[domOpts.aggCalls.length - 1] || '';
+  assert.ok(/[?&]rvs=yes(&|$)/.test(aggUrl),
+    'Address path forwards rvs=yes from the shared base info (url: ' + aggUrl + ')');
+  assert.ok(/[?&]issue=transport(&|$)/.test(aggUrl),
+    'Address path forwards issue=transport from the shared base info (url: ' + aggUrl + ')');
 
   // --- Assert rendered aggregate DOM -----------------------------------
   const errEl = doc.getElementById('address-error');
@@ -325,7 +362,7 @@ async function runTier1Coordinator() {
 // address, and return the document for assertions. The mock Worker returns the
 // supplied `agg` (which carries the out_of_county context list).
 async function driveTier2(agg, county) {
-  const { window } = loadDom({
+  const { window, opts } = loadDom({
     workerAgg: agg,
     data: { 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS },
   });
@@ -350,7 +387,7 @@ async function driveTier2(agg, county) {
   await flush(window);
   await flush(window);
   await flush(window);
-  return { window, doc };
+  return { window, doc, opts };
 }
 
 // ── Tier 2: out_of_county rows render as ONE row per volunteer with role
@@ -368,7 +405,18 @@ async function runTier2ContextList() {
     out_of_county_truncated: false,
     radius_too_broad: false,
   };
-  const { doc } = await driveTier2(agg, 'Allegheny');
+  const { doc, opts } = await driveTier2(agg, 'Allegheny');
+
+  // The Tier 2 widen request carries BOTH the context scope AND the shared
+  // animal base info (defaults RVS=no / Issue=capture here) — same input as Tier 1.
+  const t2Url = opts.aggCalls[opts.aggCalls.length - 1] || '';
+  assert.ok(/[?&]context=1(&|$)/.test(t2Url), 'Tier 2 request opts into context=1');
+  assert.ok(/[?&]exclude_county=Allegheny(&|$)/.test(t2Url),
+    'Tier 2 request excludes the Tier 1 county');
+  assert.ok(/[?&]rvs=no(&|$)/.test(t2Url),
+    'Tier 2 request carries the shared rvs base info (url: ' + t2Url + ')');
+  assert.ok(/[?&]issue=capture(&|$)/.test(t2Url),
+    'Tier 2 request carries the shared issue base info (url: ' + t2Url + ')');
 
   const block = doc.getElementById('ctx-block');
   assert.strictEqual(block.style.display, 'block', 'context block is shown');

@@ -319,6 +319,19 @@
     }
   }
 
+  // Shared animal base info, entered ONCE at the top of the console and read by
+  // BOTH search paths (Tier 1 county recommend + Tier 2 widen/address). Returns
+  // { rvs: bool, issue: 'capture'|'transport' } with the page defaults
+  // (RVS=No, Issue=Capture) when the radios are missing.
+  function readAnimalBaseInfo() {
+    var rvsRadio = document.querySelector('input[name="rvs"]:checked');
+    var issueRadio = document.querySelector('input[name="issue"]:checked');
+    return {
+      rvs: rvsRadio ? (rvsRadio.value === 'yes') : false,
+      issue: issueRadio ? issueRadio.value : 'capture'
+    };
+  }
+
   function onRecommendClick() {
     var out = $('#rec-output');
     var county = $('#county').value;
@@ -341,13 +354,10 @@
 
     var counties = (state.snapshot && state.snapshot.counties) || {};
     var capacity = counties[county] || null;
-    var rvsRadio = document.querySelector('input[name="rvs"]:checked');
-    var issueRadio = document.querySelector('input[name="issue"]:checked');
-    var animalRvs = rvsRadio ? (rvsRadio.value === 'yes') : false;
-    var issue = issueRadio ? issueRadio.value : 'capture';
+    var base = readAnimalBaseInfo();
 
     var resolved = resolveForCounty(state.config, county);
-    var rec = window.WildlifeDecision.recommend(capacity, animalRvs, issue, resolved);
+    var rec = window.WildlifeDecision.recommend(capacity, base.rvs, base.issue, resolved);
     renderRecommendation(rec);
   }
 
@@ -384,6 +394,15 @@
     // is unchanged; out_of_county is purely additive.
     if (opts && opts.excludeCounty) {
       url += '&context=1&exclude_county=' + encodeURIComponent(opts.excludeCounty);
+    }
+    // Carry the SHARED animal base info (entered once at the top) into the Tier 2
+    // request so both search paths consume the same input. The Worker currently
+    // ignores these params (R1 is layout/flow only — no qualification logic yet),
+    // but passing them through keeps the two paths symmetric and is forward-
+    // compatible with the R2 qualification task.
+    if (opts && opts.base) {
+      url += '&rvs=' + encodeURIComponent(opts.base.rvs ? 'yes' : 'no') +
+             '&issue=' + encodeURIComponent(opts.base.issue);
     }
     return fetch(url, { cache: 'no-store' })
       .then(function (resp) {
@@ -753,12 +772,13 @@
     // to EXCLUDE it and request the out-of-county context list. ctx carries the
     // county so renderContextList can label/empty-state correctly.
     var excludeCounty = state.widenCounty || null;
-    var ctx = { radius: radius };
+    var base = readAnimalBaseInfo();
+    var ctx = { radius: radius, rvs: base.rvs, issue: base.issue };
     if (excludeCounty) ctx.excludeCounty = excludeCounty;
 
     // Single origin: send the typed address to the Worker, which geocodes it
     // server-side (no browser CORS) and returns the PII-free aggregate.
-    fetchAggregateByAddress(addr, radius, { excludeCounty: excludeCounty })
+    fetchAggregateByAddress(addr, radius, { excludeCounty: excludeCounty, base: base })
       .then(function (agg) {
         setAddressStatus('');
         // Render in its OWN try/catch so a rendering bug (e.g. a missing DOM
