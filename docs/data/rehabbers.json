@@ -1,1 +1,202 @@
-[]
+[
+  {
+    "county": "Adams",
+    "lat": 39.7441916,
+    "lon": -77.08958142,
+    "open_closed": "Open",
+    "rehab_name": "Adams Co",
+    "website": ""
+  },
+  {
+    "county": "Allegheny",
+    "lat": 40.48956576,
+    "lon": -79.83627971,
+    "open_closed": "Open",
+    "rehab_name": "HAR",
+    "website": "https://humaneanimalrescue.org/wildlife/"
+  },
+  {
+    "county": "Berks",
+    "lat": 40.45022368,
+    "lon": -75.65123213,
+    "open_closed": "Open",
+    "rehab_name": "Cricket",
+    "website": ""
+  },
+  {
+    "county": "Berks",
+    "lat": 40.516196,
+    "lon": -75.635442,
+    "open_closed": "Open",
+    "rehab_name": "PA Bats",
+    "website": "http://pabatrescue.org/"
+  },
+  {
+    "county": "Bucks",
+    "lat": 40.34433678,
+    "lon": -75.19757803,
+    "open_closed": "Open",
+    "rehab_name": "AARK",
+    "website": "http://www.aark.org/"
+  },
+  {
+    "county": "Butler",
+    "lat": 40.70334544,
+    "lon": -79.9565371,
+    "open_closed": "Open",
+    "rehab_name": "Wildbird Rec",
+    "website": "http://www.wildbirdrecovery.org/"
+  },
+  {
+    "county": "Carbon",
+    "lat": 40.81921449,
+    "lon": -75.86117672,
+    "open_closed": "Open",
+    "rehab_name": "Carbon Co",
+    "website": "http://www.carboneec.org/"
+  },
+  {
+    "county": "Centre",
+    "lat": 40.8258278,
+    "lon": -78.0138835,
+    "open_closed": "Open",
+    "rehab_name": "Centre WC",
+    "website": "http://www.wildaboutanimals.net/"
+  },
+  {
+    "county": "Chester",
+    "lat": 40.07779585,
+    "lon": -75.49591555,
+    "open_closed": "Open",
+    "rehab_name": "Diamond Rock",
+    "website": "http://www.diamondrockwildlife.org/"
+  },
+  {
+    "county": "Crawford",
+    "lat": 41.74787983,
+    "lon": -80.11477266,
+    "open_closed": "Open",
+    "rehab_name": "Tamarack",
+    "website": "http://www.tamarackwildlife.org/"
+  },
+  {
+    "county": "Dauphin",
+    "lat": 40.574863,
+    "lon": -76.689338,
+    "open_closed": "Open",
+    "rehab_name": "Dauphin Co",
+    "website": ""
+  },
+  {
+    "county": "Lancaster",
+    "lat": 40.03119728,
+    "lon": -76.35977236,
+    "open_closed": "Open",
+    "rehab_name": "Acorn Acres",
+    "website": "https://acornacreswr.com/"
+  },
+  {
+    "county": "Lancaster",
+    "lat": 39.99389,
+    "lon": -76.470836,
+    "open_closed": "Open",
+    "rehab_name": "Raven Ridge",
+    "website": "http://ravenridgewildlifecenter.com/"
+  },
+  {
+    "county": "Luzerne",
+    "lat": 41.266151,
+    "lon": -76.064347,
+    "open_closed": "Open",
+    "rehab_name": "Episode 4",
+    "website": ""
+  },
+  {
+    "county": "Lycoming",
+    "lat": 41.212043,
+    "lon": -77.177549,
+    "open_closed": "Open",
+    "rehab_name": "Good Samaritan Wildlife",
+    "website": "https://goodsamaritanwildlife.com/"
+  },
+  {
+    "county": "Monroe",
+    "lat": 40.91479951,
+    "lon": -75.2699995,
+    "open_closed": "Open",
+    "rehab_name": "Pocono",
+    "website": "http://poconowildlife.com/"
+  },
+  {
+    "county": "Montgomery",
+    "lat": 40.17430149,
+    "lon": -75.35255435,
+    "open_closed": "Open",
+    "rehab_name": "Philly Metro",
+    "website": "http://phillywildlife.org/"
+  },
+  {
+    "county": "Montour",
+    "lat": 40.98232955,
+    "lon": -76.57421952,
+    "open_closed": "Open",
+    "rehab_name": "Guilfoose",
+    "website": ""
+  },
+  {
+    "county": "Philadelphia",
+    "lat": 40.05359038,
+    "lon": -75.24722926,
+    "open_closed": "Open",
+    "rehab_name": "Schuylkil",
+    "website": ""
+  },
+  {
+    "county": "Schuylkill",
+    "lat": 40.65563176,
+    "lon": -76.15349896,
+    "open_closed": "Open",
+    "rehab_name": "Helping Hands",
+    "website": "http://helpinghandswildlifecenter.org/"
+  },
+  {
+    "county": "Schuylkill",
+    "lat": 40.5988406,
+    "lon": -76.20065507,
+    "open_closed": "Open",
+    "rehab_name": "Red Creek",
+    "website": "https://redcreekwildlifecenter.com/"
+  },
+  {
+    "county": "Snyder",
+    "lat": 40.8559893,
+    "lon": -77.0769238,
+    "open_closed": "Open",
+    "rehab_name": "T&D Cats",
+    "website": ""
+  },
+  {
+    "county": "Westmoreland",
+    "lat": 40.18400205,
+    "lon": -79.520376,
+    "open_closed": "Open",
+    "rehab_name": "Forest Friends",
+    "website": ""
+  },
+  {
+    "county": "Westmoreland",
+    "lat": 40.2404709,
+    "lon": -79.58422005,
+    "open_closed": "Open",
+    "rehab_name": "Wildlife Works",
+    "website": "https://www.wildlifeworksinc.org/"
+  },
+  {
+    "county": "York",
+    "lat": 40.06268038,
+    "lon": -76.85254406,
+    "open_closed": "Open",
+    "rehab_name": "West Shore",
+    "website": "https://westshorewildlife.org/"
+  }
+]
