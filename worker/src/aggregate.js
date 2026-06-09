@@ -88,7 +88,24 @@ ROLE_KEYS[ROLE_CT] = normalizeRole(ROLE_CT);
 ROLE_KEYS[ROLE_RVS_CT] = normalizeRole(ROLE_RVS_CT);
 ROLE_KEYS[ROLE_COURIER] = normalizeRole(ROLE_COURIER);
 
-/** Return the set of canonical qualifying roles a volunteer declares. */
+// Separate role token the data pipeline emits alongside 'C&T'. The DERIVED
+// 'RVS C&T' bucket means a volunteer who declares BOTH 'C&T' AND 'RVS' (see
+// refresh_monday.volunteer_buckets: has_ct && has_rvs -> ct_rvs). The literal
+// pre-combined token 'RVS C&T' (normalizes to 'rvsc&t') is ALSO accepted for
+// datasets that already store the combined label.
+const RVS_KEY = normalizeRole('RVS');
+
+/**
+ * Return the set of canonical qualifying roles a volunteer declares.
+ *
+ * Tier-1 parity (refresh_monday.volunteer_buckets, ~lines 1051-1059): the
+ * 'C&T' vs 'RVS C&T' buckets are MUTUALLY EXCLUSIVE -- a volunteer with both
+ * C&T and RVS is counted ONLY in the RVS C&T (ct_rvs) bucket, never in the
+ * plain C&T (ct_no_rvs) bucket. To agree with the county tier exactly, this
+ * SYNTHESIZES 'RVS C&T' when the record declares BOTH separate 'C&T' and 'RVS'
+ * tokens (and does NOT also emit plain 'C&T'). A literal combined 'RVS C&T'
+ * token is honored the same way. Courier and C&T-only emissions are unchanged.
+ */
 function rolesOf(volunteer) {
   let declared = (volunteer && volunteer.roles) || [];
   if (typeof declared === 'string') {
@@ -100,11 +117,23 @@ function rolesOf(volunteer) {
       declaredKeys.add(normalizeRole(r));
     }
   }
+
+  const hasCt = declaredKeys.has(ROLE_KEYS[ROLE_CT]);
+  const hasRvs = declaredKeys.has(RVS_KEY);
+  // Combined: either a literal 'RVS C&T' token, OR both separate C&T + RVS.
+  const hasRvsCt = declaredKeys.has(ROLE_KEYS[ROLE_RVS_CT]) || (hasCt && hasRvs);
+  const hasCourier = declaredKeys.has(ROLE_KEYS[ROLE_COURIER]);
+
   const matched = new Set();
-  for (const canonical of QUALIFYING_ROLES) {
-    if (declaredKeys.has(ROLE_KEYS[canonical])) {
-      matched.add(canonical);
-    }
+  if (hasRvsCt) {
+    // ct_rvs bucket: emit ONLY 'RVS C&T' (exclusive of plain 'C&T'), matching
+    // Tier 1's ct_no_rvs vs ct_rvs exclusivity so role_counts agree.
+    matched.add(ROLE_RVS_CT);
+  } else if (hasCt) {
+    matched.add(ROLE_CT);
+  }
+  if (hasCourier) {
+    matched.add(ROLE_COURIER);
   }
   return matched;
 }

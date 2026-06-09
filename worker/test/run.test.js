@@ -34,6 +34,7 @@ const {
   buildAggregateResponse,
   buildTier2Response,
   isAvailableRecord,
+  rolesOf,
   DEFAULT_RADIUS_MI,
   MAX_RADIUS_MI,
   DEFAULT_MARGINAL_THRESHOLD,
@@ -1248,6 +1249,85 @@ async function main() {
     for (const k of TIER2_FORBIDDEN_KEYS) {
       assert.strictEqual(allKeys.indexOf(k), -1, 'PII key leaked: ' + k);
     }
+  });
+
+  // (rvsct) Separate-token RVS C&T synthesis (Tier-1 parity bug fix) --------
+  // The data pipeline stores SEPARATE role tokens {C&T, RVS, Courier}; the
+  // DERIVED 'RVS C&T' bucket means BOTH C&T AND RVS. rolesOf() must synthesize
+  // it (mirroring refresh_monday.volunteer_buckets ct_no_rvs vs ct_rvs).
+  await test('(rvsct-1) rolesOf synthesizes RVS C&T from separate [C&T, RVS]', () => {
+    const matched = Array.from(rolesOf({ roles: ['C&T', 'RVS'] }));
+    assert.ok(matched.indexOf('RVS C&T') !== -1, 'expected RVS C&T synthesized');
+    // Exclusive like Tier 1's ct_rvs: NOT also counted as plain C&T.
+    assert.ok(matched.indexOf('C&T') === -1, 'must not double-count as plain C&T');
+  });
+
+  await test('(rvsct-2) rolesOf for [C&T]-only does NOT emit RVS C&T', () => {
+    const matched = Array.from(rolesOf({ roles: ['C&T'] }));
+    assert.ok(matched.indexOf('C&T') !== -1, 'expected plain C&T');
+    assert.ok(matched.indexOf('RVS C&T') === -1, 'C&T-only must not be RVS C&T');
+  });
+
+  await test('(rvsct-2b) literal combined token + courier passthrough unchanged', () => {
+    assert.deepStrictEqual(Array.from(rolesOf({ roles: ['rvs c&t'] })).sort(), ['RVS C&T']);
+    assert.deepStrictEqual(Array.from(rolesOf({ roles: ['Courier'] })).sort(), ['COURIER']);
+    assert.deepStrictEqual(
+      Array.from(rolesOf({ roles: ['C&T', 'RVS', 'COURIER'] })).sort(),
+      ['COURIER', 'RVS C&T']
+    );
+  });
+
+  // (rvsct-3) ADDRESS-tier qualifying: a separate-token RVS volunteer now
+  // appears in the out-of-county context list and qualifies for Capture+RVS.
+  await test('(rvsct-3) address tier surfaces [C&T, RVS] vol tagged RVS C&T + qualifies', () => {
+    const DS = [
+      // ~8mi NE, OUT-of-county (Lebanon), declares SEPARATE C&T + RVS tokens.
+      { lat: 40.36, lon: -76.78, roles: ['C&T', 'RVS'], home_county: 'Lebanon', win_area: 'WIN-2' },
+    ];
+    const rows = findContextRows(ANIMAL.lat, ANIMAL.lon, 20, DS, 'Dauphin');
+    assert.strictEqual(rows.length, 1, 'expected the RVS C&T volunteer in range');
+    assert.deepStrictEqual(rows[0].roles, ['RVS C&T'], 'row tagged RVS C&T');
+    // decision.js qualifiesForAnimal parity: Capture + RVS animal needs hasRvs.
+    const declared = {};
+    rows[0].roles.forEach((r) => { declared[String(r).replace(/\s+/g, '').toLowerCase()] = true; });
+    const hasRvs = !!declared['rvsc&t'];
+    assert.ok(hasRvs, 'qualifiesForAnimal hasRvs would now be true');
+  });
+
+  // (rvsct-4) role_counts parity: address-mode aggregate must match the COUNTY
+  // (Tier 1) bucket semantics for the SAME dataset. ct_rvs = has_ct && has_rvs;
+  // ct_no_rvs = has_ct && !has_rvs (exclusive); courier independent.
+  await test('(rvsct-4) address-mode role_counts == county-tier bucket counts', () => {
+    const DS = [
+      { lat: 40.2732, lon: -76.8867, roles: ['C&T', 'COURIER'], home_county: 'Dauphin', win_area: 'WIN-1' }, // C&T only + courier
+      { lat: 40.30, lon: -76.85, roles: ['C&T', 'RVS'], home_county: 'Lebanon', win_area: 'WIN-2' },          // ct_rvs
+      { lat: 40.31, lon: -76.84, roles: ['rvs c&t'], home_county: 'Lancaster', win_area: 'WIN-3' },           // ct_rvs (literal)
+      { lat: 40.10, lon: -76.75, roles: ['Courier'], home_county: 'York', win_area: 'WIN-4' },                // courier only
+      { lat: 40.28, lon: -76.90, roles: ['C&T'], home_county: 'Perry', win_area: 'WIN-5' },                   // ct_no_rvs
+    ];
+    const agg = findVolunteersInRadius(ANIMAL.lat, ANIMAL.lon, 20, DS);
+
+    // Independently compute county-tier buckets (refresh_monday.volunteer_buckets).
+    const NORM = (r) => String(r).replace(/\s+/g, '').toLowerCase();
+    const county = { 'C&T': 0, 'RVS C&T': 0, 'COURIER': 0 };
+    for (const rec of DS) {
+      const keys = new Set((rec.roles || []).map(NORM));
+      const hasCt = keys.has('c&t');
+      const hasRvs = keys.has('rvs');
+      const hasRvsCt = keys.has('rvsc&t') || (hasCt && hasRvs);
+      const hasCourier = keys.has('courier');
+      if (hasRvsCt) county['RVS C&T'] += 1;          // ct_rvs
+      else if (hasCt) county['C&T'] += 1;            // ct_no_rvs (exclusive)
+      if (hasCourier) county['COURIER'] += 1;        // courier (independent)
+    }
+
+    assert.strictEqual(agg.role_counts['C&T'], county['C&T'], 'C&T parity');
+    assert.strictEqual(agg.role_counts['RVS C&T'], county['RVS C&T'], 'RVS C&T parity');
+    assert.strictEqual(agg.role_counts['COURIER'], county['COURIER'], 'COURIER parity');
+    // Sanity on the expected concrete values for this dataset.
+    assert.strictEqual(county['RVS C&T'], 2, 'two ct_rvs volunteers');
+    assert.strictEqual(county['C&T'], 2, 'two ct_no_rvs volunteers (Dauphin C&T+courier, Perry C&T)');
+    assert.strictEqual(county['COURIER'], 2, 'two couriers');
   });
 
   console.log('\n----------------------------------------');
