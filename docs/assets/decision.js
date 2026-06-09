@@ -136,6 +136,31 @@
     return hasCt || hasRvs || hasCourier;
   }
 
+  // Canonical qualifying role labels, in stable output order. These mirror the
+  // worker's QUALIFYING_ROLES and the role tokens rolesOf() emits per row.
+  var CANONICAL_ROLES = ['C&T', 'RVS C&T', 'COURIER'];
+
+  // ─── Qualifying ROLE SET for an animal (DERIVED from qualifiesForAnimal) ──
+  // Return the array of canonical role labels that ARE taskable for THIS animal
+  // (its RVS flag + Issue). This does NOT re-derive the qualification rules; it
+  // probes the SAME qualifiesForAnimal predicate with each single role so the
+  // rule lives in exactly one place. Used by Tier 2 (frontend + worker) to keep
+  // the address volunteer list to QUALIFIED rows only.
+  //   non-RVS capture -> ['C&T', 'RVS C&T']
+  //   RVS capture     -> ['RVS C&T']
+  //   transport       -> ['C&T', 'RVS C&T', 'COURIER']
+  //   unknown issue   -> []
+  function qualifyingRoles(animalRvs, issue) {
+    var out = [];
+    for (var i = 0; i < CANONICAL_ROLES.length; i++) {
+      var role = CANONICAL_ROLES[i];
+      if (qualifiesForAnimal([role], animalRvs, issue)) {
+        out.push(role);
+      }
+    }
+    return out;
+  }
+
   function recommend(capacity, animalRvs, issue, resolvedConfig) {
     var cfg = resolveConfig(resolvedConfig);
     var rec = {
@@ -219,7 +244,12 @@
     return rec;
   }
 
-  var api = { recommend: recommend, qualifiesForAnimal: qualifiesForAnimal, ACTIONS: ACTIONS };
+  var api = {
+    recommend: recommend,
+    qualifiesForAnimal: qualifiesForAnimal,
+    qualifyingRoles: qualifyingRoles,
+    ACTIONS: ACTIONS
+  };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {

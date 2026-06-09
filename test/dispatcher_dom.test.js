@@ -457,20 +457,30 @@ async function runTier2ContextList() {
     'Tier 2 request carries the shared rvs base info (url: ' + t2Url + ')');
   assert.ok(/[?&]issue=capture(&|$)/.test(t2Url),
     'Tier 2 request carries the shared issue base info (url: ' + t2Url + ')');
+  // The request also carries the derived qualifying-role set (default capture,
+  // non-RVS -> "C&T,RVS C&T") so the Worker returns qualified-only rows.
+  assert.ok(/[?&]qualify_roles=/.test(t2Url),
+    'Tier 2 request carries qualify_roles (url: ' + t2Url + ')');
+  const qrMatch = /[?&]qualify_roles=([^&]*)/.exec(t2Url);
+  const qrVal = qrMatch ? decodeURIComponent(qrMatch[1]) : '';
+  assert.strictEqual(qrVal, 'C&T,RVS C&T',
+    'non-RVS capture qualify_roles = "C&T,RVS C&T" (got: "' + qrVal + '")');
 
   const block = doc.getElementById('ctx-block');
   assert.strictEqual(block.style.display, 'block', 'context block is shown');
   assert.strictEqual(doc.getElementById('ctx-notice').style.display, 'none',
     'no overflow notice when not truncated');
 
+  // QUALIFIED-ONLY (default capture, non-RVS): the C&T row and the RVS C&T+
+  // COURIER row qualify; the COURIER-only row at 21.3mi is dropped.
   const rows = Array.prototype.slice.call(doc.querySelectorAll('#ctx-list .ctx-row'));
-  assert.strictEqual(rows.length, 3, 'one row per volunteer (got ' + rows.length + ')');
+  assert.strictEqual(rows.length, 2, 'qualified-only: 2 rows render, COURIER-only dropped (got ' + rows.length + ')');
 
-  // Nearest-first order preserved.
+  // Nearest-first order preserved among the qualified rows.
   const dists = rows.map(function (r) {
     return (r.querySelector('.ctx-dist').textContent || '').trim();
   });
-  assert.deepStrictEqual(dists, ['8.2 mi', '14.7 mi', '21.3 mi'],
+  assert.deepStrictEqual(dists, ['8.2 mi', '14.7 mi'],
     'distances render in nearest-first order (got ' + JSON.stringify(dists) + ')');
 
   // Role badges per row.
@@ -645,9 +655,10 @@ async function runTier2AvailabilityBackcompat() {
   console.log('PASS: Tier 2 cards degrade gracefully (avail=count, no badge) for pre-availability payloads.');
 }
 
-// ── R2 (a): per-row qualification TAG (strict, via shared decision.js) ──────
-//    For an RVS animal (capture), ONLY 'RVS C&T' rows get the green check; a
-//    plain C&T or a COURIER row gets the red X. Mirrors decision.js exactly.
+// ── R2 (a): QUALIFIED-ONLY list (strict, via shared decision.js) ───────────
+//    For an RVS animal (capture), ONLY 'RVS C&T' rows render; a plain C&T or a
+//    COURIER row is dropped entirely. No qualified/unqualified tags. Mirrors
+//    decision.js exactly (defensive frontend filter).
 async function runTier2QualTagRvsCapture() {
   const agg = {
     total_in_range: 3,
@@ -665,33 +676,27 @@ async function runTier2QualTagRvsCapture() {
   const { doc } = await driveTier2(agg, 'Allegheny', { rvs: true, issue: 'capture' });
 
   const rows = Array.prototype.slice.call(doc.querySelectorAll('#ctx-list .ctx-row'));
-  assert.strictEqual(rows.length, 3, 'ALL rows shown regardless of qualification (got ' + rows.length + ')');
+  assert.strictEqual(rows.length, 1, 'ONLY the qualified (RVS C&T) row renders (got ' + rows.length + ')');
+  assert.ok(Array.prototype.slice.call(rows[0].querySelectorAll('.role-badge'))
+    .some(function (b) { return b.textContent.trim() === 'RVS C&T'; }),
+    'the single rendered row is the RVS C&T volunteer');
 
-  function qual(r) { return r.querySelector('.qual-badge'); }
-  assert.ok(qual(rows[0]) && qual(rows[0]).classList.contains('qual-yes'),
-    'RVS C&T row qualifies (green) for RVS capture');
-  assert.ok(qual(rows[1]) && qual(rows[1]).classList.contains('qual-no'),
-    'plain C&T row does NOT qualify (red X) for RVS capture');
-  assert.ok(qual(rows[2]) && qual(rows[2]).classList.contains('qual-no'),
-    'COURIER row does NOT qualify (red X) for RVS capture');
-  // The badge text/icon reflect the state honestly.
-  assert.ok(/Qualified/.test(qual(rows[0]).textContent) && /\u2713/.test(qual(rows[0]).textContent),
-    'qualified badge shows a check + "Qualified"');
-  assert.ok(/Not qualified/.test(qual(rows[1]).textContent) && /\u2717/.test(qual(rows[1]).textContent),
-    'not-qualified badge shows an X + "Not qualified"');
+  // No qualified/unqualified tag UI remains (every listed row is qualified).
+  assert.strictEqual(doc.querySelectorAll('#ctx-list .ctx-row .qual-badge').length, 0,
+    'no qual-badge tags are rendered (qualified-only list)');
 
-  // Cross-check against decision.js DIRECTLY so the tag can never drift.
+  // Cross-check against decision.js DIRECTLY so the filter can never drift.
   const D = require(path.join(DOCS, 'assets', 'decision.js'));
   assert.strictEqual(D.qualifiesForAnimal(['RVS C&T'], true, 'capture'), true);
   assert.strictEqual(D.qualifiesForAnimal(['C&T'], true, 'capture'), false);
   assert.strictEqual(D.qualifiesForAnimal(['COURIER'], true, 'capture'), false);
 
-  console.log('PASS: Tier 2 strict tag (RVS capture) — RVS C&T green, C&T/COURIER red; all 3 rows shown.');
+  console.log('PASS: Tier 2 qualified-only (RVS capture) — only the RVS C&T row renders; C&T/COURIER dropped; no tags.');
 }
 
-// ── R2 (a): per-row tag for NON-RVS capture and transport cases. ────────────
+// ── R2 (a): qualified-only list for NON-RVS capture and transport cases. ────
 async function runTier2QualTagCaptureTransport() {
-  // Non-RVS capture -> C&T or RVS C&T qualify; COURIER does NOT.
+  // Non-RVS capture -> C&T or RVS C&T qualify; COURIER is dropped.
   const captureAgg = {
     total_in_range: 3,
     role_counts: { 'C&T': 1, 'RVS C&T': 1, 'COURIER': 1 },
@@ -706,12 +711,14 @@ async function runTier2QualTagCaptureTransport() {
   };
   let res = await driveTier2(captureAgg, 'Allegheny', { rvs: false, issue: 'capture' });
   let rows = Array.prototype.slice.call(res.doc.querySelectorAll('#ctx-list .ctx-row'));
-  function qual(r) { return r.querySelector('.qual-badge'); }
-  assert.ok(qual(rows[0]).classList.contains('qual-yes'), 'C&T qualifies for non-RVS capture');
-  assert.ok(qual(rows[1]).classList.contains('qual-yes'), 'RVS C&T qualifies for non-RVS capture');
-  assert.ok(qual(rows[2]).classList.contains('qual-no'), 'COURIER does NOT qualify for capture');
+  assert.strictEqual(rows.length, 2, 'non-RVS capture: C&T + RVS C&T render, COURIER dropped (got ' + rows.length + ')');
+  assert.strictEqual(res.doc.querySelectorAll('#ctx-list .ctx-row .qual-badge').length, 0,
+    'no qual-badge tags for capture list');
+  rows.forEach(function (r) {
+    assert.ok(!/COURIER/.test(r.textContent || ''), 'no COURIER row in a capture list');
+  });
 
-  // Transport -> C&T, RVS C&T, AND COURIER all qualify.
+  // Transport -> C&T, RVS C&T, AND COURIER all qualify -> all 3 render.
   const transportAgg = {
     total_in_range: 3,
     role_counts: { 'C&T': 1, 'RVS C&T': 1, 'COURIER': 1 },
@@ -726,10 +733,9 @@ async function runTier2QualTagCaptureTransport() {
   };
   res = await driveTier2(transportAgg, 'Allegheny', { rvs: false, issue: 'transport' });
   rows = Array.prototype.slice.call(res.doc.querySelectorAll('#ctx-list .ctx-row'));
-  rows.forEach(function (r) {
-    assert.ok(qual(r).classList.contains('qual-yes'),
-      'all qualifying roles qualify for transport');
-  });
+  assert.strictEqual(rows.length, 3, 'transport: all 3 roles qualify -> all 3 render');
+  assert.strictEqual(res.doc.querySelectorAll('#ctx-list .ctx-row .qual-badge').length, 0,
+    'no qual-badge tags for transport list');
 
   // Cross-check decision.js directly.
   const D = require(path.join(DOCS, 'assets', 'decision.js'));
@@ -737,7 +743,7 @@ async function runTier2QualTagCaptureTransport() {
   assert.strictEqual(D.qualifiesForAnimal(['COURIER'], false, 'capture'), false);
   assert.strictEqual(D.qualifiesForAnimal(['COURIER'], false, 'transport'), true);
 
-  console.log('PASS: Tier 2 strict tag — non-RVS capture (C&T/RVS green, COURIER red); transport (all green).');
+  console.log('PASS: Tier 2 qualified-only — non-RVS capture drops COURIER (2 rows); transport keeps all 3; no tags.');
 }
 
 // ── R2 (c): LENIENT recommendation surfaces BACKUP options when there is NO
@@ -770,9 +776,13 @@ async function runTier2LenientBackup() {
     'recommendation states the gap (no qualified RVS C&T)');
   assert.ok(/Game Commission/i.test(actions),
     'recommendation directs the strict RVS capture to PA Game Commission');
-  // The strict per-row TAG stays honest: both rows are red X.
-  const reds = doc.querySelectorAll('#ctx-list .ctx-row .qual-badge.qual-no');
-  assert.strictEqual(reds.length, 2, 'both backup rows are tagged not-qualified (strict tag honest)');
+  // QUALIFIED-ONLY list: neither the C&T nor the COURIER qualifies for an RVS
+  // capture, so the #ctx-list renders NO rows (the backup recommendation above
+  // still surfaces them from the aggregate, but the list itself stays clean).
+  const ctxRows = doc.querySelectorAll('#ctx-list .ctx-row');
+  assert.strictEqual(ctxRows.length, 0, 'qualified-only list shows no rows when none qualify');
+  assert.strictEqual(doc.querySelectorAll('#ctx-list .ctx-row .qual-badge').length, 0,
+    'no qual-badge tags rendered (tags removed)');
   // Counts only — no phone-like identity beyond the public PGC line digits.
   assert.ok(!/name/i.test(actions) || true, 'recommendation carries counts only (no identity)');
 
@@ -807,14 +817,9 @@ async function runTier2LenientPrefersQualified() {
   console.log('PASS: Tier 2 lenient recommendation prefers a qualified helper when one is in range.');
 }
 
-// ── R2 (d): backward compat — when base info is unavailable on the ctx (the
-//    tag-enable guard fails), NO qual badge is rendered and rows still show. ─
+// ── R2 (d): a qualified row still renders its role badge + distance intact
+//    (the qualified-only filter is non-destructive to the row contract). ─────
 async function runTier2QualTagBackcompat() {
-  // Standalone Address mode (no widen): the page still passes base info, so to
-  // exercise the absent-base path we assert via the decision.js guard: rows
-  // render and carry NO qual-badge when qualifiesForAnimal is not invoked.
-  // Here we simulate by checking the non-context (no out_of_county) path keeps
-  // working — covered by runAddressMode — and that the tag is purely additive.
   const agg = {
     total_in_range: 1,
     role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 0 },
@@ -825,17 +830,18 @@ async function runTier2QualTagBackcompat() {
     out_of_county_truncated: false,
     radius_too_broad: false,
   };
-  // Defaults (RVS=no/capture) -> tag IS rendered (base info always present via
-  // widen). Assert the row still renders its role badge + distance unchanged,
-  // i.e. the tag is additive and does not break the existing row contract.
+  // Defaults (RVS=no/capture) -> C&T qualifies, so the row renders. Assert it
+  // keeps its role badge + distance and carries NO qual-badge (tags removed).
   const { doc } = await driveTier2(agg, 'Allegheny');
   const rows = Array.prototype.slice.call(doc.querySelectorAll('#ctx-list .ctx-row'));
-  assert.strictEqual(rows.length, 1, 'row still rendered');
-  assert.ok(rows[0].querySelector('.role-badge'), 'role badge still present alongside the tag');
+  assert.strictEqual(rows.length, 1, 'qualified row still rendered');
+  assert.ok(rows[0].querySelector('.role-badge'), 'role badge still present');
   assert.ok((rows[0].querySelector('.ctx-dist').textContent || '').indexOf('8.0 mi') !== -1,
-    'distance still rendered alongside the tag');
+    'distance still rendered');
+  assert.strictEqual(doc.querySelectorAll('#ctx-list .ctx-row .qual-badge').length, 0,
+    'no qual-badge tags (tags removed)');
 
-  console.log('PASS: Tier 2 qualification tag is additive — role badge + distance unchanged.');
+  console.log('PASS: Tier 2 qualified row keeps role badge + distance, no qual tag.');
 }
 
 // ── D5.2: the WIN Areas map renders 67 county <path>s from the GeoJSON, each
@@ -950,7 +956,7 @@ async function runTier2Highlight() {
     win_areas: [],
     out_of_county: [
       { roles: ['C&T'], distance_mi: 9.1, win_area: '7', county: 'Centre' },
-      { roles: ['COURIER'], distance_mi: 18.6, win_area: '13', county: 'Dauphin' },
+      { roles: ['RVS C&T'], distance_mi: 18.6, win_area: '13', county: 'Dauphin' },
       { roles: ['C&T'], distance_mi: 22.0, win_area: '7', county: 'Blair' },
     ],
     out_of_county_truncated: false,
@@ -1863,32 +1869,38 @@ async function runStandaloneAddressContextList() {
     'standalone address request opts into context=1 (url: ' + url + ')');
   assert.ok(!/[?&]exclude_county=/.test(url),
     'standalone address request must NOT send exclude_county (url: ' + url + ')');
+  // It DOES carry the derived qualifying-role set. RVS=yes capture -> "RVS C&T".
+  const qrMatch = /[?&]qualify_roles=([^&]*)/.exec(url);
+  const qrVal = qrMatch ? decodeURIComponent(qrMatch[1]) : '';
+  assert.strictEqual(qrVal, 'RVS C&T',
+    'RVS capture qualify_roles = "RVS C&T" (got: "' + qrVal + '")');
 
-  // Aggregate cards still render (list is ADDITIVE, not a replacement).
+  // Aggregate cards still render (list is ADDITIVE, not a replacement). Counts
+  // reflect the FULL in-range set (UNCHANGED by the qualified-only list filter).
   const result = doc.getElementById('address-result');
   assert.strictEqual(result.style.display, 'block', 'address-result section is shown');
-  assert.strictEqual(doc.getElementById('agg-total').textContent, '4', 'aggregate total still renders');
+  assert.strictEqual(doc.getElementById('agg-total').textContent, '4', 'aggregate total still renders (full set)');
 
-  // (2) Context block + rows render.
+  // (2) Context block + QUALIFIED-ONLY rows render. For RVS=yes/capture only the
+  // RVS C&T volunteer qualifies; the plain C&T and the COURIER rows are dropped.
   const block = doc.getElementById('ctx-block');
   assert.strictEqual(block.style.display, 'block', 'context block is shown for standalone address');
   const rows = Array.prototype.slice.call(doc.querySelectorAll('#ctx-list .ctx-row'));
-  assert.strictEqual(rows.length, 3, 'one row per in-range volunteer (got ' + rows.length + ')');
+  assert.strictEqual(rows.length, 1, 'qualified-only: only the RVS C&T row renders (got ' + rows.length + ')');
 
-  // Nearest-first order preserved.
+  // The single rendered row is the nearest qualified (RVS C&T) volunteer.
   const dists = rows.map(function (r) {
     return (r.querySelector('.ctx-dist').textContent || '').trim();
   });
-  assert.deepStrictEqual(dists, ['5.1 mi', '9.4 mi', '18.6 mi'],
-    'distances render nearest-first (got ' + JSON.stringify(dists) + ')');
+  assert.deepStrictEqual(dists, ['5.1 mi'],
+    'the one qualified row is the RVS C&T at 5.1 mi (got ' + JSON.stringify(dists) + ')');
+  assert.ok(Array.prototype.slice.call(rows[0].querySelectorAll('.role-badge'))
+    .some(function (b) { return b.textContent.trim() === 'RVS C&T'; }),
+    'rendered row carries the RVS C&T role badge');
 
-  // (2b) Qualification badges render (base info present). Every row gets a
-  // badge; for RVS=yes/capture the RVS C&T row qualifies.
+  // (2b) NO qualified/unqualified tag UI remains (every listed row is qualified).
   const qualBadges = doc.querySelectorAll('#ctx-list .ctx-row .qual-badge');
-  assert.ok(qualBadges.length === rows.length,
-    'every row carries a qualification badge (got ' + qualBadges.length + ' for ' + rows.length + ' rows)');
-  const yes = doc.querySelectorAll('#ctx-list .ctx-row .qual-badge.qual-yes');
-  assert.ok(yes.length >= 1, 'at least one row is tagged Qualified for the animal');
+  assert.strictEqual(qualBadges.length, 0, 'no qual-badge tags rendered (qualified-only list)');
 
   // (3) Heading uses the standalone "Qualifying volunteers" wording, NOT the
   // out-of-county widen phrasing.
@@ -1911,7 +1923,7 @@ async function runStandaloneAddressContextList() {
   assert.ok((rows[0].textContent || '').indexOf('Allegheny') !== -1,
     'in-county (Allegheny) volunteer IS included for a standalone lookup (no exclusion)');
 
-  console.log('PASS: standalone Address lookup renders 3 qualifying context rows (context=1, no exclude_county), qual badges, standalone heading, no PII.');
+  console.log('PASS: standalone Address lookup renders qualified-only context rows (context=1, qualify_roles=RVS C&T, no exclude_county), no tags, standalone heading, no PII.');
 }
 
 // No-horizontal-overflow contract for the ADDRESS view on phones.
@@ -1973,14 +1985,19 @@ async function runAddressNoHorizontalOverflowCss() {
 //    qualifies. The aggregate Worker emits 'RVS C&T' EXCLUSIVELY for a
 //    both-capable volunteer (so panel role_counts stay mutually exclusive like
 //    Tier 1's ct_no_rvs/ct_rvs), which means those rows carry roles:['RVS C&T']
-//    and NOT a plain 'C&T' token. qualifiesForAnimal must still treat RVS C&T
-//    as C&T-capable so ALL 4 (1 plain C&T + 3 RVS C&T) render AND tag Qualified
-//    in #ctx-list. role_counts (1 C&T / 3 RVS C&T) are surfaced UNCHANGED.
+//    and NOT a plain 'C&T' token. The qualified-only list must still surface
+//    ALL 4 (1 plain C&T + 3 RVS C&T), drop couriers, and — even with enough
+//    couriers in range to push the FULL set past the overflow cap — NOT be
+//    truncated (the qualified set is 4 < 15). role_counts stay UNCHANGED.
 async function runStandaloneNoRvsCaptureAllCtCapable() {
+  // Simulate the Worker AFTER qualified-only filtering: it received our
+  // qualify_roles=C&T,RVS C&T param, so out_of_county already excludes the many
+  // couriers and is NOT truncated (4 qualified < 15). role_counts, however,
+  // still reflect the FULL in-range set incl. couriers.
   const agg = {
-    total_in_range: 4,
-    // Mutually-exclusive counts (unchanged): 1 plain C&T + 3 RVS C&T.
-    role_counts: { 'C&T': 1, 'RVS C&T': 3, 'COURIER': 0 },
+    total_in_range: 20, // 1 C&T + 3 RVS C&T + 16 couriers in range
+    // Mutually-exclusive counts (unchanged): 1 plain C&T + 3 RVS C&T + 16 COURIER.
+    role_counts: { 'C&T': 1, 'RVS C&T': 3, 'COURIER': 16 },
     win_areas: ['10', '11'],
     out_of_county: [
       { roles: ['C&T'], distance_mi: 3.0, win_area: '10', county: 'Allegheny' },
@@ -1988,11 +2005,13 @@ async function runStandaloneNoRvsCaptureAllCtCapable() {
       { roles: ['RVS C&T'], distance_mi: 9.0, win_area: '11', county: 'Beaver' },
       { roles: ['RVS C&T'], distance_mi: 12.0, win_area: '11', county: 'Beaver' },
     ],
-    out_of_county_truncated: false,
+    out_of_county_truncated: false, // qualified set (4) < cap (15) -> not truncated
     radius_too_broad: false,
   };
+  const aggCalls = [];
   const { window } = loadDom({
     workerAgg: agg,
+    aggCalls: aggCalls,
     data: { 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS },
   });
   const doc = window.document;
@@ -2015,37 +2034,48 @@ async function runStandaloneNoRvsCaptureAllCtCapable() {
   await flush(window);
   await flush(window);
 
-  // ALL 4 C&T-capable rows render (the bug rendered only the 1 plain C&T).
+  // The request carried the derived qualifying-role set so the Worker returns
+  // qualified-only rows: no-RVS capture -> "C&T,RVS C&T".
+  const url = aggCalls[aggCalls.length - 1] || '';
+  const qrMatch = /[?&]qualify_roles=([^&]*)/.exec(url);
+  const qrVal = qrMatch ? decodeURIComponent(qrMatch[1]) : '';
+  assert.strictEqual(qrVal, 'C&T,RVS C&T',
+    'no-RVS capture qualify_roles = "C&T,RVS C&T" (got: "' + qrVal + '")');
+
+  // ALL 4 C&T-capable rows render (the bug rendered only the 1 plain C&T, or
+  // dropped far qualified rows under the nearest-N cap).
   const rows = Array.prototype.slice.call(doc.querySelectorAll('#ctx-list .ctx-row'));
   assert.strictEqual(rows.length, 4,
     'all 4 C&T-capable volunteers (1 C&T + 3 RVS C&T) render in the list (got ' + rows.length + ')');
 
-  // EVERY row qualifies for a no-RVS capture (RVS C&T implies C&T capability).
-  const yes = doc.querySelectorAll('#ctx-list .ctx-row .qual-badge.qual-yes');
-  assert.strictEqual(yes.length, 4,
-    'every C&T-capable row is tagged Qualified for a no-RVS capture (got ' + yes.length + ')');
-  const no = doc.querySelectorAll('#ctx-list .ctx-row .qual-badge.qual-no');
-  assert.strictEqual(no.length, 0,
-    'no C&T-capable row is tagged Not qualified for a no-RVS capture (got ' + no.length + ')');
+  // The list is NOT truncated and shows no overflow notice (qualified set < cap).
+  assert.strictEqual(doc.getElementById('ctx-notice').style.display, 'none',
+    'no overflow notice — the qualified set (4) is below the cap');
 
-  // The 3 RVS C&T rows specifically qualify (regression: they were omitted).
+  // No courier row leaks into a capture list.
+  rows.forEach(function (r) {
+    assert.ok(!/COURIER/.test(r.textContent || ''), 'couriers excluded from a capture list');
+  });
+
+  // NO qualified/unqualified tag UI remains (every listed row is qualified).
+  assert.strictEqual(doc.querySelectorAll('#ctx-list .ctx-row .qual-badge').length, 0,
+    'no qual-badge tags rendered (qualified-only list)');
+
+  // The 3 RVS C&T rows specifically survive (regression: they were dropped by
+  // the nearest-N cap when many couriers were nearer).
   const rvsRows = rows.filter(function (r) {
     return Array.prototype.slice.call(r.querySelectorAll('.role-badge'))
       .some(function (b) { return b.textContent.trim() === 'RVS C&T'; });
   });
   assert.strictEqual(rvsRows.length, 3, 'exactly 3 RVS C&T rows present');
-  rvsRows.forEach(function (r) {
-    assert.ok(r.querySelector('.qual-badge.qual-yes'),
-      'each RVS C&T row qualifies for a no-RVS capture');
-  });
 
-  // Panel role_counts UNCHANGED: 1 C&T / 3 RVS C&T (mutually exclusive).
-  // (No role_available in this payload -> avail span falls back to the count.)
+  // Panel role_counts UNCHANGED: 1 C&T / 3 RVS C&T (full in-range set, even
+  // though the 16 couriers were excluded from the LIST).
   assert.strictEqual(doc.getElementById('agg-ct').textContent, '1', 'C&T count UNCHANGED = 1');
   assert.strictEqual(doc.getElementById('agg-rvs').textContent, '3', 'RVS C&T count UNCHANGED = 3');
 
-  console.log('PASS: no-RVS capture — all 4 C&T-capable rows (1 C&T + 3 RVS C&T) render AND tag Qualified; ' +
-    'role_counts unchanged (1 C&T / 3 RVS C&T).');
+  console.log('PASS: no-RVS capture — all 4 C&T-capable rows (1 C&T + 3 RVS C&T) render, couriers excluded, ' +
+    'list NOT truncated; role_counts unchanged (1 C&T / 3 RVS C&T / 16 COURIER).');
 }
 
 async function run() {

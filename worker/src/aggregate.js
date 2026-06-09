@@ -388,11 +388,12 @@ async function findVolunteersInRadiusDriving(
  * @returns {Promise<{rows:Array, distance_mode:'driving'|'straight_line'}>}
  */
 async function findContextRowsDriving(
-  animalLat, animalLon, radiusMi, coordsDataset, excludeCounty, drivingFn, apiKey, fetchFn, opts
+  animalLat, animalLon, radiusMi, coordsDataset, excludeCounty, drivingFn, apiKey, fetchFn, opts, qualifyRoles
 ) {
   const pre = prescreenByHaversine(animalLat, animalLon, radiusMi, coordsDataset);
   const origin = { lat: Number(animalLat), lon: Number(animalLon) };
   const excludeNorm = normalizeCounty(excludeCounty);
+  const qualifyKeys = parseQualifyRoles(qualifyRoles);
 
   let drive = { ok: false };
   if (typeof drivingFn === 'function' && pre.coords.length > 0 &&
@@ -420,6 +421,14 @@ async function findContextRowsDriving(
     }
     const matchedRoles = Array.from(rolesOf(rec));
     if (matchedRoles.length === 0) {
+      continue;
+    }
+    // QUALIFIED-ONLY filter (Tier 2 address list): drop rows whose roles do not
+    // intersect the animal's qualifying-role set BEFORE the nearest-N overflow
+    // cap downstream, so the cap operates on the qualified set only and farther
+    // qualified volunteers are never dropped in favor of nearer unqualified
+    // ones. No-op when qualifyKeys is null (county mode / backward compat).
+    if (!rowQualifies(matchedRoles, qualifyKeys)) {
       continue;
     }
     const area = rec.win_area;
@@ -466,6 +475,62 @@ function normalizeCounty(name) {
 }
 
 /**
+ * Build a normalized Set of QUALIFYING role keys from a caller-supplied role
+ * spec, or return null when no spec is given (=> no qualification filtering,
+ * preserving the historical behavior for backward compat / county mode).
+ *
+ * The frontend derives the qualifying role labels from decision.js's
+ * qualifyingRoles() (the SINGLE source of truth) and sends them as a
+ * comma-separated `qualify_roles` param (e.g. "C&T,RVS C&T"). This NEVER
+ * re-derives the RVS/issue rules here; it only normalizes the labels into the
+ * same comparison space rolesOf() uses so a row's matched roles can be tested
+ * for intersection. Empty / whitespace-only input -> null (no filtering).
+ *
+ * @param {string|string[]|null} spec  comma-separated labels or array
+ * @returns {Set<string>|null}
+ */
+function parseQualifyRoles(spec) {
+  if (spec === null || spec === undefined) {
+    return null;
+  }
+  let parts;
+  if (Array.isArray(spec)) {
+    parts = spec;
+  } else {
+    const s = String(spec).trim();
+    if (s === '') {
+      return null;
+    }
+    parts = s.split(',');
+  }
+  const keys = new Set();
+  for (const p of parts) {
+    const k = normalizeRole(p);
+    if (k !== '') {
+      keys.add(k);
+    }
+  }
+  return keys.size > 0 ? keys : null;
+}
+
+/**
+ * True when a row's matched roles intersect the qualifying-role key set.
+ * `qualifyKeys` is the normalized Set from parseQualifyRoles (or null => no
+ * filter, everything qualifies). `matchedRoles` is the array rolesOf() emits.
+ */
+function rowQualifies(matchedRoles, qualifyKeys) {
+  if (!qualifyKeys) {
+    return true;
+  }
+  for (const r of matchedRoles) {
+    if (qualifyKeys.has(normalizeRole(r))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Build the PII-SAFE out-of-county context rows for the Tier 2 "widen" search.
  *
  * For each KV record (same defensive guards as findVolunteersInRadius):
@@ -482,10 +547,11 @@ function normalizeCounty(name) {
  *
  * @returns {Array<{roles:string[], distance_mi:number, win_area:(string|null), county:(string|null)}>}
  */
-function findContextRows(animalLat, animalLon, radiusMi, coordsDataset, excludeCounty, distanceFn) {
+function findContextRows(animalLat, animalLon, radiusMi, coordsDataset, excludeCounty, distanceFn, qualifyRoles) {
   const dist = distanceFn || haversineMi;
   const radius = clampRadius(radiusMi);
   const excludeNorm = normalizeCounty(excludeCounty);
+  const qualifyKeys = parseQualifyRoles(qualifyRoles);
 
   const rows = [];
   const dataset = Array.isArray(coordsDataset) ? coordsDataset : [];
@@ -515,6 +581,11 @@ function findContextRows(animalLat, animalLon, radiusMi, coordsDataset, excludeC
 
     const matchedRoles = Array.from(rolesOf(rec));
     if (matchedRoles.length === 0) {
+      continue;
+    }
+    // QUALIFIED-ONLY filter (see findContextRowsDriving). No-op when qualifyKeys
+    // is null (county mode / backward compat).
+    if (!rowQualifies(matchedRoles, qualifyKeys)) {
       continue;
     }
 
@@ -676,6 +747,8 @@ module.exports = {
   haversineMi,
   normalizeRole,
   normalizeCounty,
+  parseQualifyRoles,
+  rowQualifies,
   round1,
   rolesOf,
   isAvailableRecord,

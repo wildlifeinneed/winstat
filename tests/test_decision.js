@@ -311,4 +311,40 @@ assert.strictEqual(qualifiesForAnimal(['RVS C&T'], false, 'unknown'), false,
   'unknown issue: nobody qualifies');
 passed++;
 
+// ── qualifyingRoles: DERIVED role set must mirror qualifiesForAnimal ─────────
+// Single source of truth: qualifyingRoles probes qualifiesForAnimal with each
+// canonical role, so the returned set must agree with the predicate exactly.
+var qualifyingRoles = mod.qualifyingRoles;
+assert.strictEqual(typeof qualifyingRoles, 'function', 'qualifyingRoles is exported');
+
+// non-RVS capture -> C&T + RVS C&T (RVS C&T implies C&T capability), NO courier.
+assert.deepStrictEqual(qualifyingRoles(false, 'capture'), ['C&T', 'RVS C&T'],
+  'no-RVS capture qualifying set = [C&T, RVS C&T]');
+// RVS capture -> RVS C&T only.
+assert.deepStrictEqual(qualifyingRoles(true, 'capture'), ['RVS C&T'],
+  'RVS capture qualifying set = [RVS C&T]');
+// transport -> all three.
+assert.deepStrictEqual(qualifyingRoles(false, 'transport'), ['C&T', 'RVS C&T', 'COURIER'],
+  'transport qualifying set = [C&T, RVS C&T, COURIER]');
+assert.deepStrictEqual(qualifyingRoles(true, 'transport'), ['C&T', 'RVS C&T', 'COURIER'],
+  'transport qualifying set is RVS-independent');
+// unknown issue -> empty set.
+assert.deepStrictEqual(qualifyingRoles(false, 'unknown'), [],
+  'unknown issue -> empty qualifying set');
+
+// Cross-check: every role qualifyingRoles returns MUST pass qualifiesForAnimal,
+// and every role it omits MUST fail it (no drift between the two).
+['capture', 'transport'].forEach(function (issue) {
+  [false, true].forEach(function (rvs) {
+    var setArr = qualifyingRoles(rvs, issue);
+    ['C&T', 'RVS C&T', 'COURIER'].forEach(function (role) {
+      var inSet = setArr.indexOf(role) !== -1;
+      assert.strictEqual(inSet, qualifiesForAnimal([role], rvs, issue),
+        'qualifyingRoles agrees with qualifiesForAnimal for ' + role +
+        ' (rvs=' + rvs + ', issue=' + issue + ')');
+    });
+  });
+});
+passed++;
+
 console.log('OK: ' + passed + ' tests passed');

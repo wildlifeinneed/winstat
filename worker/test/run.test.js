@@ -35,6 +35,9 @@ const {
   buildTier2Response,
   isAvailableRecord,
   rolesOf,
+  normalizeRole,
+  parseQualifyRoles,
+  rowQualifies,
   DEFAULT_RADIUS_MI,
   MAX_RADIUS_MI,
   DEFAULT_MARGINAL_THRESHOLD,
@@ -762,6 +765,141 @@ async function main() {
     for (const r of body.out_of_county) {
       assert.deepStrictEqual(Object.keys(r).sort(), TIER2_ROW_KEYS);
     }
+    const allKeys = collectKeys(body, []);
+    for (const k of TIER2_FORBIDDEN_KEYS) {
+      assert.strictEqual(allKeys.indexOf(k), -1, 'PII key leaked at some depth: ' + k);
+    }
+  });
+
+  // (q) QUALIFY_ROLES filter -- qualified-only context list before the cap ---
+  await test('(q1) parseQualifyRoles normalizes labels; blank/absent -> null', () => {
+    assert.strictEqual(parseQualifyRoles(null), null, 'null -> null (no filter)');
+    assert.strictEqual(parseQualifyRoles(undefined), null, 'undefined -> null');
+    assert.strictEqual(parseQualifyRoles(''), null, 'empty string -> null');
+    assert.strictEqual(parseQualifyRoles('   '), null, 'whitespace -> null');
+    const a = parseQualifyRoles('C&T,RVS C&T');
+    assert.ok(a instanceof Set && a.size === 2, 'two normalized keys');
+    assert.ok(a.has(normalizeRole('C&T')) && a.has(normalizeRole('RVS C&T')));
+    const b = parseQualifyRoles(['  rvs c&t  ']);
+    assert.ok(b instanceof Set && b.has(normalizeRole('RVS C&T')) && b.size === 1, 'array form normalized');
+  });
+
+  await test('(q2) rowQualifies: null set -> always true; else intersection', () => {
+    assert.strictEqual(rowQualifies(['COURIER'], null), true, 'null set never filters');
+    const cap = parseQualifyRoles('C&T,RVS C&T');
+    assert.strictEqual(rowQualifies(['RVS C&T'], cap), true, 'RVS C&T intersects');
+    assert.strictEqual(rowQualifies(['C&T'], cap), true, 'C&T intersects');
+    assert.strictEqual(rowQualifies(['COURIER'], cap), false, 'COURIER does not intersect a capture set');
+    const rvsOnly = parseQualifyRoles('RVS C&T');
+    assert.strictEqual(rowQualifies(['C&T'], rvsOnly), false, 'plain C&T excluded from an RVS-only set');
+  });
+
+  await test('(q3) findContextRows: qualify_roles drops non-matching rows (counts unaffected)', () => {
+    // COORDS_PII within 20mi out-of-county: Lebanon (RVS C&T) + Lancaster (COURIER).
+    // No-RVS capture set "C&T,RVS C&T" keeps the RVS C&T row, drops the COURIER.
+    const captureRows = findContextRows(ANIMAL.lat, ANIMAL.lon, 20, COORDS_PII, 'Dauphin', null, 'C&T,RVS C&T');
+    assert.strictEqual(captureRows.length, 1, 'only the RVS C&T row survives a capture filter');
+    assert.deepStrictEqual(captureRows[0].roles, ['RVS C&T']);
+    assert.strictEqual(captureRows[0].county, 'Lebanon');
+
+    // RVS-only set drops the COURIER too AND would drop a plain C&T (none here).
+    const rvsRows = findContextRows(ANIMAL.lat, ANIMAL.lon, 20, COORDS_PII, 'Dauphin', null, 'RVS C&T');
+    assert.strictEqual(rvsRows.length, 1, 'RVS-only set keeps the RVS C&T row');
+    assert.deepStrictEqual(rvsRows[0].roles, ['RVS C&T']);
+
+    // No qualify_roles -> historical behavior (both rows).
+    const allRows = findContextRows(ANIMAL.lat, ANIMAL.lon, 20, COORDS_PII, 'Dauphin');
+    assert.strictEqual(allRows.length, 2, 'absent qualify_roles preserves both rows');
+  });
+
+  await test('(q4) qualify_roles filter applies BEFORE the nearest-N cap', () => {
+    // 4 qualified (C&T) volunteers FAR out + 16 couriers NEAR. With NO filter the
+    // cap keeps the 5 nearest (all couriers) and drops the 4 C&T -> divergence.
+    // With the capture filter the cap operates on the 4 qualified only: NOT
+    // truncated, and all 4 survive.
+    const mixed = [];
+    // 16 NEAR couriers (distance grows slowly, all closer than the C&T block).
+    for (let i = 0; i < 16; i += 1) {
+      mixed.push({
+        lat: ANIMAL.lat + 0.005 * (i + 1), lon: ANIMAL.lon,
+        roles: ['COURIER'], home_county: 'Courier' + i, win_area: 'WIN-c' + i,
+      });
+    }
+    // 4 FAR C&T-capable (1 plain C&T + 3 RVS C&T), all farther than the couriers.
+    mixed.push({ lat: ANIMAL.lat + 0.20, lon: ANIMAL.lon, roles: ['C&T'], home_county: 'CtA', win_area: 'WIN-a' });
+    mixed.push({ lat: ANIMAL.lat + 0.22, lon: ANIMAL.lon, roles: ['rvs c&t'], home_county: 'CtB', win_area: 'WIN-b' });
+    mixed.push({ lat: ANIMAL.lat + 0.24, lon: ANIMAL.lon, roles: ['rvs c&t'], home_county: 'CtC', win_area: 'WIN-c' });
+    mixed.push({ lat: ANIMAL.lat + 0.26, lon: ANIMAL.lon, roles: ['rvs c&t'], home_county: 'CtD', win_area: 'WIN-d' });
+
+    // No filter: 20 rows pre-cap, then buildTier2Response trims to nearest 5
+    // (all couriers) and flags truncated -> the qualified C&T are lost.
+    const unfiltered = findContextRows(ANIMAL.lat, ANIMAL.lon, 100, mixed, 'Dauphin');
+    assert.strictEqual(unfiltered.length, 20, 'unfiltered: all 20 pre-cap');
+    const respUnfiltered = buildTier2Response(
+      { total_in_range: 20, role_counts: { 'C&T': 1, 'RVS C&T': 3, 'COURIER': 16 }, win_areas: [] },
+      unfiltered
+    );
+    assert.strictEqual(respUnfiltered.out_of_county.length, 5, 'unfiltered cap keeps 5');
+    assert.strictEqual(respUnfiltered.radius_too_broad, true, 'unfiltered triggers overflow on the full set');
+    assert.ok(respUnfiltered.out_of_county.every((r) => r.roles.indexOf('COURIER') !== -1),
+      'unfiltered nearest-5 are all couriers (the divergence bug)');
+
+    // Capture filter applied BEFORE the cap: 4 qualified rows, NOT truncated.
+    const filtered = findContextRows(ANIMAL.lat, ANIMAL.lon, 100, mixed, 'Dauphin', null, 'C&T,RVS C&T');
+    assert.strictEqual(filtered.length, 4, 'filtered: only the 4 qualified survive the pre-cap filter');
+    const respFiltered = buildTier2Response(
+      // role_counts UNCHANGED -- still the FULL in-range tally incl. couriers.
+      { total_in_range: 20, role_counts: { 'C&T': 1, 'RVS C&T': 3, 'COURIER': 16 }, win_areas: [] },
+      filtered
+    );
+    assert.strictEqual(respFiltered.out_of_county.length, 4, 'all 4 qualified rows survive the cap');
+    assert.strictEqual(respFiltered.radius_too_broad, false, 'cap does NOT trigger on a 4-row qualified set');
+    assert.strictEqual(respFiltered.out_of_county_truncated, false, 'qualified set < cap -> not truncated');
+    // role_counts surfaced UNCHANGED (full set, incl. the 16 couriers).
+    assert.strictEqual(respFiltered.role_counts['COURIER'], 16, 'role_counts unchanged (16 couriers still counted)');
+    assert.strictEqual(respFiltered.role_counts['RVS C&T'], 3, 'RVS C&T count unchanged');
+    assert.strictEqual(respFiltered.role_counts['C&T'], 1, 'C&T count unchanged');
+  });
+
+  await test('(q5) cap STILL triggers when the QUALIFIED set itself exceeds 15', () => {
+    // 20 qualified C&T volunteers -> even after the filter the cap fires.
+    const big = [];
+    for (let i = 0; i < 20; i += 1) {
+      big.push({
+        lat: ANIMAL.lat + 0.01 * (i + 1), lon: ANIMAL.lon,
+        roles: ['C&T'], home_county: 'County' + i, win_area: 'WIN-' + i,
+      });
+    }
+    const rows = findContextRows(ANIMAL.lat, ANIMAL.lon, 100, big, 'Dauphin', null, 'C&T,RVS C&T');
+    assert.strictEqual(rows.length, 20, 'all 20 qualified pre-cap');
+    const resp = buildTier2Response(
+      { total_in_range: 20, role_counts: { 'C&T': 20, 'RVS C&T': 0, 'COURIER': 0 }, win_areas: [] },
+      rows
+    );
+    assert.strictEqual(resp.out_of_county.length, 5, 'qualified-set overflow still trims to nearest 5');
+    assert.strictEqual(resp.radius_too_broad, true, 'overflow notice fires on the qualified-set size');
+    assert.strictEqual(resp.out_of_county_truncated, true);
+  });
+
+  await test('(q6) handler: qualify_roles param threads through to a qualified-only list', async () => {
+    const res = await handleRequest(
+      mockRequest('GET', {
+        animal_lat: ANIMAL.lat, animal_lon: ANIMAL.lon, radius_mi: 20,
+        context: '1', qualify_roles: 'C&T,RVS C&T', // NO exclude_county (standalone)
+      }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS_PII), allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    // Aggregate counts UNCHANGED -- full in-range set (Dauphin C&T+COURIER,
+    // Lebanon RVS C&T, Lancaster COURIER) = 3 volunteers.
+    assert.strictEqual(body.total_in_range, 3, 'aggregate spans all in-range (unchanged by the list filter)');
+    // List is qualified-only for a no-RVS capture: Dauphin (C&T) + Lebanon
+    // (RVS C&T) qualify; Lancaster (COURIER-only) is dropped.
+    const counties = body.out_of_county.map((r) => r.county).sort();
+    assert.deepStrictEqual(counties, ['Dauphin', 'Lebanon'],
+      'COURIER-only Lancaster dropped; C&T-capable rows kept');
+    // PII deep-walk still clean.
     const allKeys = collectKeys(body, []);
     for (const k of TIER2_FORBIDDEN_KEYS) {
       assert.strictEqual(allKeys.indexOf(k), -1, 'PII key leaked at some depth: ' + k);

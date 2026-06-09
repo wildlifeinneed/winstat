@@ -512,13 +512,24 @@
       }
     }
     // Carry the SHARED animal base info (entered once at the top) into the Tier 2
-    // request so both search paths consume the same input. The Worker currently
-    // ignores these params (R1 is layout/flow only — no qualification logic yet),
-    // but passing them through keeps the two paths symmetric and is forward-
-    // compatible with the R2 qualification task.
+    // request so both search paths consume the same input. From rvs+issue we
+    // also derive the QUALIFYING ROLE SET via decision.js (the SINGLE source of
+    // truth — qualifyingRoles probes the SAME qualifiesForAnimal predicate) and
+    // send it as `qualify_roles` so the Worker returns ONLY taskable volunteers
+    // for THIS animal. Filtering to qualified BEFORE the Worker's nearest-N cap
+    // is what keeps far qualified volunteers (e.g. RVS C&T) from being dropped.
     if (opts && opts.base) {
       url += '&rvs=' + encodeURIComponent(opts.base.rvs ? 'yes' : 'no') +
              '&issue=' + encodeURIComponent(opts.base.issue);
+      var qfn = (window.WildlifeDecision &&
+                 typeof window.WildlifeDecision.qualifyingRoles === 'function')
+        ? window.WildlifeDecision.qualifyingRoles : null;
+      if (qfn) {
+        var qroles = qfn(opts.base.rvs, opts.base.issue);
+        if (qroles && qroles.length) {
+          url += '&qualify_roles=' + encodeURIComponent(qroles.join(','));
+        }
+      }
     }
     return fetch(url, { cache: 'no-store' })
       .then(function (resp) {
@@ -762,7 +773,26 @@
         : fmt(T2.ctxHeader, { radius: radius });
     }
 
+    // QUALIFIED-ONLY list (product decision 2026-06-09): the Tier 2 address
+    // list shows ONLY taskable volunteers for THIS animal. The Worker already
+    // returns qualified-only rows (it filtered by the qualify_roles param we
+    // sent), but apply a DEFENSIVE frontend filter via the SHARED decision.js
+    // predicate (qualifiesForAnimal — the SAME rule, no re-derivation here) so
+    // an unqualified row can never render even if an older/cached Worker omits
+    // the filter. When base info is absent (backward compat) no filtering runs.
+    var qualifyFn = (window.WildlifeDecision &&
+                     typeof window.WildlifeDecision.qualifiesForAnimal === 'function')
+      ? window.WildlifeDecision.qualifiesForAnimal : null;
+    var hasBase = ctx && typeof ctx.issue === 'string' && ctx.issue !== '';
     var rows = agg.out_of_county;
+    if (qualifyFn && hasBase) {
+      rows = rows.filter(function (row) {
+        var roleList = Array.isArray(row.roles) ? row.roles : [];
+        return qualifyFn(roleList, !!ctx.rvs, ctx.issue);
+      });
+    }
+    // Truncation reflects the QUALIFIED set: the Worker flags overflow only when
+    // the qualified set itself exceeds the cap (it filtered before capping).
     var truncated = !!(agg.radius_too_broad || agg.out_of_county_truncated);
 
     if (noticeEl) {
@@ -787,17 +817,8 @@
     }
     if (emptyEl) { emptyEl.style.display = 'none'; emptyEl.textContent = ''; }
 
-    // R2 qualification tagging: when the shared animal base info (rvs/issue) is
-    // present, tag each row qualified/not for THIS animal using the SHARED
-    // decision.js predicate (qualifiesForAnimal) — the SAME rule Tier 1 uses.
-    // ALL rows are shown regardless of qualification (no filtering). When base
-    // info is absent (backward compat) no tag is rendered.
-    var qualifyFn = (window.WildlifeDecision &&
-                     typeof window.WildlifeDecision.qualifiesForAnimal === 'function')
-      ? window.WildlifeDecision.qualifiesForAnimal : null;
-    var hasBase = ctx && typeof ctx.issue === 'string' && ctx.issue !== '';
-    var tagEnabled = !!(qualifyFn && hasBase);
-
+    // Every listed row is qualified by definition now, so no qualified/
+    // unqualified tag is rendered — just role badges + distance + area/county.
     var radiusNum = Number(radius);
     var html = rows.map(function (row) {
       var roleList = Array.isArray(row.roles) ? row.roles : [];
@@ -806,16 +827,6 @@
         return '<span class="role-badge' + (cls ? ' ' + cls : '') + '">' +
                escapeHtml(r) + '</span>';
       }).join('');
-
-      var qualBadge = '';
-      if (tagEnabled) {
-        var ok = qualifyFn(roleList, !!ctx.rvs, ctx.issue);
-        qualBadge = ok
-          ? '<span class="qual-badge qual-yes" title="' + T2.qualBadgeYesTitle + '">' +
-            '<span class="qual-icon" aria-hidden="true">\u2713</span> ' + T2.qualBadgeYes + '</span>'
-          : '<span class="qual-badge qual-no" title="' + T2.qualBadgeNoTitle + '">' +
-            '<span class="qual-icon" aria-hidden="true">\u2717</span> ' + T2.qualBadgeNo + '</span>';
-      }
 
       var dist = (typeof row.distance_mi === 'number') ? row.distance_mi : Number(row.distance_mi);
       var distTxt = Number.isFinite(dist) ? dist.toFixed(1) : '?';
@@ -831,7 +842,6 @@
 
       return '<li class="ctx-row">' +
              '<span class="role-badges">' + badges + '</span>' +
-             qualBadge +
              '<span class="ctx-dist">' + distTxt + ' mi</span>' +
              ctxTxt + edge +
              '</li>';

@@ -69,6 +69,7 @@ async function readParams(request) {
     limit: null,
     exclude_county: null,
     context: null,
+    qualify_roles: null,
   };
 
   let url;
@@ -391,7 +392,9 @@ async function handleRequest(request, deps) {
       params.exclude_county,
       drivingDistancesMiles,
       deps.orsApiKey,
-      deps.fetchFn
+      deps.fetchFn,
+      undefined,
+      params.qualify_roles
     );
     // Single serialization seam: only buildTier2Response constructs the JSON,
     // whitelisting keys so no raw KV datum can leak. distance_mode (a single
