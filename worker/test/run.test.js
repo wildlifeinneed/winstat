@@ -28,7 +28,9 @@ const {
   clampRadius,
   haversineMi,
   findVolunteersInRadius,
+  findVolunteersInRadiusDriving,
   findContextRows,
+  findContextRowsDriving,
   buildAggregateResponse,
   buildTier2Response,
   isAvailableRecord,
@@ -38,7 +40,7 @@ const {
 } = require('../src/aggregate');
 const { geocodeAddress } = require('../src/census');
 const { autocompleteAddress } = require('../src/autocomplete');
-const { rehabberDistances } = require('../src/distance');
+const { rehabberDistances, drivingDistancesMiles, MAX_MATRIX_DESTINATIONS } = require('../src/distance');
 const { handleRequest } = require('../src/handler');
 
 // --- tiny test framework ---------------------------------------------------
@@ -320,8 +322,10 @@ async function main() {
     assert.strictEqual(res.status, 200);
     const body = await res.json();
     const keys = Object.keys(body).sort();
-    assert.deepStrictEqual(keys, ['animal_lat', 'animal_lon', 'role_counts', 'total_in_range', 'win_areas'],
+    assert.deepStrictEqual(keys, ['animal_lat', 'animal_lon', 'distance_mode', 'role_counts', 'total_in_range', 'win_areas'],
       'exact top-level key set, got: ' + JSON.stringify(keys));
+    // No ORS key supplied in deps -> driving falls back to straight_line.
+    assert.strictEqual(body.distance_mode, 'straight_line', 'fallback mode without ORS key');
     // The dispatcher-entered animal coord is echoed back (safe, not PII).
     assert.strictEqual(body.animal_lat, ANIMAL.lat, 'animal_lat echoed');
     assert.strictEqual(body.animal_lon, ANIMAL.lon, 'animal_lon echoed');
@@ -350,7 +354,7 @@ async function main() {
     assert.strictEqual(res.status, 200);
     const body = await res.json();
     assert.deepStrictEqual(Object.keys(body).sort(),
-      ['animal_lat', 'animal_lon', 'role_counts', 'total_in_range', 'win_areas']);
+      ['animal_lat', 'animal_lon', 'distance_mode', 'role_counts', 'total_in_range', 'win_areas']);
     assert.strictEqual(body.total_in_range, 3);
     // animal coords come from the geocoder on the address path.
     assert.strictEqual(body.animal_lat, ANIMAL.lat, 'geocoded animal_lat present');
@@ -364,7 +368,7 @@ async function main() {
     );
     assert.strictEqual(res.status, 200);
     assert.deepStrictEqual(Object.keys(await res.json()).sort(),
-      ['animal_lat', 'animal_lon', 'role_counts', 'total_in_range', 'win_areas']);
+      ['animal_lat', 'animal_lon', 'distance_mode', 'role_counts', 'total_in_range', 'win_areas']);
   });
 
   // (e) CORS header present ----------------------------------------------
@@ -413,7 +417,7 @@ async function main() {
     assert.strictEqual(body.total_in_range, 0);
     assert.deepStrictEqual(body.win_areas, []);
     assert.deepStrictEqual(Object.keys(body).sort(),
-      ['animal_lat', 'animal_lon', 'role_counts', 'total_in_range', 'win_areas']);
+      ['animal_lat', 'animal_lon', 'distance_mode', 'role_counts', 'total_in_range', 'win_areas']);
     // Even with an empty KV, the geocoded animal coord is still echoed back.
     assert.strictEqual(body.animal_lat, ANIMAL.lat);
     assert.strictEqual(body.animal_lon, ANIMAL.lon);
@@ -622,11 +626,13 @@ async function main() {
     );
     assert.strictEqual(res.status, 200);
     const body = await res.json();
-    // Top-level whitelist (now includes availability fields + animal coords).
+    // Top-level whitelist (now includes availability fields + animal coords + distance_mode).
     assert.deepStrictEqual(Object.keys(body).sort(),
-      ['animal_lat', 'animal_lon', 'marginal_threshold', 'out_of_county',
+      ['animal_lat', 'animal_lon', 'distance_mode', 'marginal_threshold', 'out_of_county',
        'out_of_county_truncated', 'radius_too_broad', 'role_available',
        'role_counts', 'total_available', 'total_in_range', 'win_areas']);
+    // No ORS key in deps -> straight_line fallback.
+    assert.strictEqual(body.distance_mode, 'straight_line');
     // animal coords echoed on the Tier 2 path too.
     assert.strictEqual(body.animal_lat, ANIMAL.lat);
     assert.strictEqual(body.animal_lon, ANIMAL.lon);
@@ -657,7 +663,7 @@ async function main() {
     // Byte-for-byte equal bodies; legacy keys + animal coords; no out_of_county.
     assert.strictEqual(resPlain.body, resOff.body, 'context off is byte-identical');
     assert.deepStrictEqual(Object.keys(await resPlain.json()).sort(),
-      ['animal_lat', 'animal_lon', 'role_counts', 'total_in_range', 'win_areas']);
+      ['animal_lat', 'animal_lon', 'distance_mode', 'role_counts', 'total_in_range', 'win_areas']);
   });
 
   await test('(i7) handler context=1 carries CORS header', async () => {
@@ -763,8 +769,8 @@ async function main() {
     );
     const body = await res.json();
     assert.deepStrictEqual(Object.keys(body).sort(),
-      ['animal_lat', 'animal_lon', 'role_counts', 'total_in_range', 'win_areas'],
-      'legacy aggregate shape + animal coords, no availability fields');
+      ['animal_lat', 'animal_lon', 'distance_mode', 'role_counts', 'total_in_range', 'win_areas'],
+      'legacy aggregate shape + animal coords + distance_mode, no availability fields');
     assert.strictEqual(body.role_available, undefined, 'no availability leak on plain path');
     assert.strictEqual(body.marginal_threshold, undefined);
   });
@@ -885,6 +891,267 @@ async function main() {
     ['home_county', 'roles', 'name', 'address'].forEach((k) => {
       assert.strictEqual(serialized.indexOf('"' + k + '"'), -1, 'no PII key: ' + k);
     });
+  });
+
+  // (l) VOLUNTEER DRIVING-distance radius filter (prescreen + ORS + fallback) -
+  // The volunteer path is PII-pinned: only BARE [lon,lat] tuples may reach ORS,
+  // and the response stays AGGREGATE-only. These tests cover: prescreen is a
+  // superset, the driving filter SHRINKS the set, CHUNKING for large subsets,
+  // graceful straight_line fallback on no-key/error, distance_mode field, and
+  // PII-safety (no coords/names in the aggregate output or in what ORS sees).
+
+  // Build an ORS mock whose driving metres per destination are a deterministic
+  // function of the destination coord, regardless of batch ordering. `metresOf`
+  // maps a {lon,lat} -> metres. Captures every batch's locations for chunk
+  // assertions + a PII scan of the outbound payload.
+  function mockOrsByCoord(metresOf, captured) {
+    return async (url, init) => {
+      let body = null;
+      try { body = JSON.parse(init.body); } catch (e) { body = null; }
+      if (captured) {
+        captured.calls = (captured.calls || 0) + 1;
+        captured.batches = captured.batches || [];
+        captured.batches.push(body);
+        captured.lastBody = body;
+      }
+      const locs = (body && body.locations) || [];
+      // destinations are indices 1..N (origin is index 0).
+      const destIdxs = (body && body.destinations) || [];
+      const row = destIdxs.map((idx) => {
+        const loc = locs[idx];          // [lon, lat]
+        return metresOf({ lon: loc[0], lat: loc[1] });
+      });
+      return {
+        status: 200,
+        json: async () => ({ distances: [row], durations: [row.map(() => 600)] }),
+      };
+    };
+  }
+
+  // A volunteer set anchored at Harrisburg: 3 within ~14mi straight-line, 1 far.
+  const VOL = [
+    { lat: 40.2732, lon: -76.8867, roles: ['C&T', 'COURIER'], home_county: 'Dauphin', win_area: 'WIN-1', name: 'Alice', address: '1 Main' }, // ~0mi
+    { lat: 40.36, lon: -76.78, roles: ['rvs c&t'], home_county: 'Lebanon', win_area: 'WIN-2', name: 'Bob', address: '2 Oak' },                // ~8mi
+    { lat: 40.10, lon: -76.75, roles: ['Courier'], home_county: 'Lancaster', win_area: 'WIN-1', name: 'Carol', address: '3 Pine' },           // ~12mi
+    { lat: 40.33, lon: -77.95, roles: ['C&T'], home_county: 'Huntingdon', win_area: 'WIN-9', name: 'Dave', address: '4 Elm' },                // ~50mi
+    { lat: null, lon: null, roles: ['C&T'], home_county: 'Nowhere', win_area: 'WIN-X' },                                                       // invalid
+  ];
+
+  await test('(l1) drivingDistancesMiles: ORS metres -> miles, [lon,lat] tuples, no PII', async () => {
+    const captured = {};
+    // 8046.72 m -> 5.0 mi for every destination.
+    const fetchFn = mockOrsByCoord(() => 8046.72, captured);
+    const coords = [{ lat: 40.36, lon: -76.78 }, { lat: 40.10, lon: -76.75 }];
+    const out = await drivingDistancesMiles(ANIMAL, coords, 'secret-key', fetchFn);
+    assert.strictEqual(out.ok, true);
+    assert.strictEqual(out.milesByIndex.length, 2);
+    assert.ok(Math.abs(out.milesByIndex[0] - 5.0) < 1e-6, 'metres -> miles');
+    // Outbound payload uses [lon,lat] with origin first; carries ONLY coords.
+    const body = captured.lastBody;
+    assert.deepStrictEqual(body.locations[0], [ANIMAL.lon, ANIMAL.lat], 'origin [lon,lat] first');
+    assert.deepStrictEqual(body.sources, [0]);
+    const ser = JSON.stringify(body);
+    ['name', 'address', 'home_county', 'roles', 'win_area'].forEach((k) => {
+      assert.strictEqual(ser.indexOf('"' + k + '"'), -1, 'no PII key sent to ORS: ' + k);
+    });
+  });
+
+  await test('(l2) drivingDistancesMiles: ok:false (fallback) when key empty', async () => {
+    let called = false;
+    const fetchFn = async () => { called = true; return { status: 200, json: async () => ({}) }; };
+    const out = await drivingDistancesMiles(ANIMAL, [{ lat: 40.36, lon: -76.78 }], '', fetchFn);
+    assert.strictEqual(out.ok, false, 'no key -> fallback signal');
+    assert.strictEqual(called, false, 'ORS NOT called without a key');
+  });
+
+  await test('(l3) drivingDistancesMiles: ok:false on ORS network error / HTTP error', async () => {
+    const c = [{ lat: 40.36, lon: -76.78 }];
+    const errNet = await drivingDistancesMiles(ANIMAL, c, 'k', async () => { throw new Error('down'); });
+    assert.strictEqual(errNet.ok, false, 'network error -> fallback');
+    const errHttp = await drivingDistancesMiles(ANIMAL, c, 'k', async () => ({ status: 500, json: async () => ({}) }));
+    assert.strictEqual(errHttp.ok, false, 'HTTP 500 -> fallback');
+  });
+
+  await test('(l4) drivingDistancesMiles: CHUNKS when subset exceeds per-request cap', async () => {
+    const captured = {};
+    const fetchFn = mockOrsByCoord(() => 1609.344, captured);  // 1.0 mi each
+    // Build 1 origin + (2 * cap + 3) destinations so we get 3 chunks.
+    const n = MAX_MATRIX_DESTINATIONS * 2 + 3;
+    const coords = [];
+    for (let i = 0; i < n; i += 1) coords.push({ lat: 40.27 + i * 0.0001, lon: -76.88 });
+    const out = await drivingDistancesMiles(ANIMAL, coords, 'k', fetchFn);
+    assert.strictEqual(out.ok, true);
+    assert.strictEqual(out.milesByIndex.length, n, 'one mile value per destination');
+    assert.strictEqual(captured.calls, 3, 'three ORS Matrix calls (chunked)');
+    // No batch exceeds the per-request destination cap.
+    for (const b of captured.batches) {
+      assert.ok(b.destinations.length <= MAX_MATRIX_DESTINATIONS, 'batch within cap');
+    }
+    out.milesByIndex.forEach((m) => assert.ok(Math.abs(m - 1.0) < 1e-6));
+  });
+
+  await test('(l5) drivingDistancesMiles: ANY chunk failure -> whole-call ok:false', async () => {
+    let n = 0;
+    // Succeed on the first chunk, fail (HTTP 500) on the second.
+    const fetchFn = async (url, init) => {
+      n += 1;
+      if (n === 1) {
+        const body = JSON.parse(init.body);
+        const row = body.destinations.map(() => 1609.344);
+        return { status: 200, json: async () => ({ distances: [row] }) };
+      }
+      return { status: 500, json: async () => ({}) };
+    };
+    const coords = [];
+    for (let i = 0; i < MAX_MATRIX_DESTINATIONS + 5; i += 1) coords.push({ lat: 40.27 + i * 0.0001, lon: -76.88 });
+    const out = await drivingDistancesMiles(ANIMAL, coords, 'k', fetchFn);
+    assert.strictEqual(out.ok, false, 'a failed chunk aborts the whole driving attempt');
+  });
+
+  await test('(l6) findVolunteersInRadiusDriving: prescreen superset; driving filter SHRINKS set', async () => {
+    // Straight-line: 3 volunteers within 20mi (Dauphin ~0, Lebanon ~8, Lancaster ~12).
+    const pre = findVolunteersInRadius(ANIMAL.lat, ANIMAL.lon, 20, VOL);
+    assert.strictEqual(pre.total_in_range, 3, 'haversine baseline = 3 in 20mi');
+
+    // Driving mock: Lancaster (lat 40.10) is "far by road" (60mi) -> dropped;
+    // the other two stay under 20 driving miles.
+    const driveFn = mockOrsByCoord((c) => {
+      if (Math.abs(c.lat - 40.10) < 1e-6) return 60 * 1609.344;  // 60 driving mi
+      return 5 * 1609.344;                                       // 5 driving mi
+    });
+    const out = await findVolunteersInRadiusDriving(
+      ANIMAL.lat, ANIMAL.lon, 20, VOL, drivingDistancesMiles, 'secret-key', driveFn
+    );
+    assert.strictEqual(out.distance_mode, 'driving', 'driving metric used');
+    assert.strictEqual(out.aggregate.total_in_range, 2, 'driving filter shrank 3 -> 2');
+    assert.strictEqual(out.aggregate.role_counts['COURIER'], 1, 'Lancaster courier dropped, Dauphin courier kept');
+    assert.strictEqual(out.aggregate.role_counts['RVS C&T'], 1, 'Lebanon kept');
+    // Output is AGGREGATE-only: NO coords / names anywhere.
+    const ser = JSON.stringify(out.aggregate);
+    ['lat', 'lon', 'name', 'address', 'home_county'].forEach((k) => {
+      assert.strictEqual(ser.indexOf('"' + k + '"'), -1, 'no PII key in aggregate: ' + k);
+    });
+  });
+
+  await test('(l7) findVolunteersInRadiusDriving: FALLBACK to straight_line on no key', async () => {
+    let called = false;
+    const driveFn = async () => { called = true; return { ok: false }; };
+    const out = await findVolunteersInRadiusDriving(
+      ANIMAL.lat, ANIMAL.lon, 20, VOL, drivingDistancesMiles, '', driveFn
+    );
+    // drivingDistancesMiles short-circuits on empty key, so driveFn-as-fetch is moot;
+    // pass the REAL helper with empty key + a fetch that records being called.
+    assert.strictEqual(out.distance_mode, 'straight_line', 'fallback mode');
+    assert.strictEqual(out.aggregate.total_in_range, 3, 'fallback == haversine baseline');
+  });
+
+  await test('(l8) findVolunteersInRadiusDriving: FALLBACK on ORS error keeps prescreen set', async () => {
+    const out = await findVolunteersInRadiusDriving(
+      ANIMAL.lat, ANIMAL.lon, 20, VOL, drivingDistancesMiles, 'secret-key',
+      async () => { throw new Error('ors down'); }
+    );
+    assert.strictEqual(out.distance_mode, 'straight_line');
+    assert.strictEqual(out.aggregate.total_in_range, 3, 'never fewer than prescreen on fallback');
+  });
+
+  await test('(l9) findContextRowsDriving: driving distance_mi + gate + sorted; fallback', async () => {
+    // Driving: Lancaster (40.10) far (60mi) -> excluded; Lebanon stays (~5mi driving).
+    const driveFn = mockOrsByCoord((c) => {
+      if (Math.abs(c.lat - 40.10) < 1e-6) return 60 * 1609.344;
+      return 5 * 1609.344;
+    });
+    const ctx = await findContextRowsDriving(
+      ANIMAL.lat, ANIMAL.lon, 20, VOL, 'Dauphin', drivingDistancesMiles, 'secret-key', driveFn
+    );
+    assert.strictEqual(ctx.distance_mode, 'driving');
+    // Out-of-county within 20 DRIVING mi: Lebanon only (Lancaster dropped, Dauphin excluded).
+    assert.strictEqual(ctx.rows.length, 1, 'driving gate dropped Lancaster');
+    assert.strictEqual(ctx.rows[0].county, 'Lebanon');
+    assert.strictEqual(ctx.rows[0].distance_mi, 5.0, 'distance_mi is DRIVING miles');
+    // Row whitelist holds.
+    assert.deepStrictEqual(Object.keys(ctx.rows[0]).sort(), ['county', 'distance_mi', 'roles', 'win_area']);
+
+    // Fallback path (no key) -> straight_line, both out-of-county rows present.
+    const fb = await findContextRowsDriving(
+      ANIMAL.lat, ANIMAL.lon, 20, VOL, 'Dauphin', drivingDistancesMiles, '', driveFn
+    );
+    assert.strictEqual(fb.distance_mode, 'straight_line');
+    assert.strictEqual(fb.rows.length, 2, 'haversine keeps Lebanon + Lancaster');
+  });
+
+  await test('(l10) handler end-to-end: driving mode, ORS sees only coords, PII-safe', async () => {
+    const captured = {};
+    const driveFn = mockOrsByCoord((c) => {
+      if (Math.abs(c.lat - 40.10) < 1e-6) return 60 * 1609.344;
+      return 5 * 1609.344;
+    }, captured);
+    const res = await handleRequest(
+      mockRequest('GET', { animal_lat: ANIMAL.lat, animal_lon: ANIMAL.lon, radius_mi: 20 }),
+      {
+        ResponseCtor: MockResponse, kv: mockKV(VOL), fetchFn: driveFn,
+        allowedOrigin: 'https://pages.example', orsApiKey: 'env-key',
+      }
+    );
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.strictEqual(body.distance_mode, 'driving', 'driving mode end-to-end');
+    assert.strictEqual(body.total_in_range, 2, 'driving filter shrank the set');
+    // Top-level key set still PII-free + animal coords + distance_mode.
+    assert.deepStrictEqual(Object.keys(body).sort(),
+      ['animal_lat', 'animal_lon', 'distance_mode', 'role_counts', 'total_in_range', 'win_areas']);
+    const ser = JSON.stringify(body);
+    for (const k of PII_FORBIDDEN_KEYS) {
+      assert.strictEqual(ser.indexOf('"' + k + '"'), -1, 'PII key leaked: ' + k);
+    }
+    // What the Worker sent to ORS carried ONLY [lon,lat] coords (no PII).
+    const sentSer = JSON.stringify(captured.lastBody);
+    ['name', 'address', 'home_county', 'roles'].forEach((k) => {
+      assert.strictEqual(sentSer.indexOf('"' + k + '"'), -1, 'no PII sent to ORS: ' + k);
+    });
+    assert.strictEqual(res.header('Access-Control-Allow-Origin'), 'https://pages.example');
+  });
+
+  await test('(l11) handler end-to-end: empty ORS key -> straight_line, full count', async () => {
+    let called = false;
+    const fetchFn = async () => { called = true; return { status: 200, json: async () => ({}) }; };
+    const res = await handleRequest(
+      mockRequest('GET', { animal_lat: ANIMAL.lat, animal_lon: ANIMAL.lon, radius_mi: 20 }),
+      {
+        ResponseCtor: MockResponse, kv: mockKV(VOL), fetchFn: fetchFn,
+        allowedOrigin: 'https://pages.example', orsApiKey: '',
+      }
+    );
+    const body = await res.json();
+    assert.strictEqual(body.distance_mode, 'straight_line');
+    assert.strictEqual(body.total_in_range, 3, 'haversine baseline preserved');
+    assert.strictEqual(called, false, 'no ORS call without a key');
+  });
+
+  await test('(l12) handler context=1 driving end-to-end carries distance_mode (PII-safe)', async () => {
+    const driveFn = mockOrsByCoord((c) => {
+      if (Math.abs(c.lat - 40.10) < 1e-6) return 60 * 1609.344;
+      return 5 * 1609.344;
+    });
+    const res = await handleRequest(
+      mockRequest('GET', {
+        animal_lat: ANIMAL.lat, animal_lon: ANIMAL.lon, radius_mi: 20,
+        exclude_county: 'Dauphin', context: '1',
+      }),
+      {
+        ResponseCtor: MockResponse, kv: mockKV(VOL), fetchFn: driveFn,
+        allowedOrigin: 'https://pages.example', orsApiKey: 'env-key',
+      }
+    );
+    const body = await res.json();
+    assert.strictEqual(body.distance_mode, 'driving');
+    // Out-of-county within DRIVING radius: Lebanon only.
+    assert.strictEqual(body.out_of_county.length, 1);
+    assert.strictEqual(body.out_of_county[0].county, 'Lebanon');
+    // Deep-walk: no forbidden key.
+    const allKeys = collectKeys(body, []);
+    for (const k of TIER2_FORBIDDEN_KEYS) {
+      assert.strictEqual(allKeys.indexOf(k), -1, 'PII key leaked: ' + k);
+    }
   });
 
   console.log('\n----------------------------------------');

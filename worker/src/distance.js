@@ -42,6 +42,13 @@ const DEFAULT_TIMEOUT_MS = 6000;
 // rehabbers, but cap defensively so a runaway request can't be built.
 const MAX_DESTINATIONS = 50;
 
+// Safe per-request destination count for an ORS Matrix call. ORS limits the
+// number of locations per matrix request (free-tier driving-car is small);
+// 1 origin + up to this many destinations stays comfortably under the cap.
+// The volunteer driving path CHUNKS the prescreened subset into batches of
+// this size so a large in-radius set still works (and never blows the limit).
+const MAX_MATRIX_DESTINATIONS = 50;
+
 function round1(n) {
   return Math.round(n * 10) / 10;
 }
@@ -74,6 +81,162 @@ function haversineFallback(origin, destinations) {
     };
   });
   return { source: 'haversine', distances: distances };
+}
+
+/**
+ * LOW-LEVEL ORS Matrix call for a SINGLE batch (1 origin -> N destinations).
+ *
+ * Shared by rehabberDistances() (public rehabber path) and the volunteer
+ * driving-distance path. Sends BARE [lon,lat] coordinate tuples only -- never
+ * names/addresses/any other field -- via the env ORS_API_KEY, with an
+ * AbortController timeout. NEVER throws.
+ *
+ * @param {{lat:number,lon:number}} origin   already-cleaned origin point
+ * @param {Array<{lat:number,lon:number}>} cleanDests  already-cleaned points
+ *        (NO nulls -- caller filters first)
+ * @param {string} key     non-empty ORS API key
+ * @param {Function} doFetch  fetch-compatible (url, init) -> Promise<Response>
+ * @param {Object} [opts]  { timeoutMs, metrics }
+ * @returns {Promise<{distances:number[]|null, durations:number[]|null}>}
+ *        distances/durations are parallel to cleanDests (metres / seconds), or
+ *        null on any error/timeout/malformed body.
+ */
+async function orsMatrixBatch(origin, cleanDests, key, doFetch, opts) {
+  if (!origin || !Array.isArray(cleanDests) || cleanDests.length === 0) {
+    return { distances: null, durations: null };
+  }
+
+  // ORS expects [lon, lat] tuples: origin first, destinations after.
+  const locations = [[origin.lon, origin.lat]];
+  const destIdx = [];
+  for (let i = 0; i < cleanDests.length; i += 1) {
+    destIdx.push(locations.length);
+    locations.push([cleanDests[i].lon, cleanDests[i].lat]);
+  }
+
+  const metrics =
+    opts && Array.isArray(opts.metrics) ? opts.metrics : ['distance', 'duration'];
+  const payload = {
+    locations: locations,
+    sources: [0],
+    destinations: destIdx,
+    metrics: metrics,
+    units: 'm',
+  };
+
+  const timeoutMs =
+    opts && isFiniteNum(opts.timeoutMs) ? opts.timeoutMs : DEFAULT_TIMEOUT_MS;
+  let controller = null;
+  let timer = null;
+  if (typeof AbortController !== 'undefined') {
+    controller = new AbortController();
+    timer = setTimeout(function () {
+      try { controller.abort(); } catch (e) {}
+    }, timeoutMs);
+  }
+
+  let resp;
+  try {
+    resp = await doFetch(ORS_MATRIX_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: key,
+      },
+      body: JSON.stringify(payload),
+      signal: controller ? controller.signal : undefined,
+    });
+  } catch (e) {
+    return { distances: null, durations: null };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+
+  if (!resp || (typeof resp.status === 'number' && resp.status >= 400)) {
+    return { distances: null, durations: null };
+  }
+
+  let body;
+  try {
+    body = await resp.json();
+  } catch (e) {
+    return { distances: null, durations: null };
+  }
+
+  const distMatrix = body && Array.isArray(body.distances) ? body.distances[0] : null;
+  const durMatrix = body && Array.isArray(body.durations) ? body.durations[0] : null;
+  if (!Array.isArray(distMatrix)) {
+    return { distances: null, durations: null };
+  }
+  return { distances: distMatrix, durations: durMatrix || null };
+}
+
+/**
+ * DRIVING distances (miles) for the VOLUNTEER radius path.
+ *
+ * Given an origin (animal) and an array of already-cleaned destination points
+ * (prescreened volunteer coords), call ORS Matrix driving-car in CHUNKS of at
+ * most MAX_MATRIX_DESTINATIONS and return the driving distance in MILES per
+ * destination, parallel to the input array.
+ *
+ * PII: only BARE [lon,lat] tuples are sent to ORS (no names/addresses) -- the
+ * caller is responsible for passing coords only. This helper returns ONLY an
+ * array of numbers (or nulls); it never echoes any volunteer datum.
+ *
+ * Failure semantics (whole-call, NOT per-row): if the key is empty, fetch is
+ * unusable, or ANY chunk errors/times out/returns a malformed body, this
+ * returns { ok: false } so the caller can fall back to the haversine prescreen
+ * for the ENTIRE set (deterministic distance_mode). On success it returns
+ * { ok: true, milesByIndex: number[] } where each entry is driving miles for
+ * the corresponding destination (a single unroutable cell falls back to that
+ * destination's straight-line distance so the array is always complete).
+ *
+ * Never throws.
+ *
+ * @param {{lat:number,lon:number}} origin    cleaned origin (animal) point
+ * @param {Array<{lat:number,lon:number}>} cleanDests  cleaned dest points
+ * @param {string} apiKey   ORS_API_KEY (empty/undefined -> ok:false)
+ * @param {Function} fetchFn  fetch-compatible (url, init) -> Promise<Response>
+ * @param {Object} [opts]   { timeoutMs, chunkSize }
+ * @returns {Promise<{ok:boolean, milesByIndex?:Array<number>}>}
+ */
+async function drivingDistancesMiles(origin, cleanDests, apiKey, fetchFn, opts) {
+  const key = apiKey === null || apiKey === undefined ? '' : String(apiKey).trim();
+  const doFetch = fetchFn || (typeof fetch !== 'undefined' ? fetch : null);
+  const dests = Array.isArray(cleanDests) ? cleanDests : [];
+
+  if (!origin || !key || !doFetch || dests.length === 0) {
+    return { ok: false };
+  }
+
+  let chunkSize =
+    opts && isFiniteNum(opts.chunkSize) && opts.chunkSize > 0
+      ? Math.floor(opts.chunkSize)
+      : MAX_MATRIX_DESTINATIONS;
+  if (chunkSize > MAX_MATRIX_DESTINATIONS) chunkSize = MAX_MATRIX_DESTINATIONS;
+
+  const milesByIndex = new Array(dests.length).fill(null);
+  for (let start = 0; start < dests.length; start += chunkSize) {
+    const batch = dests.slice(start, start + chunkSize);
+    const res = await orsMatrixBatch(origin, batch, key, doFetch, opts);
+    if (!res || !Array.isArray(res.distances)) {
+      // Any chunk failure aborts the whole driving attempt -> caller falls
+      // back to the prescreen haversine set for a consistent distance_mode.
+      return { ok: false };
+    }
+    for (let i = 0; i < batch.length; i += 1) {
+      const m = res.distances[i];
+      if (isFiniteNum(m)) {
+        milesByIndex[start + i] = m / METERS_PER_MILE;
+      } else {
+        // ORS could not route this single pair -> straight-line for it only.
+        milesByIndex[start + i] = haversineMi(
+          origin.lat, origin.lon, batch[i].lat, batch[i].lon
+        );
+      }
+    }
+  }
+  return { ok: true, milesByIndex: milesByIndex };
 }
 
 /**
@@ -212,7 +375,10 @@ module.exports = {
   METERS_PER_MILE,
   DEFAULT_TIMEOUT_MS,
   MAX_DESTINATIONS,
+  MAX_MATRIX_DESTINATIONS,
   cleanPoint,
   haversineFallback,
+  orsMatrixBatch,
+  drivingDistancesMiles,
   rehabberDistances,
 };

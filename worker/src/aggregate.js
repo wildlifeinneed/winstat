@@ -207,6 +207,213 @@ function findVolunteersInRadius(animalLat, animalLon, radiusMi, coordsDataset, d
   };
 }
 
+// --- DRIVING-distance variants (prescreen + ORS matrix + fallback) ---------
+
+// Shared distance_mode labels surfaced in the response (single strings, NO
+// PII: they identify only WHICH metric gated the result).
+const MODE_DRIVING = 'driving';
+const MODE_STRAIGHT_LINE = 'straight_line';
+
+/**
+ * Extract the subset of dataset records that pass the cheap haversine PRESCREEN
+ * (straight-line distance <= clamped radius). Because driving distance is
+ * ALWAYS >= straight-line distance, this prescreen is a guaranteed SUPERSET of
+ * the driving-distance set -- no buffer is needed and there are no false
+ * negatives. Returns parallel arrays so a later driving pass can map ORS
+ * results back to the original records.
+ *
+ * @returns {{records:Object[], coords:Array<{lat:number,lon:number}>,
+ *            haversineMiles:number[], radius:number}}
+ */
+function prescreenByHaversine(animalLat, animalLon, radiusMi, coordsDataset) {
+  const radius = clampRadius(radiusMi);
+  const records = [];
+  const coords = [];
+  const haversineMiles = [];
+  const dataset = Array.isArray(coordsDataset) ? coordsDataset : [];
+  for (const rec of dataset) {
+    if (!rec || typeof rec !== 'object' || Array.isArray(rec)) {
+      continue;
+    }
+    const lat = rec.lat;
+    const lon = rec.lon;
+    if (lat === null || lat === undefined || lon === null || lon === undefined) {
+      continue;
+    }
+    const nLat = Number(lat);
+    const nLon = Number(lon);
+    let d;
+    try {
+      d = haversineMi(animalLat, animalLon, nLat, nLon);
+    } catch (e) {
+      continue;
+    }
+    if (!Number.isFinite(d) || d > radius) {
+      continue;
+    }
+    records.push(rec);
+    coords.push({ lat: nLat, lon: nLon });
+    haversineMiles.push(d);
+  }
+  return { records: records, coords: coords, haversineMiles: haversineMiles, radius: radius };
+}
+
+/**
+ * Aggregate the PRESCREENED survivor records into the SAME PII-free shape as
+ * findVolunteersInRadius. `keep` is a boolean array parallel to `records`
+ * (true => the record is inside the FINAL radius after the chosen metric).
+ */
+function aggregateRecords(records, keep) {
+  const roleCounts = {};
+  const roleAvailable = {};
+  for (const role of QUALIFYING_ROLES) {
+    roleCounts[role] = 0;
+    roleAvailable[role] = 0;
+  }
+  const winAreas = new Set();
+  let total = 0;
+  let totalAvailable = 0;
+
+  for (let i = 0; i < records.length; i += 1) {
+    if (!keep[i]) continue;
+    const rec = records[i];
+    total += 1;
+    const available = isAvailableRecord(rec);
+    if (available) {
+      totalAvailable += 1;
+    }
+    for (const role of rolesOf(rec)) {
+      roleCounts[role] += 1;
+      if (available) {
+        roleAvailable[role] += 1;
+      }
+    }
+    const area = rec.win_area;
+    if (area !== null && area !== undefined && String(area).trim() !== '') {
+      winAreas.add(String(area).trim());
+    }
+  }
+
+  return {
+    total_in_range: total,
+    role_counts: roleCounts,
+    role_available: roleAvailable,
+    total_available: totalAvailable,
+    win_areas: Array.from(winAreas).sort(),
+  };
+}
+
+/**
+ * DRIVING-distance volunteer aggregate.
+ *
+ * ALGORITHM:
+ *   1. PRESCREEN by haversine (<= radius) -- a guaranteed superset.
+ *   2. Call `drivingFn(origin, coords, ...)` on the prescreened subset to get
+ *      driving miles (the injected helper CHUNKS large subsets + handles ORS).
+ *   3. FINAL FILTER on DRIVING miles (<= radius); aggregate the survivors.
+ *   4. FALLBACK: if the driving call returns {ok:false} (no key / error /
+ *      timeout / malformed), aggregate the PRESCREEN set instead (pure
+ *      haversine = current behavior). Never throws.
+ *
+ * `drivingFn` signature: (origin, coords, apiKey, fetchFn, opts) ->
+ *   Promise<{ok:boolean, milesByIndex?:number[]}>  (see distance.drivingDistancesMiles).
+ *
+ * @returns {Promise<{aggregate:Object, distance_mode:'driving'|'straight_line'}>}
+ *   aggregate is the SAME shape findVolunteersInRadius returns.
+ */
+async function findVolunteersInRadiusDriving(
+  animalLat, animalLon, radiusMi, coordsDataset, drivingFn, apiKey, fetchFn, opts
+) {
+  const pre = prescreenByHaversine(animalLat, animalLon, radiusMi, coordsDataset);
+  const origin = { lat: Number(animalLat), lon: Number(animalLon) };
+
+  let drive = { ok: false };
+  if (typeof drivingFn === 'function' && pre.coords.length > 0 &&
+      Number.isFinite(origin.lat) && Number.isFinite(origin.lon)) {
+    try {
+      drive = await drivingFn(origin, pre.coords, apiKey, fetchFn, opts);
+    } catch (e) {
+      drive = { ok: false };
+    }
+  }
+
+  if (drive && drive.ok && Array.isArray(drive.milesByIndex)) {
+    const keep = pre.records.map(function (_, i) {
+      const m = drive.milesByIndex[i];
+      return Number.isFinite(m) && m <= pre.radius;
+    });
+    return { aggregate: aggregateRecords(pre.records, keep), distance_mode: MODE_DRIVING };
+  }
+
+  // FALLBACK: keep the whole prescreen set (pure haversine = current behavior).
+  const keepAll = pre.records.map(function () { return true; });
+  return { aggregate: aggregateRecords(pre.records, keepAll), distance_mode: MODE_STRAIGHT_LINE };
+}
+
+/**
+ * DRIVING-distance variant of findContextRows. Same prescreen + ORS + fallback
+ * flow, but produces the PII-safe out-of-county rows (one per volunteer) using
+ * DRIVING miles for both the radius gate AND the surfaced distance_mi, sorted
+ * ascending. On fallback it is byte-identical to findContextRows (haversine).
+ *
+ * @returns {Promise<{rows:Array, distance_mode:'driving'|'straight_line'}>}
+ */
+async function findContextRowsDriving(
+  animalLat, animalLon, radiusMi, coordsDataset, excludeCounty, drivingFn, apiKey, fetchFn, opts
+) {
+  const pre = prescreenByHaversine(animalLat, animalLon, radiusMi, coordsDataset);
+  const origin = { lat: Number(animalLat), lon: Number(animalLon) };
+  const excludeNorm = normalizeCounty(excludeCounty);
+
+  let drive = { ok: false };
+  if (typeof drivingFn === 'function' && pre.coords.length > 0 &&
+      Number.isFinite(origin.lat) && Number.isFinite(origin.lon)) {
+    try {
+      drive = await drivingFn(origin, pre.coords, apiKey, fetchFn, opts);
+    } catch (e) {
+      drive = { ok: false };
+    }
+  }
+
+  const useDriving = !!(drive && drive.ok && Array.isArray(drive.milesByIndex));
+  const distanceMode = useDriving ? MODE_DRIVING : MODE_STRAIGHT_LINE;
+
+  const rows = [];
+  for (let i = 0; i < pre.records.length; i += 1) {
+    const rec = pre.records[i];
+    const miles = useDriving ? drive.milesByIndex[i] : pre.haversineMiles[i];
+    if (!Number.isFinite(miles) || miles > pre.radius) {
+      continue;
+    }
+    // Out-of-county filter (Tier 1 already covers the in-county set).
+    if (excludeNorm !== '' && normalizeCounty(rec.home_county) === excludeNorm) {
+      continue;
+    }
+    const matchedRoles = Array.from(rolesOf(rec));
+    if (matchedRoles.length === 0) {
+      continue;
+    }
+    const area = rec.win_area;
+    const winArea =
+      area !== null && area !== undefined && String(area).trim() !== ''
+        ? String(area).trim()
+        : null;
+    const county =
+      rec.home_county !== null && rec.home_county !== undefined && String(rec.home_county).trim() !== ''
+        ? String(rec.home_county).trim()
+        : null;
+    rows.push({
+      roles: matchedRoles,
+      distance_mi: round1(miles),
+      win_area: winArea,
+      county: county,
+    });
+  }
+
+  rows.sort((a, b) => a.distance_mi - b.distance_mi);
+  return { rows: rows, distance_mode: distanceMode };
+}
+
 // --- Tier 2 "widen" out-of-county context list -----------------------------
 
 // Overflow policy (user-locked, supersedes any max_rows default):
@@ -314,9 +521,13 @@ function findContextRows(animalLat, animalLon, radiusMi, coordsDataset, excludeC
  * response below. This keeps existing callers unaffected (backward compatible).
  *
  * @param {{total_in_range:number, role_counts:Object, win_areas:string[]}} aggregate
+ * @param {string} [distanceMode]  'driving' | 'straight_line' -- which metric
+ *        gated this result (single string, NO PII). When provided it is added
+ *        as a top-level `distance_mode` field; when omitted the response keeps
+ *        the historical three-key shape (full backward compatibility).
  * @returns {Object} PII-safe legacy aggregate response object
  */
-function buildAggregateResponse(aggregate) {
+function buildAggregateResponse(aggregate, distanceMode) {
   const agg = aggregate || {};
   const roleCounts = {};
   for (const role of QUALIFYING_ROLES) {
@@ -325,11 +536,15 @@ function buildAggregateResponse(aggregate) {
         ? Number(agg.role_counts[role])
         : 0;
   }
-  return {
+  const out = {
     total_in_range: Number.isFinite(Number(agg.total_in_range)) ? Number(agg.total_in_range) : 0,
     role_counts: roleCounts,
     win_areas: Array.isArray(agg.win_areas) ? agg.win_areas.slice() : [],
   };
+  if (distanceMode === MODE_DRIVING || distanceMode === MODE_STRAIGHT_LINE) {
+    out.distance_mode = distanceMode;
+  }
+  return out;
 }
 
 /**
@@ -357,9 +572,12 @@ function buildAggregateResponse(aggregate) {
  * @param {{total_in_range:number, role_counts:Object, role_available:Object,
  *          total_available:number, win_areas:string[]}} aggregate
  * @param {Array} contextRows  rows from findContextRows (already projected/sorted)
+ * @param {string} [distanceMode]  'driving' | 'straight_line' -- which metric
+ *        gated this result. A single string (NO PII). Defaults to
+ *        'straight_line' (current behavior) when omitted/invalid.
  * @returns {Object} PII-safe Tier 2 response object
  */
-function buildTier2Response(aggregate, contextRows) {
+function buildTier2Response(aggregate, contextRows, distanceMode) {
   const agg = aggregate || {};
 
   // Re-whitelist the aggregate block (never spread unknown keys through).
@@ -411,6 +629,7 @@ function buildTier2Response(aggregate, contextRows) {
     out_of_county: outOfCounty,
     out_of_county_truncated: overflow,
     radius_too_broad: overflow,
+    distance_mode: distanceMode === MODE_DRIVING ? MODE_DRIVING : MODE_STRAIGHT_LINE,
   };
 }
 
@@ -422,6 +641,8 @@ module.exports = {
   QUALIFYING_ROLES,
   OVERFLOW_THRESHOLD,
   OVERFLOW_NEAREST,
+  MODE_DRIVING,
+  MODE_STRAIGHT_LINE,
   clampRadius,
   haversineMi,
   normalizeRole,
@@ -429,8 +650,12 @@ module.exports = {
   round1,
   rolesOf,
   isAvailableRecord,
+  prescreenByHaversine,
+  aggregateRecords,
   findVolunteersInRadius,
+  findVolunteersInRadiusDriving,
   findContextRows,
+  findContextRowsDriving,
   buildAggregateResponse,
   buildTier2Response,
 };

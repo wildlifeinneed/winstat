@@ -21,14 +21,14 @@
  */
 
 const {
-  findVolunteersInRadius,
-  findContextRows,
+  findVolunteersInRadiusDriving,
+  findContextRowsDriving,
   buildAggregateResponse,
   buildTier2Response,
 } = require('./aggregate');
 const { geocodeAddress } = require('./census');
 const { autocompleteAddress } = require('./autocomplete');
-const { rehabberDistances } = require('./distance');
+const { rehabberDistances, drivingDistancesMiles } = require('./distance');
 
 // KV key under which the Phase F refresh job stores the coords array (JSON).
 const KV_COORDS_KEY = 'volunteer_coords';
@@ -341,28 +341,48 @@ async function handleRequest(request, deps) {
 
   const coords = await readCoordsFromKV(deps.kv);
 
-  const aggregate = findVolunteersInRadius(
+  // VOLUNTEER radius filter now uses DRIVING distance (ORS Matrix driving-car)
+  // with the standard haversine PRESCREEN + graceful straight-line fallback.
+  //   1. prescreen volunteers by haversine <= radius (guaranteed superset)
+  //   2. ORS Matrix (animal -> prescreened coords, CHUNKED) for driving miles
+  //   3. final filter on driving miles <= radius
+  //   4. fallback to the prescreen (pure haversine) if the key is empty or any
+  //      ORS call errors/times out -> distance_mode reflects which metric ran.
+  // PII: only BARE [lon,lat] coords ever reach ORS (no names/addresses); the
+  // response stays AGGREGATE-only. distance_mode is a single non-PII string.
+  const volDriving = await findVolunteersInRadiusDriving(
     coord.lat,
     coord.lon,
     params.radius_mi,
-    coords
+    coords,
+    drivingDistancesMiles,
+    deps.orsApiKey,
+    deps.fetchFn
   );
+  const aggregate = volDriving.aggregate;
+  const distanceMode = volDriving.distance_mode;
 
   // Tier 2 "widen" branch (opt-in): when context is truthy, ADD a PII-safe
   // out-of-county context list alongside the unchanged aggregate. The aggregate
   // itself is still computed across ALL in-radius volunteers (in + out of
-  // county) above -- the context list is purely additive.
+  // county) above -- the context list is purely additive. It uses the SAME
+  // driving prescreen + ORS + fallback flow so its distance_mi + radius gate
+  // match the aggregate's metric.
   if (isContextOn(params.context)) {
-    const contextRows = findContextRows(
+    const ctx = await findContextRowsDriving(
       coord.lat,
       coord.lon,
       params.radius_mi,
       coords,
-      params.exclude_county
+      params.exclude_county,
+      drivingDistancesMiles,
+      deps.orsApiKey,
+      deps.fetchFn
     );
     // Single serialization seam: only buildTier2Response constructs the JSON,
-    // whitelisting keys so no raw KV datum can leak.
-    const tier2 = buildTier2Response(aggregate, contextRows);
+    // whitelisting keys so no raw KV datum can leak. distance_mode (a single
+    // non-PII string) is surfaced so the UI/diagnostics know which metric ran.
+    const tier2 = buildTier2Response(aggregate, ctx.rows, ctx.distance_mode);
     // The animal coordinate is the dispatcher-entered ANIMAL location (NOT
     // volunteer PII), so it is safe to echo back. The browser uses it to rank
     // rehabbers by distance. Distinct key names (animal_lat/animal_lon) keep it
@@ -372,11 +392,11 @@ async function handleRequest(request, deps) {
     return jsonResponse(ResponseCtor, 200, tier2, allowedOrigin);
   }
 
-  // PII boundary: return ONLY the legacy aggregate shape (byte-identical to
-  // today). findVolunteersInRadius now also computes availability counts, so we
-  // route through buildAggregateResponse to re-whitelist down to the historical
+  // PII boundary: return ONLY the legacy aggregate shape (plus distance_mode).
+  // findVolunteersInRadiusDriving computes availability counts too, so we route
+  // through buildAggregateResponse to re-whitelist down to the historical
   // three keys -- the availability fields surface ONLY via the Tier 2 response.
-  const aggregateResponse = buildAggregateResponse(aggregate);
+  const aggregateResponse = buildAggregateResponse(aggregate, distanceMode);
   // Echo the dispatcher-entered ANIMAL coordinate (safe, not volunteer PII) so
   // the browser can rank rehabbers by distance. animal_lat/animal_lon are
   // distinct from the forbidden lat/lon volunteer keys.
