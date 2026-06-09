@@ -829,7 +829,19 @@
       }).join('');
 
       var dist = (typeof row.distance_mi === 'number') ? row.distance_mi : Number(row.distance_mi);
-      var distTxt = Number.isFinite(dist) ? dist.toFixed(1) : '?';
+      var distTxt;
+      // DRIVING label ("X.X mi driving / ~Y min") when the Worker supplied a
+      // per-volunteer driving duration (driving mode); otherwise the
+      // straight-line label ("X.X mi"). Never show a time on the straight_line
+      // fallback (duration_min absent) — mirrors the rehabber list wording.
+      if (Number.isFinite(dist) && typeof row.duration_min === 'number') {
+        distTxt = fmt(T2.ctxDistanceDriving, {
+          dist: dist.toFixed(1),
+          mins: String(row.duration_min)
+        });
+      } else {
+        distTxt = fmt(T2.ctxDistance, { dist: Number.isFinite(dist) ? dist.toFixed(1) : '?' });
+      }
 
       var ctxBits = [];
       if (row.win_area) ctxBits.push(fmt(T2.areaChip, { area: escapeHtml(String(row.win_area)) }));
@@ -842,7 +854,7 @@
 
       return '<li class="ctx-row">' +
              '<span class="role-badges">' + badges + '</span>' +
-             '<span class="ctx-dist">' + distTxt + ' mi</span>' +
+             '<span class="ctx-dist">' + distTxt + '</span>' +
              ctxTxt + edge +
              '</li>';
     }).join('');

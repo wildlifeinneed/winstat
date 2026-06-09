@@ -440,12 +440,23 @@ async function findContextRowsDriving(
       rec.home_county !== null && rec.home_county !== undefined && String(rec.home_county).trim() !== ''
         ? String(rec.home_county).trim()
         : null;
-    rows.push({
+    const row = {
       roles: matchedRoles,
       distance_mi: round1(miles),
       win_area: winArea,
       county: county,
-    });
+    };
+    // DRIVING TIME: surface the per-volunteer driving minutes ONLY in driving
+    // mode and only when ORS supplied a real duration for this cell. On the
+    // straight_line fallback (or a null cell) the field is omitted so the
+    // frontend never renders a fabricated time.
+    if (useDriving) {
+      const mins = drive.minutesByIndex ? drive.minutesByIndex[i] : null;
+      if (Number.isFinite(mins)) {
+        row.duration_min = mins;
+      }
+    }
+    rows.push(row);
   }
 
   rows.sort((a, b) => a.distance_mi - b.distance_mi);
@@ -653,7 +664,9 @@ function buildAggregateResponse(aggregate, distanceMode) {
  *   top-level: { total_in_range, role_counts, role_available, total_available,
  *                marginal_threshold, win_areas, out_of_county,
  *                out_of_county_truncated, radius_too_broad }
- *   per row:   { roles, distance_mi, win_area, county }
+ *   per row:   { roles, distance_mi, win_area, county, duration_min? }
+ *              (duration_min is the whole-minute driving time, present ONLY in
+ *              driving mode; omitted on the straight_line fallback)
  *
  * It receives ALREADY-projected rows from findContextRows (which never copies
  * lat/lon/_addr_sig/etc.), so raw KV objects are never passed here.
@@ -711,13 +724,23 @@ function buildTier2Response(aggregate, contextRows, distanceMode) {
   const overflow = allRows.length > OVERFLOW_THRESHOLD;
   const selected = overflow ? allRows.slice(0, OVERFLOW_NEAREST) : allRows;
 
-  // Per-row whitelist: copy ONLY {roles, distance_mi, win_area, county}.
-  const outOfCounty = selected.map((r) => ({
-    roles: Array.isArray(r.roles) ? r.roles.slice() : [],
-    distance_mi: r.distance_mi,
-    win_area: r.win_area === undefined ? null : r.win_area,
-    county: r.county === undefined ? null : r.county,
-  }));
+  // Per-row whitelist: copy ONLY {roles, distance_mi, win_area, county} plus
+  // the optional duration_min (driving minutes) when present on the row. The
+  // row carries duration_min only in driving mode (see findContextRowsDriving);
+  // it is omitted on the straight_line fallback so the frontend never shows a
+  // fabricated time.
+  const outOfCounty = selected.map((r) => {
+    const o = {
+      roles: Array.isArray(r.roles) ? r.roles.slice() : [],
+      distance_mi: r.distance_mi,
+      win_area: r.win_area === undefined ? null : r.win_area,
+      county: r.county === undefined ? null : r.county,
+    };
+    if (Number.isFinite(r.duration_min)) {
+      o.duration_min = r.duration_min;
+    }
+    return o;
+  });
 
   return {
     total_in_range: totalInRange,

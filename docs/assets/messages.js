@@ -204,6 +204,15 @@
       // {radius}.
       ctxEmpty: 'No qualifying volunteers within {radius} mi.',
       ctxEdge: 'edge',
+      // Per-row distance text for the Tier 2 volunteer context list. {dist} =
+      // miles, one decimal place. Used on the straight_line fallback (no time).
+      ctxDistance: '{dist} mi',
+      // Per-row distance text when DRIVING distance + time are available from
+      // the Worker (ORS driving mode). {dist} = driving miles (one decimal);
+      // {mins} = whole driving minutes. Mirrors the rehabber list's
+      // rehabDistanceDriving wording. Falls back to ctxDistance ("X.X mi") when
+      // the Worker returns straight-line only (no fabricated time).
+      ctxDistanceDriving: '{dist} mi driving / ~{mins} min',
       qualBadgeYes: 'Qualified',
       qualBadgeNo: 'Not qualified',
       qualBadgeYesTitle: 'Qualified for this animal',

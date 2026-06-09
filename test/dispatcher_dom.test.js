@@ -506,6 +506,72 @@ async function runTier2ContextList() {
   console.log('PASS: Tier 2 renders 3 context rows (nearest-first) with role badges, no PII.');
 }
 
+// ── Tier 2 DRIVING TIME: a context row with duration_min (driving mode) renders
+//    "X.X mi driving / ~Y min"; a row WITHOUT duration_min (straight_line
+//    fallback) renders distance only — never a fabricated time. ─────────────
+async function runTier2ContextDrivingTime() {
+  const agg = {
+    total_in_range: 2,
+    role_counts: { 'C&T': 0, 'RVS C&T': 0, 'COURIER': 0 },
+    win_areas: [],
+    distance_mode: 'driving',
+    out_of_county: [
+      // Driving row: carries duration_min -> "X.X mi driving / ~Y min".
+      { roles: ['C&T'], distance_mi: 8.2, duration_min: 17, win_area: '11', county: 'Beaver' },
+      // Same payload but NO duration_min (e.g. an unroutable cell within an
+      // otherwise-driving response) -> distance-only, NO time.
+      { roles: ['RVS C&T'], distance_mi: 12.4, win_area: '12', county: 'Butler' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc } = await driveTier2(agg, 'Allegheny');
+
+  const rows = Array.prototype.slice.call(doc.querySelectorAll('#ctx-list .ctx-row'));
+  assert.strictEqual(rows.length, 2, 'both qualified rows render (got ' + rows.length + ')');
+
+  // Row 0 (driving) shows the "X.X mi driving / ~Y min" label with its minutes.
+  const d0 = (rows[0].querySelector('.ctx-dist').textContent || '').trim();
+  assert.strictEqual(d0, '8.2 mi driving / ~17 min',
+    'driving row shows distance + driving time (got "' + d0 + '")');
+
+  // Row 1 (no duration_min) shows distance ONLY — never "~null min" / any time.
+  const d1 = (rows[1].querySelector('.ctx-dist').textContent || '').trim();
+  assert.strictEqual(d1, '12.4 mi',
+    'no-duration row shows distance only (got "' + d1 + '")');
+  assert.ok(d1.indexOf('min') === -1 && d1.indexOf('driving') === -1,
+    'no-duration row must NOT render a time segment (got "' + d1 + '")');
+
+  console.log('PASS: Tier 2 context rows show driving time when present, distance-only otherwise.');
+}
+
+// ── Tier 2 STRAIGHT-LINE fallback: a row WITHOUT duration_min renders distance
+//    only ("X.X mi"), never a time — even though the rehabber list would show
+//    one for driving data. ───────────────────────────────────────────────────
+async function runTier2ContextStraightLineNoTime() {
+  const agg = {
+    total_in_range: 1,
+    role_counts: { 'C&T': 0, 'RVS C&T': 0, 'COURIER': 0 },
+    win_areas: [],
+    distance_mode: 'straight_line',
+    out_of_county: [
+      { roles: ['C&T'], distance_mi: 9.3, win_area: '11', county: 'Beaver' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc } = await driveTier2(agg, 'Allegheny');
+
+  const rows = Array.prototype.slice.call(doc.querySelectorAll('#ctx-list .ctx-row'));
+  assert.strictEqual(rows.length, 1, 'one row renders');
+  const d = (rows[0].querySelector('.ctx-dist').textContent || '').trim();
+  assert.strictEqual(d, '9.3 mi', 'straight_line row shows distance only (got "' + d + '")');
+  assert.ok(d.indexOf('min') === -1 && d.indexOf('~') === -1,
+    'straight_line row renders NO driving time (got "' + d + '")');
+
+  console.log('PASS: Tier 2 straight_line fallback row renders distance only (no time).');
+}
+
 // ── Tier 2 overflow: radius_too_broad -> show notice above the (5) rows. ────
 async function runTier2Overflow() {
   const five = [];
@@ -2086,6 +2152,8 @@ async function run() {
   await runStandaloneNoRvsCaptureAllCtCapable();
   await runTier1Coordinator();
   await runTier2ContextList();
+  await runTier2ContextDrivingTime();
+  await runTier2ContextStraightLineNoTime();
   await runTier2Overflow();
   await runTier2Empty();
   await runTier2Availability();

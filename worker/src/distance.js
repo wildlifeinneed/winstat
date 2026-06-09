@@ -187,9 +187,12 @@ async function orsMatrixBatch(origin, cleanDests, key, doFetch, opts) {
  * unusable, or ANY chunk errors/times out/returns a malformed body, this
  * returns { ok: false } so the caller can fall back to the haversine prescreen
  * for the ENTIRE set (deterministic distance_mode). On success it returns
- * { ok: true, milesByIndex: number[] } where each entry is driving miles for
- * the corresponding destination (a single unroutable cell falls back to that
- * destination's straight-line distance so the array is always complete).
+ * { ok: true, milesByIndex: number[], minutesByIndex: Array<number|null> }
+ * where each miles entry is driving miles for the corresponding destination (a
+ * single unroutable cell falls back to that destination's straight-line
+ * distance so the array is always complete) and each minutes entry is the
+ * whole-minute driving time for that destination (null when ORS supplied no
+ * duration for the cell -- NEVER fabricated from straight-line distance).
  *
  * Never throws.
  *
@@ -198,7 +201,8 @@ async function orsMatrixBatch(origin, cleanDests, key, doFetch, opts) {
  * @param {string} apiKey   ORS_API_KEY (empty/undefined -> ok:false)
  * @param {Function} fetchFn  fetch-compatible (url, init) -> Promise<Response>
  * @param {Object} [opts]   { timeoutMs, chunkSize }
- * @returns {Promise<{ok:boolean, milesByIndex?:Array<number>}>}
+ * @returns {Promise<{ok:boolean, milesByIndex?:Array<number>,
+ *                    minutesByIndex?:Array<number|null>}>}
  */
 async function drivingDistancesMiles(origin, cleanDests, apiKey, fetchFn, opts) {
   const key = apiKey === null || apiKey === undefined ? '' : String(apiKey).trim();
@@ -216,6 +220,7 @@ async function drivingDistancesMiles(origin, cleanDests, apiKey, fetchFn, opts) 
   if (chunkSize > MAX_MATRIX_DESTINATIONS) chunkSize = MAX_MATRIX_DESTINATIONS;
 
   const milesByIndex = new Array(dests.length).fill(null);
+  const minutesByIndex = new Array(dests.length).fill(null);
   for (let start = 0; start < dests.length; start += chunkSize) {
     const batch = dests.slice(start, start + chunkSize);
     const res = await orsMatrixBatch(origin, batch, key, doFetch, opts);
@@ -230,13 +235,22 @@ async function drivingDistancesMiles(origin, cleanDests, apiKey, fetchFn, opts) 
         milesByIndex[start + i] = m / METERS_PER_MILE;
       } else {
         // ORS could not route this single pair -> straight-line for it only.
+        // No real driving time exists for a straight-line cell, so leave the
+        // duration null (NEVER fabricate a time from distance).
         milesByIndex[start + i] = haversineMi(
           origin.lat, origin.lon, batch[i].lat, batch[i].lon
         );
+        continue;
       }
+      // Surface the ORS driving DURATION (seconds -> whole minutes) parallel to
+      // the miles. Null when ORS supplied no duration for this cell.
+      const s = res.durations ? res.durations[i] : null;
+      minutesByIndex[start + i] = isFiniteNum(s)
+        ? Math.round(s / SECONDS_PER_MINUTE)
+        : null;
     }
   }
-  return { ok: true, milesByIndex: milesByIndex };
+  return { ok: true, milesByIndex: milesByIndex, minutesByIndex: minutesByIndex };
 }
 
 /**

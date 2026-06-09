@@ -1181,6 +1181,9 @@ async function main() {
     assert.strictEqual(out.ok, true);
     assert.strictEqual(out.milesByIndex.length, 2);
     assert.ok(Math.abs(out.milesByIndex[0] - 5.0) < 1e-6, 'metres -> miles');
+    // DURATION is surfaced parallel to miles (mockOrsByCoord -> 600s = 10 min).
+    assert.strictEqual(out.minutesByIndex.length, 2);
+    assert.strictEqual(out.minutesByIndex[0], 10, 'seconds -> whole minutes');
     // Outbound payload uses [lon,lat] with origin first; carries ONLY coords.
     const body = captured.lastBody;
     assert.deepStrictEqual(body.locations[0], [ANIMAL.lon, ANIMAL.lat], 'origin [lon,lat] first');
@@ -1303,8 +1306,11 @@ async function main() {
     assert.strictEqual(ctx.rows.length, 1, 'driving gate dropped Lancaster');
     assert.strictEqual(ctx.rows[0].county, 'Lebanon');
     assert.strictEqual(ctx.rows[0].distance_mi, 5.0, 'distance_mi is DRIVING miles');
-    // Row whitelist holds.
-    assert.deepStrictEqual(Object.keys(ctx.rows[0]).sort(), ['county', 'distance_mi', 'roles', 'win_area']);
+    // DRIVING mode also carries per-volunteer driving minutes (mockOrsByCoord
+    // returns 600s = 10 min for every cell). Row whitelist now includes it.
+    assert.strictEqual(ctx.rows[0].duration_min, 10, 'driving row carries duration_min (minutes)');
+    assert.deepStrictEqual(Object.keys(ctx.rows[0]).sort(),
+      ['county', 'distance_mi', 'duration_min', 'roles', 'win_area']);
 
     // Fallback path (no key) -> straight_line, both out-of-county rows present.
     const fb = await findContextRowsDriving(
@@ -1312,6 +1318,12 @@ async function main() {
     );
     assert.strictEqual(fb.distance_mode, 'straight_line');
     assert.strictEqual(fb.rows.length, 2, 'haversine keeps Lebanon + Lancaster');
+    // STRAIGHT-LINE fallback: NO driving time fabricated -> duration_min absent.
+    fb.rows.forEach((r) => {
+      assert.ok(!('duration_min' in r), 'straight_line row has NO duration_min');
+    });
+    assert.deepStrictEqual(Object.keys(fb.rows[0]).sort(),
+      ['county', 'distance_mi', 'roles', 'win_area']);
   });
 
   await test('(l10) handler end-to-end: driving mode, ORS sees only coords, PII-safe', async () => {
