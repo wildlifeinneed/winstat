@@ -133,6 +133,7 @@ jobs:
         if: steps.sentinel.outputs.refresh == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 290463cfd0bc273076e8c62678f7c845
         run: |
           if [ ! -f data/volunteer_coords.json ]; then
             echo "ERROR: data/volunteer_coords.json missing after refresh." >&2
