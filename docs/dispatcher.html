@@ -447,13 +447,13 @@
     }
 
     /* ─── Address autocomplete (typeahead) ────────────────────── */
-    .ac-wrap { position: relative; }
+    .ac-wrap { position: relative; z-index: 30; }
     .ac-list {
       position: absolute;
       left: 0;
       right: 0;
       top: calc(100% + 4px);
-      z-index: 20;
+      z-index: 50;
       list-style: none;
       margin: 0;
       padding: 4px;
@@ -933,6 +933,45 @@
       color: var(--text-muted);
       margin-top: 8px;
       line-height: 1.4;
+    }
+
+    /* ─── Mobile tap-target sizing (>=44px touch height) ───────────
+       Scoped to phones so desktop layout is unchanged. Enlarges the
+       interactive controls flagged by the mobile audit while keeping
+       real inputs + label association intact for accessibility. */
+    @media (max-width: 640px) {
+      /* Zero the 2px sub-pixel horizontal overflow seen at 360px: the
+         3-up capacity grid's rightmost card rounds ~2px past the
+         viewport (grid 1fr rounding, no real content cut-off). Clamp at
+         the main scroll container so no phantom scrollbar appears. */
+      html, body { overflow-x: hidden; }
+      main { overflow-x: hidden; }
+      /* Mode pills (By County / By Animal Address) */
+      .mode-toggle label { min-height: 44px; padding: 11px 16px; }
+      /* Primary CTAs */
+      .btn-primary { min-height: 44px; padding: 13px 22px; }
+      /* County dropdown, address + radius inputs */
+      select, input[type=text] { min-height: 44px; padding: 11px 12px; }
+      /* Tier-1 widen + on-demand rehabber reveal toggles */
+      .btn-widen,
+      .btn-rehab-toggle { min-height: 44px; padding: 11px 16px; }
+      /* RVS / Issue / mode radio rows: pad the label so each hit area
+         is >=44px tall and enlarge the visible native control. */
+      .radio-group { gap: 8px 14px; }
+      .radio-group label { min-height: 44px; padding: 6px 4px; }
+      .radio-group input[type=radio] { width: 20px; height: 20px; }
+      /* Phone (tel:) + website links a dispatcher taps in the field */
+      .rehab-row .rehab-phone a,
+      .rehab-row .rehab-site a {
+        display: inline-block;
+        min-height: 44px;
+        line-height: 30px;
+        padding: 7px 2px;
+      }
+      /* Autocomplete suggestion rows */
+      .ac-item { min-height: 44px; padding: 12px 10px; }
+      /* Secondary header nav links */
+      .home-link { display: inline-block; min-height: 44px; line-height: 32px; padding: 6px 0; }
     }
   </style>
 </head>
