@@ -18,7 +18,11 @@
  *   - CORS via a configurable ALLOWED_ORIGIN (see index.mjs / wrangler.toml)
  */
 
-const { findVolunteersInRadius } = require('./aggregate');
+const {
+  findVolunteersInRadius,
+  findContextRows,
+  buildTier2Response,
+} = require('./aggregate');
 const { geocodeAddress } = require('./census');
 const { autocompleteAddress } = require('./autocomplete');
 
@@ -58,6 +62,8 @@ async function readParams(request) {
     radius_mi: null,
     autocomplete: null,
     limit: null,
+    exclude_county: null,
+    context: null,
   };
 
   let url;
@@ -100,6 +106,26 @@ function parseFiniteNumber(value) {
   }
   const n = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Truthy-flag parse for the opt-in `context` param. Treats '1'/'true'/'yes'/
+ * 'on' (case-insensitive) and the number 1 / boolean true as ON; everything
+ * else (incl. null/undefined/''/'0'/'false') is OFF. When OFF, the response is
+ * byte-identical to today's aggregate (full backward compatibility).
+ */
+function isContextOn(value) {
+  if (value === null || value === undefined) {
+    return false;
+  }
+  if (value === true) {
+    return true;
+  }
+  if (typeof value === 'number') {
+    return value === 1;
+  }
+  const s = String(value).trim().toLowerCase();
+  return s === '1' || s === 'true' || s === 'yes' || s === 'on';
 }
 
 /**
@@ -268,7 +294,25 @@ async function handleRequest(request, deps) {
     coords
   );
 
-  // PII boundary: return ONLY the aggregate shape.
+  // Tier 2 "widen" branch (opt-in): when context is truthy, ADD a PII-safe
+  // out-of-county context list alongside the unchanged aggregate. The aggregate
+  // itself is still computed across ALL in-radius volunteers (in + out of
+  // county) above -- the context list is purely additive.
+  if (isContextOn(params.context)) {
+    const contextRows = findContextRows(
+      coord.lat,
+      coord.lon,
+      params.radius_mi,
+      coords,
+      params.exclude_county
+    );
+    // Single serialization seam: only buildTier2Response constructs the JSON,
+    // whitelisting keys so no raw KV datum can leak.
+    const tier2 = buildTier2Response(aggregate, contextRows);
+    return jsonResponse(ResponseCtor, 200, tier2, allowedOrigin);
+  }
+
+  // PII boundary: return ONLY the aggregate shape (byte-identical to today).
   return jsonResponse(ResponseCtor, 200, aggregate, allowedOrigin);
 }
 
@@ -277,6 +321,7 @@ module.exports = {
   DEFAULT_ALLOWED_ORIGIN,
   corsHeaders,
   readParams,
+  isContextOn,
   resolveAnimalCoord,
   readCoordsFromKV,
   handleRequest,

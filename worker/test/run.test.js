@@ -27,6 +27,8 @@ const {
   clampRadius,
   haversineMi,
   findVolunteersInRadius,
+  findContextRows,
+  buildTier2Response,
   DEFAULT_RADIUS_MI,
   MAX_RADIUS_MI,
 } = require('../src/aggregate');
@@ -430,6 +432,182 @@ async function main() {
     assert.deepStrictEqual(none, [], 'short query empty');
     const capped = await autocompleteAddress('4400 Forbes', 1, mockPhotonFetch());
     assert.strictEqual(capped.length, 1, 'limit=1 respected');
+  });
+
+  // (i) TIER 2 -- out-of-county context list (PII-safe) ----------------
+  // Forbidden keys that must NEVER appear at any depth of a Tier 2 response.
+  const TIER2_FORBIDDEN_KEYS = [
+    'lat', 'lon', 'latitude', 'longitude', '_addr_sig', 'name', 'rehab_name',
+    'phone', 'email', 'address', 'street', 'city', 'zip', 'home_county',
+    'monday_item_id', 'coords', 'coordinates',
+  ];
+  const TIER2_ROW_KEYS = ['county', 'distance_mi', 'roles', 'win_area'];
+
+  // Deep-walk every key in an object/array tree, collecting key names.
+  function collectKeys(node, out) {
+    if (Array.isArray(node)) {
+      for (const v of node) collectKeys(v, out);
+    } else if (node && typeof node === 'object') {
+      for (const k of Object.keys(node)) {
+        out.push(k);
+        collectKeys(node[k], out);
+      }
+    }
+    return out;
+  }
+
+  // KV set with rich PII-like fields to prove the deep-walk filters them out.
+  // Dauphin is the animal's home county (exclude_county in Tier 2).
+  const COORDS_PII = [
+    // ~0 mi, IN-county (Dauphin) -> excluded from out_of_county, counted in aggregate.
+    {
+      lat: 40.2732, lon: -76.8867, roles: ['C&T', 'COURIER'], home_county: 'Dauphin',
+      win_area: 'WIN-1', _addr_sig: 'sig-aaa', name: 'Alice', phone: '717-000-0001',
+      email: 'a@x.org', address: '1 Main St', monday_item_id: 111,
+    },
+    // ~8 mi, OUT-of-county (Lebanon), RVS C&T.
+    {
+      lat: 40.36, lon: -76.78, roles: ['rvs c&t'], home_county: 'Lebanon',
+      win_area: 'WIN-2', _addr_sig: 'sig-bbb', name: 'Bob', phone: '717-000-0002',
+      email: 'b@x.org', address: '2 Oak Ave', monday_item_id: 222,
+    },
+    // ~12 mi, OUT-of-county (Lancaster), COURIER.
+    {
+      lat: 40.10, lon: -76.75, roles: ['Courier'], home_county: 'Lancaster',
+      win_area: 'WIN-1', _addr_sig: 'sig-ccc', name: 'Carol', phone: '717-000-0003',
+      email: 'c@x.org', address: '3 Pine Rd', monday_item_id: 333,
+    },
+    // ~50 mi west, OUT-of-county (Huntingdon), C&T -> only in at 100mi.
+    {
+      lat: 40.33, lon: -77.95, roles: ['C&T'], home_county: 'Huntingdon',
+      win_area: 'WIN-9', _addr_sig: 'sig-ddd', name: 'Dave', phone: '717-000-0004',
+      email: 'd@x.org', address: '4 Elm Ct', monday_item_id: 444,
+    },
+    // invalid record -> skipped everywhere.
+    { lat: null, lon: null, roles: ['C&T'], home_county: 'Nowhere', win_area: 'WIN-X' },
+  ];
+
+  await test('(i1) findContextRows: out-of-county filter + one row per volunteer + sorted', () => {
+    const rows = findContextRows(ANIMAL.lat, ANIMAL.lon, 20, COORDS_PII, 'Dauphin');
+    // Dauphin (in-county) excluded; Huntingdon out at 20mi; invalid skipped.
+    assert.strictEqual(rows.length, 2, 'two out-of-county within 20mi');
+    // Sorted ascending by distance.
+    assert.ok(rows[0].distance_mi <= rows[1].distance_mi, 'ascending distance');
+    // Lebanon (RVS C&T) is nearest (~8mi), Lancaster (COURIER) next (~12mi).
+    assert.deepStrictEqual(rows[0].roles, ['RVS C&T']);
+    assert.strictEqual(rows[0].county, 'Lebanon');
+    assert.deepStrictEqual(rows[1].roles, ['COURIER']);
+    assert.strictEqual(rows[1].county, 'Lancaster');
+    // Each row carries ONLY the whitelisted keys.
+    for (const r of rows) {
+      assert.deepStrictEqual(Object.keys(r).sort(), TIER2_ROW_KEYS,
+        'row keys whitelisted, got: ' + JSON.stringify(Object.keys(r)));
+    }
+  });
+
+  await test('(i2) one row per volunteer carries a roles[] array (multi-role)', () => {
+    // Animal in a county that excludes nobody here; the ~0mi vol has 2 roles.
+    const rows = findContextRows(ANIMAL.lat, ANIMAL.lon, 20, COORDS_PII, 'Lebanon');
+    // Now Lebanon excluded; Dauphin (multi-role) + Lancaster remain in 20mi.
+    const dauphin = rows.find((r) => r.county === 'Dauphin');
+    assert.ok(dauphin, 'Dauphin row present');
+    assert.deepStrictEqual(dauphin.roles.slice().sort(), ['C&T', 'COURIER'],
+      'single row carries both qualifying roles (NOT one row per role)');
+  });
+
+  await test('(i3) overflow: >15 matches -> exactly 5 rows + radius_too_broad + truncated', () => {
+    // Build 20 distinct out-of-county volunteers at increasing distances.
+    const big = [];
+    for (let i = 0; i < 20; i += 1) {
+      big.push({
+        lat: ANIMAL.lat + 0.01 * (i + 1), lon: ANIMAL.lon,
+        roles: ['C&T'], home_county: 'County' + i, win_area: 'WIN-' + i,
+        _addr_sig: 'sig-' + i, name: 'V' + i, phone: 'p' + i,
+      });
+    }
+    const rows = findContextRows(ANIMAL.lat, ANIMAL.lon, 100, big, 'Dauphin');
+    assert.strictEqual(rows.length, 20, 'all 20 matched before overflow trim');
+    const resp = buildTier2Response(
+      { total_in_range: 20, role_counts: { 'C&T': 20, 'RVS C&T': 0, 'COURIER': 0 }, win_areas: [] },
+      rows
+    );
+    assert.strictEqual(resp.out_of_county.length, 5, 'only nearest 5 returned');
+    assert.strictEqual(resp.radius_too_broad, true);
+    assert.strictEqual(resp.out_of_county_truncated, true);
+    // The 5 returned are the nearest 5 (ascending).
+    for (let i = 1; i < resp.out_of_county.length; i += 1) {
+      assert.ok(resp.out_of_county[i - 1].distance_mi <= resp.out_of_county[i].distance_mi);
+    }
+  });
+
+  await test('(i4) no overflow: <=15 matches -> all rows + radius_too_broad false', () => {
+    const big = [];
+    for (let i = 0; i < 15; i += 1) {
+      big.push({
+        lat: ANIMAL.lat + 0.01 * (i + 1), lon: ANIMAL.lon,
+        roles: ['C&T'], home_county: 'County' + i, win_area: 'WIN-' + i,
+      });
+    }
+    const rows = findContextRows(ANIMAL.lat, ANIMAL.lon, 100, big, 'Dauphin');
+    const resp = buildTier2Response(
+      { total_in_range: 15, role_counts: { 'C&T': 15, 'RVS C&T': 0, 'COURIER': 0 }, win_areas: [] },
+      rows
+    );
+    assert.strictEqual(resp.out_of_county.length, 15, 'all 15 returned (boundary)');
+    assert.strictEqual(resp.radius_too_broad, false);
+    assert.strictEqual(resp.out_of_county_truncated, false);
+  });
+
+  await test('(i5) handler context=1: PII deep-walk finds NO forbidden key', async () => {
+    const res = await handleRequest(
+      mockRequest('GET', {
+        animal_lat: ANIMAL.lat, animal_lon: ANIMAL.lon, radius_mi: 20,
+        exclude_county: 'Dauphin', context: '1',
+      }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS_PII), allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    // Top-level whitelist.
+    assert.deepStrictEqual(Object.keys(body).sort(),
+      ['out_of_county', 'out_of_county_truncated', 'radius_too_broad',
+       'role_counts', 'total_in_range', 'win_areas']);
+    // Deep-walk every key name; none may be forbidden.
+    const allKeys = collectKeys(body, []);
+    for (const k of TIER2_FORBIDDEN_KEYS) {
+      assert.strictEqual(allKeys.indexOf(k), -1, 'PII key leaked at some depth: ' + k);
+    }
+    // Aggregate still spans ALL in-radius (in + out of county) = 3.
+    assert.strictEqual(body.total_in_range, 3, 'aggregate unchanged by context');
+    // out_of_county rows: each has ONLY the 4 whitelisted keys, none in-county.
+    assert.strictEqual(body.out_of_county.length, 2);
+    for (const r of body.out_of_county) {
+      assert.deepStrictEqual(Object.keys(r).sort(), TIER2_ROW_KEYS);
+      assert.notStrictEqual(String(r.county).toLowerCase(), 'dauphin');
+    }
+  });
+
+  await test('(i6) backward compat: NO context -> byte-identical to today aggregate', async () => {
+    const query = { animal_lat: ANIMAL.lat, animal_lon: ANIMAL.lon, radius_mi: 20 };
+    // Today's path (no context param at all).
+    const resPlain = await handleRequest(mockRequest('GET', query),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS_PII), allowedOrigin: 'https://pages.example' });
+    // Same request but with exclude_county present and context explicitly OFF.
+    const resOff = await handleRequest(
+      mockRequest('GET', Object.assign({}, query, { exclude_county: 'Dauphin', context: '0' })),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS_PII), allowedOrigin: 'https://pages.example' });
+    // Byte-for-byte equal bodies; only the 3 legacy keys; no out_of_county.
+    assert.strictEqual(resPlain.body, resOff.body, 'context off is byte-identical');
+    assert.deepStrictEqual(Object.keys(await resPlain.json()).sort(),
+      ['role_counts', 'total_in_range', 'win_areas']);
+  });
+
+  await test('(i7) handler context=1 carries CORS header', async () => {
+    const res = await handleRequest(
+      mockRequest('GET', { animal_lat: ANIMAL.lat, animal_lon: ANIMAL.lon, exclude_county: 'Dauphin', context: '1' }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS_PII), allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.header('Access-Control-Allow-Origin'), 'https://pages.example');
   });
 
   console.log('\n----------------------------------------');
