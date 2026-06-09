@@ -4,30 +4,37 @@
 (function (root) {
   'use strict';
 
+  // ── Wording + thresholds come from messages.js (single source of truth) ───
+  // Browser: window.WildlifeMessages (loaded via <script> before this file).
+  // Node tests: require the sibling module. Resolved once at load.
+  var WM = (typeof root !== 'undefined' && root.WildlifeMessages)
+    ? root.WildlifeMessages
+    : ((typeof require !== 'undefined') ? require('./messages.js') : null);
+  var MSG = WM.messages;
+  var fmt = WM.fmt;
+  var T1 = MSG.tier1Actions;
+
+  // Action tones stay in code (they drive CSS classes / behavior); labels are
+  // pulled from the config so wording lives in one place.
   var ACTIONS = {
     connecteam_task: {
       id: 'connecteam_task',
-      label: 'Dispatch via Connecteam',
+      label: T1.actionLabels.connecteam_task,
       tone: 'go'
     },
     call_pa_game_comm: {
       id: 'call_pa_game_comm',
-      label: 'Call PA Game Commission',
+      label: T1.actionLabels.call_pa_game_comm,
       tone: 'escalate'
     },
     tbd_escalate: {
       id: 'tbd_escalate',
-      label: 'No automatic action - escalate to supervisor',
+      label: T1.actionLabels.tbd_escalate,
       tone: 'unknown'
     }
   };
 
-  var DEFAULTS = {
-    marginal_threshold: 1,
-    ct_rvs_capture_min_available: 1,
-    ct_any_capture_min_available: 1,
-    courier_transport_min_available: 1
-  };
+  var DEFAULTS = MSG.thresholds;
 
   function resolveConfig(rc) {
     var out = {};
@@ -77,7 +84,7 @@
     rec.marginal = isMarginal;
     rec.marginal_volunteers = isMarginal ? bucketMarginalRoster(capacity, chosenBucket) : [];
     if (isMarginal) {
-      rec.reasoning.push('Low capacity warning: only ' + avail + ' available; consider calling PA Game Commission.');
+      rec.reasoning.push(fmt(T1.lowCapacityWarning, { count: avail }));
     }
     return rec;
   }
@@ -136,7 +143,7 @@
     // A. Missing capacity
     if (!capacity) {
       rec.action = 'call_pa_game_comm';
-      rec.reasoning = ['No volunteers in this county - ask the finder to call PA Game Commission.'];
+      rec.reasoning = [T1.missingCapacity];
       return rec;
     }
 
@@ -145,7 +152,7 @@
     // E. Unknown issue
     if (issueNorm !== 'capture' && issueNorm !== 'transport') {
       rec.action = 'tbd_escalate';
-      rec.reasoning = ['Issue type not recognized - select Capture or Transport.'];
+      rec.reasoning = [T1.unknownIssue];
       return rec;
     }
 
@@ -157,52 +164,52 @@
     if (issueNorm === 'capture') {
       if (animalRvs === true) {
         // B. Capture + RVS animal
-        rec.reasoning.push('Capture + RVS animal -> RVS-capable C&T required.');
+        rec.reasoning.push(T1.rvsCaptureRule);
         if (ctRvsAvail >= cfg.ct_rvs_capture_min_available) {
           rec.action = 'connecteam_task';
           rec.target = 'ct_rvs';
-          rec.reasoning.push('Recommended: dispatch a C&T+RVS volunteer via Connecteam.');
+          rec.reasoning.push(T1.rvsCaptureDispatch);
           return enrichMarginal(rec, capacity, 'ct_rvs', cfg);
         }
         rec.action = 'call_pa_game_comm';
-        rec.reasoning.push('No RVS-capable C&T volunteers available - ask the finder to call PA Game Commission.');
+        rec.reasoning.push(T1.rvsCaptureNone);
         return rec;
       }
       // C. Capture + non-RVS animal
-      rec.reasoning.push('Capture + non-RVS animal -> any C&T volunteer acceptable.');
+      rec.reasoning.push(T1.nonRvsCaptureRule);
       if (ctAnyAvail >= cfg.ct_any_capture_min_available) {
         rec.action = 'connecteam_task';
         rec.target = 'ct_any';
-        rec.reasoning.push('Recommended: dispatch a C&T volunteer via Connecteam.');
+        rec.reasoning.push(T1.nonRvsCaptureDispatch);
         // Choose actual bucket: prefer ct_no_rvs to save RVS volunteers.
         var chosen = (ctNoRvsAvail > 0) ? 'ct_no_rvs' : 'ct_rvs';
         return enrichMarginal(rec, capacity, chosen, cfg, ctAnyAvail);
       }
       rec.action = 'call_pa_game_comm';
-      rec.reasoning.push('No C&T volunteers available - ask the finder to call PA Game Commission.');
+      rec.reasoning.push(T1.nonRvsCaptureNone);
       return rec;
     }
 
     // D. Transport - couriers preferred; C&T volunteers also eligible for transport runs.
-    rec.reasoning.push('Transport request - couriers preferred; C&T volunteers also eligible for transport runs.');
+    rec.reasoning.push(T1.transportRule);
     var transportPool = courierAvail + ctAnyAvail;
     if (transportPool >= cfg.courier_transport_min_available) {
       rec.action = 'connecteam_task';
       if (courierAvail > 0) {
         rec.target = 'courier';
         if (ctAnyAvail > 0) {
-          rec.reasoning.push(courierAvail + ' courier(s) + ' + ctAnyAvail + ' C&T(s) available for transport.');
+          rec.reasoning.push(fmt(T1.transportCourierAndCt, { courier: courierAvail, ct: ctAnyAvail }));
         }
-        rec.reasoning.push('Recommended: dispatch a courier via Connecteam.');
+        rec.reasoning.push(T1.transportCourierDispatch);
         return enrichMarginal(rec, capacity, 'courier', cfg, transportPool);
       }
       rec.target = 'ct_any';
-      rec.reasoning.push('No couriers available; dispatching C&T for transport.');
+      rec.reasoning.push(T1.transportCtFallback);
       var chosenT = (ctNoRvsAvail > 0) ? 'ct_no_rvs' : 'ct_rvs';
       return enrichMarginal(rec, capacity, chosenT, cfg, transportPool);
     }
     rec.action = 'call_pa_game_comm';
-    rec.reasoning.push('No courier or C&T transport capacity available - ask the finder to transport the animal themselves, or call PA Game Commission.');
+    rec.reasoning.push(T1.transportNone);
     return rec;
   }
 

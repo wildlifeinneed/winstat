@@ -5,6 +5,15 @@
 (function () {
   'use strict';
 
+  // ── Wording + thresholds come from messages.js (single source of truth) ───
+  // Browser: window.WildlifeMessages (loaded via <script> before this file).
+  // Node tests: window.eval(messages.js) runs first, else require the sibling.
+  var WM = (typeof window !== 'undefined' && window.WildlifeMessages)
+    ? window.WildlifeMessages
+    : ((typeof require !== 'undefined') ? require('./messages.js') : null);
+  var MSG = WM.messages;
+  var fmt = WM.fmt;
+
   var PA_COUNTIES = [
     'Adams','Allegheny','Armstrong','Beaver','Bedford','Berks','Blair','Bradford',
     'Bucks','Butler','Cambria','Cameron','Carbon','Centre','Chester','Clarion',
@@ -53,12 +62,15 @@
   var GEOJSON_PATH = 'data/pa_counties.geojson';
   var MAP_PANEL_KEY = 'win_map_panel_open'; // localStorage collapse persistence
 
+  // Threshold values relocated to messages.js (MSG.thresholds) so the numeric
+  // tuning knobs live in one editable place. Behavior is unchanged: these are
+  // still the FALLBACK defaults when data/config.json omits a value.
   var DEFAULT_CONFIG = {
-    marginal_threshold: 1,
+    marginal_threshold: MSG.thresholds.marginal_threshold,
     escalate_to_game_commission: {
-      ct_rvs_capture_min_available: 1,
-      ct_any_capture_min_available: 1,
-      courier_transport_min_available: 1
+      ct_rvs_capture_min_available: MSG.thresholds.ct_rvs_capture_min_available,
+      ct_any_capture_min_available: MSG.thresholds.ct_any_capture_min_available,
+      courier_transport_min_available: MSG.thresholds.courier_transport_min_available
     },
     county_overrides: {}
   };
@@ -92,8 +104,9 @@
   var AC_MIN_CHARS = 3;
   var AC_DEBOUNCE_MS = 280;
   var AC_LIMIT = 5;
-  // PA Game Commission dispatch lines (already public on the page footer).
-  var PGC_PHONE = '(833) 742-4868 or (833) 742-9453';
+  // PA Game Commission dispatch lines — single source of truth in messages.js
+  // (also injected into the page footer note so both sites read ONE value).
+  var PGC_PHONE = MSG.pgcPhone;
   // Roles that count as "qualified to respond" for the call-PGC decision.
   var QUALIFYING_ROLES = ['C&T', 'RVS C&T', 'COURIER'];
 
@@ -133,12 +146,12 @@
     var banner = $('#refresh-banner');
     if (state.loadError || !state.snapshot) {
       banner.classList.add('warn');
-      banner.textContent = 'Snapshot not available — run refresh_monday.py';
+      banner.textContent = MSG.tier2Aggregate.snapshotUnavailable;
       return;
     }
     banner.classList.remove('warn');
     var ts = formatTimestamp(state.snapshot.generated_at);
-    banner.textContent = 'Last refreshed: ' + (ts || 'unknown');
+    banner.textContent = fmt(MSG.tier2Aggregate.lastRefreshed, { ts: (ts || MSG.tier2Aggregate.refreshedUnknown) });
   }
 
   function resolveForCounty(config, countyName) {
@@ -187,7 +200,7 @@
     b.id = 'config-error-banner';
     b.className = 'refresh-banner warn';
     b.style.marginTop = '6px';
-    b.textContent = 'Config file is malformed; using defaults.';
+    b.textContent = MSG.tier2Aggregate.configMalformed;
     var refresh = document.getElementById('refresh-banner');
     if (refresh && refresh.parentNode) {
       refresh.parentNode.insertBefore(b, refresh.nextSibling);
@@ -239,14 +252,14 @@
       if (avail <= resolved.marginal_threshold && total > 0) {
         var badge = document.createElement('span');
         badge.className = 'badge';
-        badge.textContent = 'Marginal';
+        badge.textContent = MSG.coordinator.marginalBadge;
         card.appendChild(badge);
       }
     });
 
     if (!data || !hasAny) {
       emptyMsg.style.display = 'block';
-      emptyMsg.textContent = 'No volunteers currently in ' + countyName + ' for these roles.';
+      emptyMsg.textContent = fmt(MSG.coordinator.noVolunteersInCounty, { county: countyName });
     } else {
       emptyMsg.style.display = 'none';
       emptyMsg.textContent = '';
@@ -255,12 +268,7 @@
     renderCoordLine(countyName);
   }
 
-  var TARGET_LABELS = {
-    ct_rvs:    'RVS C&T',
-    ct_no_rvs: 'C&T',
-    ct_any:    'C&T (any)',
-    courier:   'Courier'
-  };
+  var TARGET_LABELS = MSG.recommendation.targetLabels;
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, function (c) {
@@ -275,33 +283,34 @@
     var label = actionMeta ? actionMeta.label : rec.action;
     var tone  = actionMeta ? actionMeta.tone  : 'unknown';
     var html = '';
-    html += '<button type="button" class="rec-dismiss" id="rec-dismiss" aria-label="Dismiss">Dismiss</button>';
+    var REC = MSG.recommendation;
+    html += '<button type="button" class="rec-dismiss" id="rec-dismiss" aria-label="' + REC.dismiss + '">' + REC.dismiss + '</button>';
     html += '<div class="rec-action ' + tone + '">' + escapeHtml(label) + '</div>';
     if (rec.target) {
       var targetLabel = TARGET_LABELS[rec.target] || rec.target;
-      html += '<div class="rec-target">Target role: <strong>' + escapeHtml(targetLabel) + '</strong></div>';
+      html += '<div class="rec-target">' + fmt(REC.targetRole, { label: escapeHtml(targetLabel) }) + '</div>';
     }
 
     if (rec.marginal && rec.marginal_volunteers && rec.marginal_volunteers.length) {
       html += '<div class="rec-marginal">';
-      html += '<div class="rec-marginal-header">Low capacity</div>';
+      html += '<div class="rec-marginal-header">' + REC.lowCapacityHeader + '</div>';
       html += '<ul>';
       rec.marginal_volunteers.forEach(function (v) {
         var note = v && v.availability_note ? String(v.availability_note) : '';
         if (note) {
           html += '<li><em>' + escapeHtml(note) + '</em></li>';
         } else {
-          html += '<li><em>(no availability info)</em></li>';
+          html += '<li><em>' + REC.noAvailabilityInfo + '</em></li>';
         }
       });
       html += '</ul></div>';
     } else if (rec.marginal) {
-      html += '<div class="rec-marginal"><div class="rec-marginal-header">Low capacity</div>' +
-              '<p style="font-size:13px;">No marginal-volunteer roster recorded for this bucket.</p></div>';
+      html += '<div class="rec-marginal"><div class="rec-marginal-header">' + REC.lowCapacityHeader + '</div>' +
+              '<p style="font-size:13px;">' + REC.noRosterRecorded + '</p></div>';
     }
 
     if (rec.reasoning && rec.reasoning.length) {
-      html += '<div class="rec-reasoning"><div class="rec-reasoning-header">Reasoning</div><ol>';
+      html += '<div class="rec-reasoning"><div class="rec-reasoning-header">' + REC.reasoningHeader + '</div><ol>';
       rec.reasoning.forEach(function (r) { html += '<li>' + escapeHtml(r) + '</li>'; });
       html += '</ol></div>';
     }
@@ -337,8 +346,8 @@
     var county = $('#county').value;
     if (!county) {
       out.className = 'rec-output show tone-unknown';
-      out.innerHTML = '<button type="button" class="rec-dismiss" id="rec-dismiss">Dismiss</button>' +
-                      '<div class="rec-action unknown">Select a county first.</div>';
+      out.innerHTML = '<button type="button" class="rec-dismiss" id="rec-dismiss">' + MSG.recommendation.dismiss + '</button>' +
+                      '<div class="rec-action unknown">' + MSG.recommendation.selectCountyFirst + '</div>';
       var d = document.getElementById('rec-dismiss');
       if (d) d.addEventListener('click', function () {
         out.classList.remove('show'); out.innerHTML = '';
@@ -470,13 +479,13 @@
     if (line) {
       if (coord.name) {
         var label = coord.area
-          ? 'Area ' + escapeHtml(coord.area) + ' Coordinator'
-          : 'Coordinator';
-        line.innerHTML = label + ': <strong>' +
-          escapeHtml(coord.name) + '</strong>.';
+          ? fmt(MSG.coordinator.areaCoordinatorLabel, { area: escapeHtml(coord.area) })
+          : MSG.coordinator.coordinatorLabel;
+        line.innerHTML = fmt(MSG.coordinator.coordinatorLine, {
+          label: label, name: escapeHtml(coord.name)
+        });
       } else {
-        line.innerHTML = '<span class="coord-area">No coordinator on file for ' +
-          escapeHtml(countyName) + '.</span>';
+        line.innerHTML = fmt(MSG.coordinator.noCoordinatorOnFile, { county: escapeHtml(countyName) });
       }
       line.style.display = 'block';
     }
@@ -551,10 +560,11 @@
 
     var radius = (ctx && ctx.radius) ? ctx.radius : '';
     var county = (ctx && ctx.excludeCounty) ? ctx.excludeCounty : '';
+    var T2 = MSG.tier2Aggregate;
     if (headerEl) {
       headerEl.textContent = county
-        ? ('Out-of-county helpers within ' + radius + ' mi (beyond ' + county + ')')
-        : ('Out-of-county helpers within ' + radius + ' mi');
+        ? fmt(T2.ctxHeaderBeyond, { radius: radius, county: county })
+        : fmt(T2.ctxHeader, { radius: radius });
     }
 
     var rows = agg.out_of_county;
@@ -562,8 +572,7 @@
 
     if (noticeEl) {
       if (truncated) {
-        noticeEl.textContent = 'Radius too large — showing the ' + rows.length +
-          ' nearest. Narrow the radius for a complete list.';
+        noticeEl.textContent = fmt(T2.ctxOverflowNotice, { count: rows.length });
         noticeEl.style.display = 'block';
       } else {
         noticeEl.style.display = 'none';
@@ -574,9 +583,7 @@
     if (!rows.length) {
       if (listEl) listEl.innerHTML = '';
       if (emptyEl) {
-        emptyEl.textContent = county
-          ? ('No out-of-county volunteers within ' + radius + ' mi.')
-          : ('No out-of-county volunteers within ' + radius + ' mi.');
+        emptyEl.textContent = fmt(T2.ctxEmpty, { radius: radius });
         emptyEl.style.display = 'block';
       }
       block.style.display = 'block';
@@ -609,23 +616,23 @@
       if (tagEnabled) {
         var ok = qualifyFn(roleList, !!ctx.rvs, ctx.issue);
         qualBadge = ok
-          ? '<span class="qual-badge qual-yes" title="Qualified for this animal">' +
-            '<span class="qual-icon" aria-hidden="true">\u2713</span> Qualified</span>'
-          : '<span class="qual-badge qual-no" title="Not qualified for this animal">' +
-            '<span class="qual-icon" aria-hidden="true">\u2717</span> Not qualified</span>';
+          ? '<span class="qual-badge qual-yes" title="' + T2.qualBadgeYesTitle + '">' +
+            '<span class="qual-icon" aria-hidden="true">\u2713</span> ' + T2.qualBadgeYes + '</span>'
+          : '<span class="qual-badge qual-no" title="' + T2.qualBadgeNoTitle + '">' +
+            '<span class="qual-icon" aria-hidden="true">\u2717</span> ' + T2.qualBadgeNo + '</span>';
       }
 
       var dist = (typeof row.distance_mi === 'number') ? row.distance_mi : Number(row.distance_mi);
       var distTxt = Number.isFinite(dist) ? dist.toFixed(1) : '?';
 
       var ctxBits = [];
-      if (row.win_area) ctxBits.push('Area ' + escapeHtml(String(row.win_area)));
+      if (row.win_area) ctxBits.push(fmt(T2.areaChip, { area: escapeHtml(String(row.win_area)) }));
       if (row.county) ctxBits.push(escapeHtml(String(row.county)));
       var ctxTxt = ctxBits.length ? ' <span class="ctx-ctx">· ' + ctxBits.join(' · ') + '</span>' : '';
 
       var edge = (Number.isFinite(dist) && Number.isFinite(radiusNum) && radiusNum > 0 &&
                   dist >= 0.85 * radiusNum)
-        ? '<span class="ctx-edge">edge</span>' : '';
+        ? '<span class="ctx-edge">' + T2.ctxEdge + '</span>' : '';
 
       return '<li class="ctx-row">' +
              '<span class="role-badges">' + badges + '</span>' +
@@ -679,7 +686,7 @@
     if (hasAvail && total > 0 && availVal <= marginalThreshold) {
       var badge = document.createElement('span');
       badge.className = 'badge';
-      badge.textContent = 'Marginal';
+      badge.textContent = MSG.coordinator.marginalBadge;
       card.appendChild(badge);
     }
   }
@@ -705,13 +712,14 @@
     renderAggCard('RVS C&T', rvs, avail ? (avail['RVS C&T'] || 0) : undefined, marginalThreshold);
     renderAggCard('COURIER', courier, avail ? (avail['COURIER'] || 0) : undefined, marginalThreshold);
 
+    var T2 = MSG.tier2Aggregate;
     var areasEl = $('#agg-areas');
     if (areas.length) {
       areasEl.innerHTML = areas.map(function (a) {
-        return '<span class="win-chip">Area ' + escapeHtml(a) + '</span>';
+        return '<span class="win-chip">' + fmt(T2.areaChip, { area: escapeHtml(a) }) + '</span>';
       }).join('');
     } else {
-      areasEl.innerHTML = '<span style="font-size:13px;color:var(--text-muted);">none</span>';
+      areasEl.innerHTML = '<span style="font-size:13px;color:var(--text-muted);">' + T2.areasNone + '</span>';
     }
 
     // ── Recommended actions (mirror dispatch_core.build_recommendation) ──
@@ -721,10 +729,11 @@
     // INFORMATIONAL (not a directive): how many WIN volunteers are in range and
     // which areas they cover. The "WIN areas covered" chip row above is separate.
     if (total > 0 && areas.length) {
-      actions.push(actionLine('go', '→',
-        'WIN volunteers found: <strong>' + total + '</strong> (WIN area' +
-        (areas.length > 1 ? 's' : '') + ' <strong>' +
-        areas.map(escapeHtml).join(', ') + '</strong>).'));
+      actions.push(actionLine('go', '→', fmt(T2.winVolunteersFound, {
+        count: total,
+        areaWord: (areas.length > 1 ? 'areas' : 'area'),
+        areas: areas.map(escapeHtml).join(', ')
+      })));
     }
 
     // INFORMATIONAL: list the single coordinator for each in-range WIN area,
@@ -734,9 +743,9 @@
     areas.forEach(function (a) {
       var name = state.coordinators[String(a)];
       if (name && String(name).trim()) {
-        actions.push(actionLine('go', '→',
-          'Area ' + escapeHtml(a) + ' Coordinator: <strong>' +
-          escapeHtml(String(name).trim()) + '</strong>.'));
+        actions.push(actionLine('go', '→', fmt(T2.areaCoordinatorListed, {
+          area: escapeHtml(a), name: escapeHtml(String(name).trim())
+        })));
       }
     });
 
@@ -778,39 +787,38 @@
       var qAreaList = Object.keys(qualifiedAreas).sort();
       var bAreaList = Object.keys(backupAreas).sort();
       var needRvs = (ctx.rvs === true);
-      var needLabel = needRvs ? 'RVS C&T'
-        : (ctx.issue === 'transport' ? 'C&T / RVS C&T / Courier' : 'C&T / RVS C&T');
+      var needLabel = needRvs ? T2.needLabelRvs
+        : (ctx.issue === 'transport' ? T2.needLabelTransport : T2.needLabelCapture);
 
       if (qualifiedCount > 0) {
         var qAreaTxt = qAreaList.length
-          ? '; WIN areas: <strong>' + qAreaList.map(escapeHtml).join(', ') + '</strong>'
+          ? fmt(T2.areaClause, { areas: qAreaList.map(escapeHtml).join(', ') })
           : '';
-        actions.push(actionLine('go', '→',
-          'Out-of-county qualified helpers: <strong>' + qualifiedCount + '</strong>' +
-          qAreaTxt + ' within ' + ctx.radius + ' mi — task via <strong>Connecteam</strong>.'));
+        actions.push(actionLine('go', '→', fmt(T2.qualifiedHelpers, {
+          count: qualifiedCount, areaClause: qAreaTxt, radius: ctx.radius
+        })));
         leniencyHandled = true;
       } else if (backupCount > 0) {
         // No fully-qualified helper in range: surface the backups WITH the gap.
         var bAreaTxt = bAreaList.length
-          ? '; WIN areas: <strong>' + bAreaList.map(escapeHtml).join(', ') + '</strong>'
+          ? fmt(T2.areaClause, { areas: bAreaList.map(escapeHtml).join(', ') })
           : '';
-        actions.push(actionLine('escalate', '!',
-          'No qualified <strong>' + escapeHtml(needLabel) + '</strong> within ' +
-          ctx.radius + ' mi. Nearby backup helpers: <strong>' + backupCount + '</strong>' +
-          bAreaTxt + ' could assist as <strong>backup</strong>' +
-          (needRvs
-            ? ' (e.g. help with transport) — call <strong>PA Game Commission</strong> for the RVS capture: '
-            : ' — confirm capability, or call <strong>PA Game Commission</strong>: ') +
-          escapeHtml(PGC_PHONE) + '.'));
+        actions.push(actionLine('escalate', '!', fmt(T2.backupHelpers, {
+          role: escapeHtml(needLabel),
+          radius: ctx.radius,
+          count: backupCount,
+          areaClause: bAreaTxt,
+          gapClause: (needRvs ? T2.backupGapRvs : T2.backupGapOther),
+          phone: escapeHtml(PGC_PHONE)
+        })));
         leniencyHandled = true;
       }
     }
 
     if (!hasQualified && !leniencyHandled) {
-      actions.push(actionLine('escalate', '!',
-        'No qualified volunteers within ' + ctx.radius + ' mi — ' +
-        'ask the finder to call <strong>PA Game Commission</strong>: ' +
-        escapeHtml(PGC_PHONE) + '.'));
+      actions.push(actionLine('escalate', '!', fmt(T2.noQualifiedEscalate, {
+        radius: ctx.radius, phone: escapeHtml(PGC_PHONE)
+      })));
     }
 
     // Closest-rehabber suggestion needs the animal coordinate. The Worker
@@ -822,23 +830,21 @@
       if (closest) {
         var dist = closest.distance_mi.toFixed(1);
         var site = closest.website
-          ? ' (<a href="' + escapeHtml(closest.website) + '" target="_blank" rel="noopener">website</a>)'
+          ? ' (<a href="' + escapeHtml(closest.website) + '" target="_blank" rel="noopener">' + T2.rehabberWebsiteLabel + '</a>)'
           : '';
         var tone = closest.is_closed ? 'warn' : 'neutral';
-        var closedNote = closest.is_closed
-          ? ' <strong>Nearest is not marked OPEN — confirm before transport.</strong>'
-          : '';
-        actions.push(actionLine(tone, '⌂',
-          'Transport to closest rehabber: <strong>' + escapeHtml(closest.rehab_name) +
-          '</strong> (~' + dist + ' mi)' + site + '.' + closedNote));
+        var closedNote = closest.is_closed ? T2.rehabberClosedNote : '';
+        actions.push(actionLine(tone, '⌂', fmt(T2.closestRehabber, {
+          name: escapeHtml(closest.rehab_name),
+          dist: dist, site: site, closedNote: closedNote
+        })));
       }
     }
 
     if (!actions.length) {
-      actions.push(actionLine('escalate', '!',
-        'No volunteers in range and no rehabber data available — ' +
-        'ask the finder to call <strong>PA Game Commission</strong>: ' +
-        escapeHtml(PGC_PHONE) + '.'));
+      actions.push(actionLine('escalate', '!', fmt(T2.noVolunteersNoData, {
+        phone: escapeHtml(PGC_PHONE)
+      })));
     }
 
     $('#agg-actions').innerHTML = actions.join('');
@@ -854,7 +860,7 @@
     $('#radius-mi').value = String(radius);
 
     if (!addr) {
-      setAddressError('Enter the animal address first.');
+      setAddressError(MSG.geocodeErrors.enterAddress);
       return;
     }
 
@@ -862,7 +868,7 @@
     var btn = $('#address-btn');
     btn.disabled = true;
     $('#address-result').style.display = 'none';
-    setAddressStatus('Finding volunteers within ' + radius + ' mi…');
+    setAddressStatus(fmt(MSG.geocodeErrors.finding, { radius: radius }));
 
     // Tier 2 "widen": if a county was carried over from Tier 1, scope the query
     // to EXCLUDE it and request the out-of-county context list. ctx carries the
@@ -884,21 +890,20 @@
           renderAggregate(agg, ctx);
         } catch (renderErr) {
           if (window.console && console.error) console.error('renderAggregate failed', renderErr);
-          setAddressError('Got a response but could not display it. Please report this to the site maintainer.');
+          setAddressError(MSG.geocodeErrors.renderFailed);
         }
       })
       .catch(function (err) {
         setAddressStatus('');
         var code = err && err.message ? err.message : '';
         if (code === 'address_not_found') {
-          setAddressError('No match for that address. Check spelling, or try ' +
-            '"street, city, PA zip".');
+          setAddressError(MSG.geocodeErrors.addressNotFound);
         } else if (code === 'geocoder_unavailable') {
-          setAddressError('Address lookup service is temporarily unavailable. Try again shortly.');
+          setAddressError(MSG.geocodeErrors.geocoderUnavailable);
         } else if (code === 'worker_400') {
-          setAddressError('Dispatcher service could not resolve that location. Try a more specific address.');
+          setAddressError(MSG.geocodeErrors.worker400);
         } else {
-          setAddressError('Could not reach the dispatcher service. Check your connection and try again.');
+          setAddressError(MSG.geocodeErrors.networkError);
         }
       })
       .then(function () {
@@ -1395,6 +1400,14 @@
 
   function init() {
     populateCounties();
+    // Inject the finder-fallback footer note from the single message source so
+    // the PA Game Commission phone lives in ONE place (messages.js). The markup
+    // carries a static copy as a no-JS fallback; this overwrites it with the
+    // identical config-built text.
+    var fallbackNote = document.getElementById('finder-fallback-note');
+    if (fallbackNote) {
+      fallbackNote.textContent = fmt(MSG.staticUi.finderFallbackNote, { phone: PGC_PHONE });
+    }
     $('#county').addEventListener('change', function (e) {
       renderCardsForCounty(e.target.value);
     });

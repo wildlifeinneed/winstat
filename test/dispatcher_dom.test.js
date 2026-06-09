@@ -43,6 +43,7 @@ process.on('unhandledRejection', function (reason) {
 
 const DOCS = path.resolve(__dirname, '..', 'docs');
 const HTML_PATH = path.join(DOCS, 'dispatcher.html');
+const MESSAGES_JS = path.join(DOCS, 'assets', 'messages.js');
 const DECISION_JS = path.join(DOCS, 'assets', 'decision.js');
 const DISPATCHER_JS = path.join(DOCS, 'assets', 'dispatcher.js');
 const GEOJSON_PATH = path.join(DOCS, 'data', 'pa_counties.geojson');
@@ -167,8 +168,10 @@ function loadDom(opts) {
   // Mock network BEFORE the page scripts run.
   window.fetch = makeFetch('https://pa-wildlife-dispatcher.winstat.workers.dev', opts);
 
-  // Execute the REAL site scripts in page context (decision first, as the page
-  // loads it first), so dispatcher.js sees window.WildlifeDecision.
+  // Execute the REAL site scripts in page context (messages + decision first,
+  // as the page loads them first), so dispatcher.js sees window.WildlifeMessages
+  // and window.WildlifeDecision.
+  window.eval(fs.readFileSync(MESSAGES_JS, 'utf8'));
   window.eval(fs.readFileSync(DECISION_JS, 'utf8'));
   window.eval(fs.readFileSync(DISPATCHER_JS, 'utf8'));
 
