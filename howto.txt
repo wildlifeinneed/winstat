@@ -1,9 +1,0 @@
-How to refresh and upload:
-
-From wildlife directory:
-
-python3 refresh_monday.py --if-stale
-git add docs/data/county_capacity.json
-git commit -m "Refresh capacity" 
-git push
-
