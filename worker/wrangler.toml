@@ -18,17 +18,16 @@
 name = "pa-wildlife-dispatcher"
 main = "src/index.mjs"
 compatibility_date = "2024-09-23"
-
-# account_id = "TODO(deploy): supply via CLOUDFLARE_ACCOUNT_ID env at deploy time"
+account_id = "290463cfd0bc273076e8c62678f7c845"
 
 # Public GitHub Pages origin allowed to call this Worker (CORS).
 # TODO(deploy): replace with the project's real Pages origin.
 [vars]
-ALLOWED_ORIGIN = "https://example.github.io"
+ALLOWED_ORIGIN = "https://mjpierzga.github.io"
 
 # PRIVATE volunteer coords store. The Phase F refresh job writes the coords
 # array (JSON) under key `volunteer_coords`. id is a PLACEHOLDER -- replace at
 # deploy time with the real namespace id; do NOT create/commit a real one now.
 [[kv_namespaces]]
 binding = "VOLUNTEER_COORDS"
-id = "TODO_PLACEHOLDER_KV_NAMESPACE_ID"
+id = "43bdd5e237544683b20cdbc61d42dd49"
