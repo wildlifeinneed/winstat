@@ -295,6 +295,13 @@ async function runAddressMode() {
   assert.strictEqual(result.style.display, 'block', 'address-result section is shown');
 
   assert.strictEqual(doc.getElementById('agg-total').textContent, '32', 'total = 32');
+  // Summary uses the informational heading pattern "Volunteers in range: N"
+  // (no "(s)" parenthetical pluralization).
+  const aggSummary = (doc.querySelector('.agg-summary').textContent || '').trim();
+  assert.ok(/Volunteers in range:\s*32/.test(aggSummary),
+    'summary reads "Volunteers in range: 32" (got: "' + aggSummary + '")');
+  assert.ok(!/\(s\)/.test(aggSummary),
+    'summary has no "(s)" pluralization (got: "' + aggSummary + '")');
   assert.strictEqual(doc.getElementById('agg-ct').textContent, '12', 'C&T = 12');
   assert.strictEqual(doc.getElementById('agg-rvs').textContent, '0', 'RVS C&T = 0');
   assert.strictEqual(doc.getElementById('agg-courier').textContent, '20', 'COURIER = 20');
@@ -739,6 +746,10 @@ async function runTier2LenientBackup() {
   const actions = doc.getElementById('agg-actions').textContent || '';
   assert.ok(/backup/i.test(actions),
     'recommendation surfaces nearby helpers as BACKUP (got: "' + actions + '")');
+  assert.ok(/Nearby backup helpers:\s*2/.test(actions),
+    'backup line uses the heading pattern "Nearby backup helpers: N" (got: "' + actions + '")');
+  assert.ok(!/\(s\)/.test(actions),
+    'no "(s)" pluralization in the backup recommendation (got: "' + actions + '")');
   assert.ok(/No qualified/i.test(actions) && /RVS C&T/.test(actions),
     'recommendation states the gap (no qualified RVS C&T)');
   assert.ok(/Game Commission/i.test(actions),
@@ -770,6 +781,10 @@ async function runTier2LenientPrefersQualified() {
   const actions = doc.getElementById('agg-actions').textContent || '';
   assert.ok(/qualified helper/i.test(actions),
     'recommendation prefers the qualified helper (got: "' + actions + '")');
+  assert.ok(/Out-of-county qualified helpers:\s*1/.test(actions),
+    'qualified line uses the heading pattern "Out-of-county qualified helpers: N" (got: "' + actions + '")');
+  assert.ok(!/\(s\)/.test(actions),
+    'no "(s)" pluralization in the qualified recommendation (got: "' + actions + '")');
   assert.ok(!/backup/i.test(actions),
     'no backup escalation when a qualified helper is in range');
 

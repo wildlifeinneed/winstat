@@ -523,7 +523,7 @@
   }
 
   // Tier 2: render the PII-safe out-of-county context list. Each row = role
-  // badge(s) + distance (mi) + coarse area/county context. Rows are already
+  // badges + distance (mi) + coarse area/county context. Rows are already
   // sorted nearest-first by the Worker; preserve that order. Renders the
   // overflow notice when the Worker flags radius_too_broad/out_of_county_truncated,
   // and an empty-state when there are no out-of-county rows.
@@ -719,7 +719,7 @@
     var actions = [];
 
     // INFORMATIONAL (not a directive): how many WIN volunteers are in range and
-    // which area(s) they cover. The "WIN areas covered" chip row above is separate.
+    // which areas they cover. The "WIN areas covered" chip row above is separate.
     if (total > 0 && areas.length) {
       actions.push(actionLine('go', '→',
         'WIN volunteers found: <strong>' + total + '</strong> (WIN area' +
@@ -783,20 +783,20 @@
 
       if (qualifiedCount > 0) {
         var qAreaTxt = qAreaList.length
-          ? ' in WIN area(s) <strong>' + qAreaList.map(escapeHtml).join(', ') + '</strong>'
+          ? '; WIN areas: <strong>' + qAreaList.map(escapeHtml).join(', ') + '</strong>'
           : '';
         actions.push(actionLine('go', '→',
-          'Out-of-county: <strong>' + qualifiedCount + '</strong> qualified helper(s)' +
+          'Out-of-county qualified helpers: <strong>' + qualifiedCount + '</strong>' +
           qAreaTxt + ' within ' + ctx.radius + ' mi — task via <strong>Connecteam</strong>.'));
         leniencyHandled = true;
       } else if (backupCount > 0) {
         // No fully-qualified helper in range: surface the backups WITH the gap.
         var bAreaTxt = bAreaList.length
-          ? ' (WIN area(s) <strong>' + bAreaList.map(escapeHtml).join(', ') + '</strong>)'
+          ? '; WIN areas: <strong>' + bAreaList.map(escapeHtml).join(', ') + '</strong>'
           : '';
         actions.push(actionLine('escalate', '!',
           'No qualified <strong>' + escapeHtml(needLabel) + '</strong> within ' +
-          ctx.radius + ' mi. <strong>' + backupCount + '</strong> nearby helper(s)' +
+          ctx.radius + ' mi. Nearby backup helpers: <strong>' + backupCount + '</strong>' +
           bAreaTxt + ' could assist as <strong>backup</strong>' +
           (needRvs
             ? ' (e.g. help with transport) — call <strong>PA Game Commission</strong> for the RVS capture: '
