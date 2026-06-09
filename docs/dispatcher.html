@@ -143,12 +143,12 @@
     /* ─── Capacity cards ─────────────────────────────────────── */
     .cards-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 12px;
       margin-top: 4px;
     }
     @media (max-width: 640px) {
-      .cards-grid { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+      .cards-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
       .cap-card {
         padding: 8px 6px;
         min-height: 0;
@@ -178,6 +178,9 @@
       flex-direction: column;
       gap: 6px;
       min-height: 120px;
+      /* Let the card shrink to its grid track (minmax(0,1fr)) instead of its
+         intrinsic content width, so the 3-up grid never rounds past 100%. */
+      min-width: 0;
     }
     .cap-card .role {
       font-size: 11.5px;
@@ -530,6 +533,7 @@
       border-radius: 8px;
       font-size: 14px;
       line-height: 1.45;
+      overflow-wrap: anywhere;
     }
     .resolved-location strong { color: var(--green-deep); }
     .resolved-location .resolved-spread {
@@ -614,8 +618,13 @@
       border-radius: 8px;
       background: var(--surface);
       font-size: 14px;
+      /* Allow this flex row + its children to shrink below content size so a
+         long unbreakable token (e.g. an unusually long county/area string from
+         the geocoder) wraps INSIDE the viewport instead of forcing the page
+         wider than the screen. */
+      min-width: 0;
     }
-    .ctx-row .role-badges { display: inline-flex; gap: 5px; flex-wrap: wrap; }
+    .ctx-row .role-badges { display: inline-flex; gap: 5px; flex-wrap: wrap; min-width: 0; }
     .role-badge {
       display: inline-block;
       padding: 2px 9px;
@@ -631,7 +640,7 @@
     .role-badge.rvs { background: var(--amber-light); color: var(--amber); border-color: #f0c070; }
     .role-badge.courier { background: #eef0f5; color: #3a4a6b; border-color: #c8cfe0; }
     .ctx-row .ctx-dist { font-weight: 700; color: var(--text); }
-    .ctx-row .ctx-ctx { color: var(--text-muted); font-size: 12.5px; }
+    .ctx-row .ctx-ctx { color: var(--text-muted); font-size: 12.5px; min-width: 0; overflow-wrap: anywhere; }
     .ctx-row .ctx-edge {
       margin-left: auto;
       font-size: 11px;
@@ -687,14 +696,16 @@
       border-radius: 8px;
       background: var(--surface);
       font-size: 14px;
+      overflow-wrap: anywhere;
     }
     .rehab-row .rehab-top {
       display: flex;
       align-items: center;
       gap: 10px;
       flex-wrap: wrap;
+      min-width: 0;
     }
-    .rehab-row .rehab-name { font-weight: 700; color: var(--text); }
+    .rehab-row .rehab-name { font-weight: 700; color: var(--text); min-width: 0; }
     .rehab-row .rehab-dist {
       margin-left: auto;
       font-weight: 700;
@@ -737,6 +748,8 @@
       background: var(--green-light);
       border-left: 4px solid var(--green);
       color: var(--green-deep);
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
     .action-line.escalate {
       background: var(--amber-light);
@@ -940,12 +953,6 @@
        interactive controls flagged by the mobile audit while keeping
        real inputs + label association intact for accessibility. */
     @media (max-width: 640px) {
-      /* Zero the 2px sub-pixel horizontal overflow seen at 360px: the
-         3-up capacity grid's rightmost card rounds ~2px past the
-         viewport (grid 1fr rounding, no real content cut-off). Clamp at
-         the main scroll container so no phantom scrollbar appears. */
-      html, body { overflow-x: hidden; }
-      main { overflow-x: hidden; }
       /* Mode pills (By County / By Animal Address) */
       .mode-toggle label { min-height: 44px; padding: 11px 16px; }
       /* Primary CTAs */

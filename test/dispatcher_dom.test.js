@@ -1914,6 +1914,60 @@ async function runStandaloneAddressContextList() {
   console.log('PASS: standalone Address lookup renders 3 qualifying context rows (context=1, no exclude_county), qual badges, standalone heading, no PII.');
 }
 
+// No-horizontal-overflow contract for the ADDRESS view on phones.
+//
+// jsdom has no layout engine, so getBoundingClientRect-based overflow can only
+// be measured in a real browser (see tools/overflow_probe.js, which drives
+// headless Chrome and asserts scrollWidth == innerWidth at 320/360/375/390/430).
+// This scenario guards the SOURCE-level contract those measurements depend on,
+// so a regression that re-introduces the overflow fails here without a browser:
+//   1. The masking `overflow-x: hidden` clip on html/body/main is GONE (the real
+//      geometry fix must stand on its own; the clip would hide regressions).
+//   2. The 3-up capacity grid uses minmax(0, 1fr) so tracks can shrink to the
+//      viewport instead of rounding ~2px past it.
+//   3. The #ctx-list context text (.ctx-ctx) wraps unbreakable tokens
+//      (overflow-wrap: anywhere) so a long county/area string cannot push the
+//      row — the true offending element found by the probe — past the viewport.
+//   4. The viewport meta tag is exactly one, width=device-width + initial-scale=1,
+//      with NO fixed pixel width and NO maximum-scale/user-scalable lockout. A
+//      broken/duplicate viewport tag is the classic cause of the "renders wide,
+//      pinch-unzoom snaps to fit" real-device symptom that a fixed-width headless
+//      probe cannot reproduce (it sets the viewport directly).
+async function runAddressNoHorizontalOverflowCss() {
+  const css = fs.readFileSync(HTML_PATH, 'utf8');
+
+  assert.ok(!/\b(?:html\s*,\s*body|main)\s*\{[^}]*overflow-x\s*:\s*hidden/i.test(css),
+    'address view must NOT rely on overflow-x:hidden to clip overflow on html/body/main ' +
+    '(clipping masks real off-screen content; fix the offending element instead)');
+
+  assert.ok(/\.cards-grid\s*\{[^}]*grid-template-columns\s*:\s*repeat\(\s*3\s*,\s*minmax\(\s*0\s*,\s*1fr\s*\)\s*\)/i.test(css),
+    'cards-grid must use repeat(3, minmax(0, 1fr)) so the 3-up grid never rounds past 100%');
+
+  assert.ok(/\.ctx-row\s+\.ctx-ctx\s*\{[^}]*overflow-wrap\s*:\s*anywhere/i.test(css),
+    '#ctx-list context text (.ctx-ctx) must set overflow-wrap:anywhere so a long ' +
+    'unbreakable county/area token wraps instead of overflowing the viewport');
+
+  // Viewport meta-tag contract (the pinch-unzoom-to-fit real-device symptom).
+  const viewportTags = css.match(/<meta[^>]*name=["']viewport["'][^>]*>/gi) || [];
+  assert.strictEqual(viewportTags.length, 1,
+    'there must be EXACTLY one viewport meta tag (found ' + viewportTags.length +
+    '); a duplicate/conflicting tag breaks the initial mobile fit');
+  const vp = viewportTags[0];
+  const content = (vp.match(/content=["']([^"']*)["']/i) || [])[1] || '';
+  assert.ok(/width\s*=\s*device-width/i.test(content),
+    'viewport meta must set width=device-width (got content="' + content + '")');
+  assert.ok(/initial-scale\s*=\s*1(\.0+)?\b/.test(content),
+    'viewport meta must set initial-scale=1 (got content="' + content + '")');
+  assert.ok(!/width\s*=\s*\d/.test(content),
+    'viewport meta must NOT pin a fixed pixel width (got content="' + content + '")');
+  assert.ok(!/maximum-scale|minimum-scale|user-scalable\s*=\s*(no|0)/i.test(content),
+    'viewport meta must NOT lock zoom (no maximum/minimum-scale, no user-scalable=no) ' +
+    'so the page can pinch-fit (got content="' + content + '")');
+
+  console.log('PASS: address-view no-overflow CSS contract + viewport meta — no overflow-x:hidden clip, ' +
+    'cards-grid minmax(0,1fr), .ctx-ctx overflow-wrap:anywhere, single width=device-width/initial-scale=1 viewport (no fixed width, no zoom lockout).');
+}
+
 async function run() {
   await runHelpLink();
   await runHelpViewerRenders();
@@ -1944,7 +1998,8 @@ async function run() {
   await runCountyAreaBadge();
   await runAddressResolvedArea();
   await runDeconfliction();
-  console.log('\nALL DOM TESTS PASSED (29 scenarios).');
+  await runAddressNoHorizontalOverflowCss();
+  console.log('\nALL DOM TESTS PASSED (30 scenarios).');
 }
 
 run().then(function () {
