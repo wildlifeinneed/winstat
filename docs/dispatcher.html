@@ -758,6 +758,34 @@
       stroke: var(--green-deep);
       stroke-width: 1.8;
     }
+    /* Selected/working county (county mode): a distinct bold ring laid ON TOP
+       of whatever WIN-area shading is active, so the single county stands out
+       from its area-mates. Only one path carries .hl-county at a time. */
+    .county-path.hl-county {
+      stroke: #1a1a1a;
+      stroke-width: 2.2;
+      fill-opacity: 1;
+      paint-order: stroke;
+    }
+    /* Keep the selected county prominent even while the map is dimmed. */
+    .map-svg.dimmed .county-path.hl-county { fill-opacity: 1; }
+    /* County name labels rendered at each polygon centroid. Never intercept
+       pointer events (the path below keeps its hover/title). A thin light halo
+       (paint-order:stroke) keeps the text readable over any area fill. */
+    .county-label {
+      font: 600 9px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      fill: #1f2a22;
+      stroke: rgba(255, 255, 255, 0.85);
+      stroke-width: 1.6;
+      paint-order: stroke;
+      text-anchor: middle;
+      dominant-baseline: central;
+      pointer-events: none;
+      user-select: none;
+    }
+    /* Labels too large to fit their county are omitted from the always-on set;
+       those counties fall back to the native <title> tooltip on hover. */
+    .county-label-hover { display: none; }
     .map-legend {
       display: flex;
       flex-wrap: wrap;

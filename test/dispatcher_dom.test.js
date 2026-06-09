@@ -852,6 +852,17 @@ async function runMapRender() {
   assert.strictEqual(legItems.length, 17,
     'legend shows 17 area swatches (got ' + legItems.length + ')');
 
+  // County-name labels: a <text class="county-label"> node exists per county
+  // (always-on where it fits, hover-only class otherwise), pointer-events off.
+  const labels = Array.prototype.slice.call(svg.querySelectorAll('text.county-label'));
+  assert.strictEqual(labels.length, 67,
+    'a county-name label text node exists per county (got ' + labels.length + ')');
+  const shown = labels.filter(function (t) { return !t.classList.contains('county-label-hover'); });
+  assert.ok(shown.length > 0, 'at least some county labels are always-on (got ' + shown.length + ')');
+  // Labels carry the county name and must not intercept pointer events.
+  const erieLabel = labels.filter(function (t) { return t.getAttribute('data-county') === 'Erie'; })[0];
+  assert.ok(erieLabel && erieLabel.textContent === 'Erie', 'Erie label text node renders its name');
+
   // Projection sanity: compare the first vertex (moveto) of two known counties.
   // Erie is NW (small lon -> left, high lat -> top); Philadelphia is SE.
   function firstXY(county) {
@@ -977,14 +988,33 @@ async function runTier1Highlight() {
   const others = doc.querySelectorAll('path.county-path:not([data-area="10"]).hl-animal');
   assert.strictEqual(others.length, 0, 'Tier 1 highlights ONLY the selected county area');
 
+  // The single selected county gets .hl-county laid ON TOP of its area shading
+  // — exactly one path, and it is Allegheny.
+  const hlCounty = Array.prototype.slice.call(doc.querySelectorAll('path.county-path.hl-county'));
+  assert.strictEqual(hlCounty.length, 1,
+    'selecting a county adds hl-county to EXACTLY one path (got ' + hlCounty.length + ')');
+  assert.strictEqual(hlCounty[0].getAttribute('data-county'), 'Allegheny',
+    'the hl-county path is the selected county (Allegheny)');
+
+  // Selecting a different county moves the single mark.
+  countySel.value = 'Erie'; // WIN area 1
+  countySel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+  const hlCounty2 = Array.prototype.slice.call(doc.querySelectorAll('path.county-path.hl-county'));
+  assert.strictEqual(hlCounty2.length, 1, 'changing selection keeps exactly one hl-county');
+  assert.strictEqual(hlCounty2[0].getAttribute('data-county'), 'Erie',
+    'hl-county follows the new selection (Erie)');
+
   // Deselect -> highlight cleared.
   countySel.value = '';
   countySel.dispatchEvent(new window.Event('change', { bubbles: true }));
   await flush(window);
   const stillOn = doc.querySelectorAll('path.county-path.hl-animal, path.county-path.hl-helper');
   assert.strictEqual(stillOn.length, 0, 'deselecting a county clears the Tier 1 highlight');
+  assert.strictEqual(doc.querySelectorAll('path.county-path.hl-county').length, 0,
+    'deselecting clears the hl-county selected-county mark too');
 
-  console.log('PASS: Tier 1 county select highlights only that county area (animal); deselect clears it.');
+  console.log('PASS: Tier 1 county select highlights only that county area (animal) + adds hl-county to exactly one path; deselect clears both.');
 }
 
 async function run() {

@@ -86,7 +86,9 @@
     addressBusy: false,     // guard against concurrent address lookups
     widenCounty: null,      // Tier 1 county carried into Tier 2 as exclude_county
     mapBuilt: false,        // true once the SVG choropleth is drawn
-    mapAreas: {}            // area-string -> array of county-path <path> nodes
+    mapAreas: {},           // area-string -> array of county-path <path> nodes
+    mapCounties: {},        // county name -> its county-path <path> node
+    currentCounty: null     // county name currently distinctly highlighted (hl-county)
   };
 
   // ─── Address-mode (Phase G) configuration ──────────────────────────
@@ -471,8 +473,9 @@
     if (!countyName) {
       if (line) { line.style.display = 'none'; line.innerHTML = ''; }
       if (prompt) prompt.style.display = 'none';
-      // Tier 1 cleared: drop any animal-area highlight on the map.
+      // Tier 1 cleared: drop any animal-area highlight + selected-county mark.
       highlightAreas([], []);
+      highlightCounty(null);
       return;
     }
     var coord = coordinatorForCounty(countyName);
@@ -492,6 +495,8 @@
     if (prompt) prompt.style.display = 'block';
     // Tier 1 highlight: emphasize the selected county's WIN area on the map.
     highlightAreas(coord.area ? [coord.area] : [], []);
+    // ...and distinctly mark the single selected county on top of its area.
+    highlightCounty(countyName);
   }
 
   function coordinatorsForAreas(areas) {
@@ -1132,6 +1137,62 @@
 
   var SVGNS = 'http://www.w3.org/2000/svg';
 
+  // Label tuning (viewBox units). LABEL_FONT is the always-on label size;
+  // LABEL_FIT_FACTOR approximates glyph width as a fraction of font size so we
+  // can decide whether a name fits inside its county without measuring text.
+  var LABEL_FONT = 9;
+  var LABEL_FIT_FACTOR = 0.52;
+
+  // Signed area + centroid of a single projected ring (shoelace). Returns
+  // { area, cx, cy } with area's sign indicating winding; |area| ranks rings.
+  function ringCentroid(pts) {
+    var n = pts.length, a = 0, cx = 0, cy = 0;
+    for (var i = 0, j = n - 1; i < n; j = i++) {
+      var xi = pts[i][0], yi = pts[i][1];
+      var xj = pts[j][0], yj = pts[j][1];
+      var cross = xj * yi - xi * yj;
+      a += cross;
+      cx += (xi + xj) * cross;
+      cy += (yi + yj) * cross;
+    }
+    a = a / 2;
+    if (Math.abs(a) < 1e-9) {
+      // Degenerate ring: fall back to the vertex mean so we still get a point.
+      var sx = 0, sy = 0;
+      for (var k = 0; k < n; k++) { sx += pts[k][0]; sy += pts[k][1]; }
+      return { area: 0, cx: n ? sx / n : 0, cy: n ? sy / n : 0,
+        w: 0, h: 0 };
+    }
+    cx = cx / (6 * a);
+    cy = cy / (6 * a);
+    return { area: Math.abs(a), cx: cx, cy: cy };
+  }
+
+  // Compute the label anchor for a geometry: project every ring, keep the one
+  // with the largest area (the visual body of a MultiPolygon), and return its
+  // centroid plus that ring's projected width/height for fit testing.
+  function labelAnchor(geom, proj) {
+    var best = null;
+    eachRing(geom, function (ring) {
+      var pts = [];
+      var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (var i = 0; i < ring.length; i++) {
+        var p = proj.project(ring[i][0], ring[i][1]);
+        pts.push(p);
+        if (p[0] < minX) minX = p[0];
+        if (p[0] > maxX) maxX = p[0];
+        if (p[1] < minY) minY = p[1];
+        if (p[1] > maxY) maxY = p[1];
+      }
+      if (pts.length < 3) return;
+      var c = ringCentroid(pts);
+      c.w = maxX - minX;
+      c.h = maxY - minY;
+      if (!best || c.area > best.area) best = c;
+    });
+    return best;
+  }
+
   // Draw the choropleth: 67 county <path>s colored by win_area, into an inline
   // SVG. Builds state.mapAreas (area -> [<path>]) for fast highlight toggling.
   function buildMap(geojson) {
@@ -1152,6 +1213,8 @@
     svg.setAttribute('aria-label', 'Pennsylvania counties colored by WIN area');
 
     state.mapAreas = {};
+    state.mapCounties = {};
+    var labelInfos = [];
     features.forEach(function (f) {
       var props = f.properties || {};
       var county = String(props.county || '');
@@ -1163,18 +1226,43 @@
       path.setAttribute('fill', areaColor(area));
       path.setAttribute('data-county', county);
       path.setAttribute('data-area', area);
-      // County name tooltip (no labels cluttering the map).
+      // County name tooltip (hover); on-map labels are added in a second pass.
       var title = document.createElementNS(SVGNS, 'title');
       title.textContent = area ? (county + ' — Area ' + area) : county;
       path.appendChild(title);
       svg.appendChild(path);
       if (!state.mapAreas[area]) state.mapAreas[area] = [];
       state.mapAreas[area].push(path);
+      if (county) state.mapCounties[county] = path;
+      var anchor = labelAnchor(f.geometry, proj);
+      if (county && anchor) {
+        labelInfos.push({ county: county, anchor: anchor });
+      }
+    });
+
+    // Second pass: county-name labels, drawn on TOP of every fill so they read
+    // over the area colors. Crowding rule — if the name's estimated width does
+    // not fit inside the county's largest projected ring (with a small margin),
+    // the label is hover-only (class county-label-hover) and otherwise hidden;
+    // the always-on labels (class county-label) are the ones that fit.
+    labelInfos.forEach(function (info) {
+      var name = info.county;
+      var a = info.anchor;
+      var textW = name.length * LABEL_FONT * LABEL_FIT_FACTOR;
+      var fits = textW <= (a.w - 2) && a.h >= LABEL_FONT;
+      var label = document.createElementNS(SVGNS, 'text');
+      label.setAttribute('x', a.cx.toFixed(2));
+      label.setAttribute('y', a.cy.toFixed(2));
+      label.setAttribute('class', fits ? 'county-label' : 'county-label county-label-hover');
+      label.setAttribute('data-county', name);
+      label.textContent = name;
+      svg.appendChild(label);
     });
 
     wrap.innerHTML = '';
     wrap.appendChild(svg);
     state.mapBuilt = true;
+    if (state.currentCounty) highlightCounty(state.currentCounty);
     buildLegend();
   }
 
@@ -1256,6 +1344,24 @@
 
   function clearHighlight() { highlightAreas([], []); }
 
+  // Distinctly mark the single selected/working county (county mode) ON TOP of
+  // the existing WIN-area shading. Pass a county name to set it, or a falsy
+  // value to clear. Only one path ever carries .hl-county at a time.
+  function highlightCounty(countyName) {
+    var name = (countyName === null || countyName === undefined) ? '' : String(countyName).trim();
+    state.currentCounty = name || null;
+    if (!state.mapBuilt) return; // re-applied by buildMap once the SVG exists
+    // Clear any prior selection mark, then mark the new one (if present).
+    Object.keys(state.mapCounties).forEach(function (c) {
+      state.mapCounties[c].classList.remove('hl-county');
+    });
+    if (name && state.mapCounties[name]) {
+      state.mapCounties[name].classList.add('hl-county');
+    }
+  }
+
+  function clearCountyHighlight() { highlightCounty(null); }
+
   // Persist the panel open/closed state (localStorage; gracefully no-ops if
   // unavailable). Default collapsed: only OPEN when explicitly stored "1".
   function restoreMapPanelState() {
@@ -1290,6 +1396,8 @@
   window.WildlifeMap = {
     highlightAreas: highlightAreas,
     clearHighlight: clearHighlight,
+    highlightCounty: highlightCounty,
+    clearCountyHighlight: clearCountyHighlight,
     areaColor: areaColor
   };
 
