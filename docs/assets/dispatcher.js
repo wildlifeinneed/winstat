@@ -90,6 +90,13 @@
     mapCounties: {},        // county name -> its county-path <path> node
     countyCentroids: {},    // county name -> { lat, lon } area-weighted centroid (from geojson)
     currentCounty: null,    // county name currently distinctly highlighted (hl-county)
+    // Coordinate captured when the dispatcher PICKS a typeahead suggestion that
+    // carries lat/lon (Photon already resolved it). Shape: {lat, lon, label}.
+    // onAddressSubmit submits these coords DIRECTLY (animal_lat/animal_lon),
+    // bypassing the weak Census exact-match geocode that drops rural PA hits.
+    // Cleared the moment the input text diverges from `label` (editing/pasting)
+    // so a stale coord can never be submitted for a different typed address.
+    selectedAnimalCoord: null,
     // DECONFLICTION: the single governing "active location". Whichever input was
     // used LAST wins: 'county' = dropdown drives results; 'address' = a geocoded
     // address drives them. Entering an address rebinds to 'address' and clears
@@ -518,6 +525,34 @@
     // send it as `qualify_roles` so the Worker returns ONLY taskable volunteers
     // for THIS animal. Filtering to qualified BEFORE the Worker's nearest-N cap
     // is what keeps far qualified volunteers (e.g. RVS C&T) from being dropped.
+    url = appendAggregateOpts(url, opts);
+    return fetchAggregate(url);
+  }
+
+  // Submit the animal location as EXPLICIT coordinates (animal_lat/animal_lon).
+  // Used when the dispatcher picked a typeahead suggestion that Photon already
+  // resolved: the Worker's resolveAnimalCoord accepts these directly and SKIPS
+  // the Census geocode entirely, which is the core fix for "no match" on
+  // addresses Photon had already found. Same context/base params + status
+  // mapping as the address path so both feed renderAggregate identically.
+  function fetchAggregateByCoord(lat, lon, radiusMi, opts) {
+    var url = WORKER_URL +
+      '?animal_lat=' + encodeURIComponent(lat) +
+      '&animal_lon=' + encodeURIComponent(lon) +
+      '&radius_mi=' + encodeURIComponent(radiusMi);
+    if (opts && opts.context) {
+      url += '&context=1';
+      if (opts.excludeCounty) {
+        url += '&exclude_county=' + encodeURIComponent(opts.excludeCounty);
+      }
+    }
+    url = appendAggregateOpts(url, opts);
+    return fetchAggregate(url);
+  }
+
+  // Append the shared rvs/issue + derived qualify_roles params (see
+  // fetchAggregateByAddress for the rationale). Pure string builder.
+  function appendAggregateOpts(url, opts) {
     if (opts && opts.base) {
       url += '&rvs=' + encodeURIComponent(opts.base.rvs ? 'yes' : 'no') +
              '&issue=' + encodeURIComponent(opts.base.issue);
@@ -531,6 +566,12 @@
         }
       }
     }
+    return url;
+  }
+
+  // Shared fetch + HTTP-status -> error-code mapping for both address and coord
+  // aggregate lookups. Keeps onAddressSubmit's .catch() code mapping unchanged.
+  function fetchAggregate(url) {
     return fetch(url, { cache: 'no-store' })
       .then(function (resp) {
         if (resp.status === 422) throw new Error('address_not_found');
@@ -1353,9 +1394,23 @@
     var ctx = { radius: radius, rvs: base.rvs, issue: base.issue };
     if (excludeCounty) ctx.excludeCounty = excludeCounty;
 
-    // Single origin: send the typed address to the Worker, which geocodes it
-    // server-side (no browser CORS) and returns the PII-free aggregate.
-    fetchAggregateByAddress(addr, radius, { context: true, excludeCounty: excludeCounty, base: base })
+    // Single origin: prefer the COORDINATE captured when the dispatcher picked a
+    // typeahead suggestion (Photon already resolved it) — submit those coords
+    // DIRECTLY so the Worker skips the weak Census exact-match geocode that
+    // dead-ends on rural PA. Only valid when the captured coord still matches the
+    // current input text (a later edit cleared it in acOnInput). Otherwise fall
+    // back to the address STRING path (free-typed / pasted address -> Census,
+    // with the Worker's Photon fallback behind it).
+    var picked = state.selectedAnimalCoord;
+    var useCoord = picked &&
+      typeof picked.lat === 'number' && typeof picked.lon === 'number' &&
+      picked.label === addr;
+    var lookup = useCoord
+      ? fetchAggregateByCoord(picked.lat, picked.lon, radius,
+          { context: true, excludeCounty: excludeCounty, base: base })
+      : fetchAggregateByAddress(addr, radius,
+          { context: true, excludeCounty: excludeCounty, base: base });
+    lookup
       .then(function (agg) {
         setAddressStatus('');
         // Render in its OWN try/catch so a rendering bug (e.g. a missing DOM
@@ -1439,9 +1494,20 @@
   function acSelect(idx) {
     if (idx < 0 || idx >= ac.items.length) return;
     var els = acEls();
-    var label = ac.items[idx].label;
+    var item = ac.items[idx];
+    var label = item.label;
     if (els.input) els.input.value = label;
     ac.lastQuery = label; // typing 'input' fires from value set? no — set manually
+    // Photon ALREADY resolved this suggestion to a coordinate (autocomplete.js
+    // populates lat/lon). Capture it so the submit can send animal_lat/animal_lon
+    // DIRECTLY and skip the weak Census exact-match geocode. Keyed to the exact
+    // label so acOnInput can detect a later edit and invalidate it.
+    if (typeof item.lat === 'number' && typeof item.lon === 'number' &&
+        isFinite(item.lat) && isFinite(item.lon)) {
+      state.selectedAnimalCoord = { lat: item.lat, lon: item.lon, label: label };
+    } else {
+      state.selectedAnimalCoord = null;
+    }
     acClose();
     if (els.input) els.input.focus();
   }
@@ -1477,6 +1543,10 @@
     if (ac.timer) { clearTimeout(ac.timer); ac.timer = null; }
     if (q === ac.lastQuery) { return; } // selection just filled the box
     ac.lastQuery = '';
+    // The text diverged from the selected suggestion's label: any captured
+    // coord is now stale (it belongs to a DIFFERENT address), so drop it. Submit
+    // then reverts to the address-string path until a new suggestion is picked.
+    state.selectedAnimalCoord = null;
     if (q.length < AC_MIN_CHARS) { acClose(); return; }
     ac.timer = setTimeout(function () { acFetch(q); }, AC_DEBOUNCE_MS);
   }

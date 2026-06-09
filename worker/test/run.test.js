@@ -43,7 +43,7 @@ const {
   DEFAULT_MARGINAL_THRESHOLD,
 } = require('../src/aggregate');
 const { geocodeAddress } = require('../src/census');
-const { autocompleteAddress } = require('../src/autocomplete');
+const { autocompleteAddress, photonGeocode } = require('../src/autocomplete');
 const { rehabberDistances, drivingDistancesMiles, MAX_MATRIX_DESTINATIONS } = require('../src/distance');
 const { handleRequest } = require('../src/handler');
 
@@ -326,6 +326,57 @@ async function main() {
     assert.strictEqual(body.animal_lon, undefined, 'no animal_lon when geocoder unavailable');
   });
 
+  await test('(c3c) Census not_found -> Photon fallback resolves -> 200 with animal coords', async () => {
+    // Shared fetchFn routed by host: Census returns ZERO matches, but the
+    // server-side Photon fallback resolves the SAME string to a coordinate.
+    const fallbackFetch = async (url) => {
+      const u = String(url);
+      if (u.indexOf('census.gov') !== -1) {
+        return { status: 200, json: async () => ({ result: { addressMatches: [] } }) };
+      }
+      // Photon host: return one US candidate with coords.
+      return {
+        status: 200,
+        json: async () => ({
+          features: [{
+            geometry: { type: 'Point', coordinates: [-77.8, 40.9] },
+            properties: {
+              street: 'Rural Route 1', city: 'Coudersport', state: 'Pennsylvania',
+              countrycode: 'US', country: 'United States',
+            },
+          }],
+        }),
+      };
+    };
+    const res = await handleRequest(
+      mockRequest('GET', { address: 'Rural Route 1, Coudersport, PA' }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS), fetchFn: fallbackFetch, allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.status, 200, 'Photon fallback yields a usable location');
+    const body = await res.json();
+    assert.strictEqual(body.animal_lat, 40.9, 'animal_lat from Photon fallback');
+    assert.strictEqual(body.animal_lon, -77.8, 'animal_lon from Photon fallback');
+    // Photon carries no county layer -> animal_county is null.
+    assert.strictEqual(body.animal_county, null, 'no county from Photon fallback');
+  });
+
+  await test('(c3d) 422 address_not_found only when BOTH Census and Photon fail', async () => {
+    // Census no-match AND Photon returns zero features -> dead-end 422.
+    const bothFail = async (url) => {
+      const u = String(url);
+      if (u.indexOf('census.gov') !== -1) {
+        return { status: 200, json: async () => ({ result: { addressMatches: [] } }) };
+      }
+      return { status: 200, json: async () => ({ features: [] }) };
+    };
+    const res = await handleRequest(
+      mockRequest('GET', { address: '123 Nowhere Rd' }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS), fetchFn: bothFail, allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.status, 422);
+    assert.strictEqual((await res.json()).error, 'address_not_found');
+  });
+
   await test('(c4) 400 on out-of-range lat/lon', async () => {
     const res = await handleRequest(
       mockRequest('GET', { animal_lat: 999, animal_lon: -76.88 }),
@@ -458,6 +509,18 @@ async function main() {
     assert.deepStrictEqual(none, { status: 'not_found' });
     const down = await geocodeAddress('1 Capitol', mockCensusNetworkError);
     assert.deepStrictEqual(down, { status: 'unavailable' });
+  });
+
+  await test('(f2) photonGeocode returns first coord candidate / not_found on miss', async () => {
+    const ok = await photonGeocode('4400 Forbes Ave, Pittsburgh PA', mockPhotonFetch());
+    assert.deepStrictEqual(ok, { status: 'ok', coord: { lat: 40.4443, lon: -79.9569 } });
+    // No features -> not_found.
+    const none = await photonGeocode('nowhere',
+      async () => ({ status: 200, json: async () => ({ features: [] }) }));
+    assert.deepStrictEqual(none, { status: 'not_found' });
+    // Provider network error degrades to not_found (never throws/unavailable).
+    const down = await photonGeocode('anything', mockPhotonNetworkError);
+    assert.deepStrictEqual(down, { status: 'not_found' });
   });
 
   // empty / malformed KV degrades gracefully -----------------------------

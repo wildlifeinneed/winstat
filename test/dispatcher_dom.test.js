@@ -336,6 +336,69 @@ async function runAddressMode() {
     JSON.stringify(chips) + ', no error banner; county mode renders.');
 }
 
+// REGRESSION (root-cause fix): when the dispatcher PICKS a typeahead suggestion
+// that carries lat/lon and submits WITHOUT editing the text, the Worker request
+// must carry animal_lat/animal_lon DIRECTLY (bypassing the Census address path).
+// And after a later EDIT of the text the captured coord must be dropped so the
+// submit reverts to the address-string path.
+async function runSuggestionCoordSubmit() {
+  const { window, opts: domOpts } = loadDom();
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  const addrRadio = doc.querySelector('input[name="mode"][value="address"]');
+  addrRadio.checked = true;
+  addrRadio.dispatchEvent(new window.Event('change', { bubbles: true }));
+
+  const addrInput = doc.getElementById('animal-address');
+
+  // Type -> suggestions render -> select FIRST suggestion (lat 40.4443/lon -79.9569).
+  addrInput.value = '4400 Forbes';
+  addrInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+  await wait(window, 350);
+  await flush(window);
+  addrInput.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+  addrInput.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  await flush(window);
+  assert.strictEqual(addrInput.value, '4400 Forbes Avenue, Pittsburgh, Pennsylvania 15213',
+    'selecting a suggestion fills the input with the full label');
+
+  // Submit WITHOUT editing -> coord path.
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  const coordUrl = domOpts.aggCalls[domOpts.aggCalls.length - 1] || '';
+  assert.ok(/[?&]animal_lat=40\.4443(&|$)/.test(coordUrl),
+    'selected-suggestion submit sends animal_lat (url: ' + coordUrl + ')');
+  assert.ok(/[?&]animal_lon=-79\.9569(&|$)/.test(coordUrl),
+    'selected-suggestion submit sends animal_lon (url: ' + coordUrl + ')');
+  assert.ok(!/[?&]address=/.test(coordUrl),
+    'selected-suggestion submit must NOT use the Census address= path (url: ' + coordUrl + ')');
+
+  // Now EDIT the text after selecting -> captured coord invalidated -> the next
+  // submit must revert to the address-string path (address=, no animal_lat).
+  addrInput.value = '4400 Forbes Ave, Pittsburgh, PA 15213';
+  addrInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+  await flush(window);
+  doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  const addrUrl = domOpts.aggCalls[domOpts.aggCalls.length - 1] || '';
+  assert.ok(/[?&]address=/.test(addrUrl),
+    'editing the text after selecting reverts to the address= path (url: ' + addrUrl + ')');
+  assert.ok(!/[?&]animal_lat=/.test(addrUrl),
+    'edited address submit must NOT carry a stale animal_lat (url: ' + addrUrl + ')');
+
+  console.log('PASS: selected suggestion submits animal_lat/animal_lon (no Census address path); ' +
+    'editing the text clears the captured coord and reverts to the address path.');
+}
+
 // ── Tier 1: selecting a county renders the COORDINATOR NAME (name only, no
 //    phone) resolved county -> WIN area (county_win.json) -> name
 //    (coordinators.json), plus the "Widen search" affordance. ──────────────
@@ -2148,6 +2211,7 @@ async function run() {
   await runHelpLink();
   await runHelpViewerRenders();
   await runAddressMode();
+  await runSuggestionCoordSubmit();
   await runStandaloneAddressContextList();
   await runStandaloneNoRvsCaptureAllCtCapable();
   await runTier1Coordinator();
@@ -2178,7 +2242,7 @@ async function run() {
   await runAddressResolvedArea();
   await runDeconfliction();
   await runAddressNoHorizontalOverflowCss();
-  console.log('\nALL DOM TESTS PASSED (31 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (32 scenarios).');
 }
 
 run().then(function () {

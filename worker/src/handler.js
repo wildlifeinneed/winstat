@@ -28,7 +28,7 @@ const {
 } = require('./aggregate');
 const { geocodeAddress } = require('./census');
 const { countyToArea } = require('./county_win');
-const { autocompleteAddress } = require('./autocomplete');
+const { autocompleteAddress, photonGeocode } = require('./autocomplete');
 const { rehabberDistances, drivingDistancesMiles } = require('./distance');
 
 // KV key under which the Phase F refresh job stores the coords array (JSON).
@@ -185,6 +185,15 @@ async function resolveAnimalCoord(params, fetchFn) {
     }
     if (geo && geo.status === 'unavailable') {
       return { status: 'geocoder_unavailable' };
+    }
+    // Census reached but found NO exact match (weak on rural PA). Rather than
+    // dead-ending, fall back to a Photon geocode of the SAME string — the same
+    // provider that already powers the typeahead. Photon carries no county
+    // layer, so county stays null (the UI degrades to the in-range areas). Only
+    // when BOTH fail do we return the not-found contract.
+    const photon = await photonGeocode(address, fetchFn);
+    if (photon && photon.status === 'ok') {
+      return { status: 'ok', coord: photon.coord, county: null };
     }
     return { status: 'address_not_found' };
   }

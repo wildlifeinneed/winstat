@@ -148,6 +148,43 @@ async function autocompleteAddress(query, limit, fetchFn) {
   return out;
 }
 
+/**
+ * Server-side Photon GEOCODE of a full address string — the fallback used by
+ * resolveAnimalCoord when the Census exact-match geocoder returns not_found
+ * (Census is weak on rural PA; Photon resolves many of the same addresses the
+ * typeahead already matched). Reuses autocompleteAddress (same provider, same
+ * normalization) and returns the FIRST candidate that carries finite coords.
+ *
+ * @param {string} address    full one-line address
+ * @param {Function} fetchFn  fetch-compatible (url, init) -> Promise<Response>
+ * @returns {Promise<{status:'ok',coord:{lat,lon}}|{status:'not_found'}>}
+ *          Never throws / never 'unavailable' — a Photon error degrades to
+ *          not_found so the caller surfaces the existing not-found contract.
+ */
+async function photonGeocode(address, fetchFn) {
+  var addr = String(address || '').trim();
+  if (addr.length < MIN_QUERY_LEN) {
+    return { status: 'not_found' };
+  }
+  var items;
+  try {
+    items = await autocompleteAddress(addr, 1, fetchFn);
+  } catch (e) {
+    return { status: 'not_found' };
+  }
+  if (!Array.isArray(items)) {
+    return { status: 'not_found' };
+  }
+  for (var i = 0; i < items.length; i++) {
+    var it = items[i] || {};
+    if (typeof it.lat === 'number' && typeof it.lon === 'number' &&
+        Number.isFinite(it.lat) && Number.isFinite(it.lon)) {
+      return { status: 'ok', coord: { lat: it.lat, lon: it.lon } };
+    }
+  }
+  return { status: 'not_found' };
+}
+
 module.exports = {
   PHOTON_URL,
   MIN_QUERY_LEN,
@@ -156,4 +193,5 @@ module.exports = {
   clampLimit,
   labelFromProps,
   autocompleteAddress,
+  photonGeocode,
 };
