@@ -196,11 +196,13 @@
       noVolunteersNoData: 'No volunteers in range and no rehabber data available — ask the finder to call <strong>PA Game Commission</strong>: {phone}.',
       // Context list (out-of-county). {radius}, {county}.
       ctxHeaderBeyond: 'Out-of-county helpers within {radius} mi (beyond {county})',
-      ctxHeader: 'Out-of-county helpers within {radius} mi',
+      // Standalone Address lookup (no county excluded): ALL qualifying
+      // volunteers in range. {radius}.
+      ctxHeader: 'Qualifying volunteers within {radius} mi',
       // {count} = rows shown.
       ctxOverflowNotice: 'Radius too large — showing the {count} nearest. Narrow the radius for a complete list.',
       // {radius}.
-      ctxEmpty: 'No out-of-county volunteers within {radius} mi.',
+      ctxEmpty: 'No qualifying volunteers within {radius} mi.',
       ctxEdge: 'edge',
       qualBadgeYes: 'Qualified',
       qualBadgeNo: 'Not qualified',

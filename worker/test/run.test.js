@@ -723,6 +723,50 @@ async function main() {
     assert.strictEqual(res.header('Access-Control-Allow-Origin'), 'https://pages.example');
   });
 
+  await test('(i8) findContextRows: context WITHOUT exclude_county -> ALL in-range (incl. in-county)', () => {
+    // Standalone Address lookup path: no county is excluded, so the in-county
+    // (Dauphin, ~0mi) volunteer is INCLUDED alongside the out-of-county ones.
+    const rows = findContextRows(ANIMAL.lat, ANIMAL.lon, 20, COORDS_PII /* no excludeCounty */);
+    assert.strictEqual(rows.length, 3, 'all three in-range volunteers returned (Dauphin + Lebanon + Lancaster)');
+    // Sorted ascending; Dauphin (~0mi) is nearest and is NOT filtered out.
+    assert.strictEqual(rows[0].county, 'Dauphin', 'in-county volunteer IS included when no county is excluded');
+    const counties = rows.map((r) => r.county).sort();
+    assert.deepStrictEqual(counties, ['Dauphin', 'Lancaster', 'Lebanon']);
+    // Still PII-safe: every row carries ONLY the whitelisted keys.
+    for (const r of rows) {
+      assert.deepStrictEqual(Object.keys(r).sort(), TIER2_ROW_KEYS,
+        'row keys whitelisted, got: ' + JSON.stringify(Object.keys(r)));
+    }
+  });
+
+  await test('(i9) handler context=1 WITHOUT exclude_county returns in-range rows (incl. in-county)', async () => {
+    const res = await handleRequest(
+      mockRequest('GET', {
+        animal_lat: ANIMAL.lat, animal_lon: ANIMAL.lon, radius_mi: 20,
+        context: '1', // NO exclude_county
+      }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS_PII), allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    // Aggregate still spans ALL in-radius = 3 (unchanged).
+    assert.strictEqual(body.total_in_range, 3, 'aggregate spans all in-range');
+    // out_of_county now carries ALL THREE in-range rows (no county excluded),
+    // INCLUDING the in-county Dauphin volunteer.
+    assert.strictEqual(body.out_of_county.length, 3, 'context list returns all 3 in-range rows');
+    const counties = body.out_of_county.map((r) => r.county).sort();
+    assert.deepStrictEqual(counties, ['Dauphin', 'Lancaster', 'Lebanon'],
+      'in-county Dauphin is included when no exclude_county is sent');
+    // Each row keeps the 4-key whitelist; PII deep-walk finds nothing forbidden.
+    for (const r of body.out_of_county) {
+      assert.deepStrictEqual(Object.keys(r).sort(), TIER2_ROW_KEYS);
+    }
+    const allKeys = collectKeys(body, []);
+    for (const k of TIER2_FORBIDDEN_KEYS) {
+      assert.strictEqual(allKeys.indexOf(k), -1, 'PII key leaked at some depth: ' + k);
+    }
+  });
+
   // (j) AVAILABILITY TALLY -- Tier 2 mirrors Tier 1 available/total -------
   // Coords carrying explicit `available` booleans. Animal anchor = Harrisburg.
   // Within 20mi: 4 volunteers spanning all 3 buckets, mixed availability.

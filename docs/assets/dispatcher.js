@@ -499,11 +499,17 @@
     var url = WORKER_URL +
       '?address=' + encodeURIComponent(address) +
       '&radius_mi=' + encodeURIComponent(radiusMi);
-    // Tier 2 "widen" mode: ask the Worker for the PII-safe out-of-county context
-    // list (context=1) scoped to EXCLUDE the Tier 1 county. The aggregate block
-    // is unchanged; out_of_county is purely additive.
-    if (opts && opts.excludeCounty) {
-      url += '&context=1&exclude_county=' + encodeURIComponent(opts.excludeCounty);
+    // Context list (context=1): ask the Worker for the PII-safe per-volunteer
+    // qualifying-context list alongside the unchanged aggregate. Two callers:
+    //   - Standalone Address lookup: context=1 with NO exclude_county -> the
+    //     Worker returns ALL in-range qualifying volunteers (no county filter).
+    //   - Tier 2 "widen": context=1 + exclude_county scopes the list to EXCLUDE
+    //     the Tier 1 county. Either way out_of_county is purely additive.
+    if (opts && opts.context) {
+      url += '&context=1';
+      if (opts.excludeCounty) {
+        url += '&exclude_county=' + encodeURIComponent(opts.excludeCounty);
+      }
     }
     // Carry the SHARED animal base info (entered once at the top) into the Tier 2
     // request so both search paths consume the same input. The Worker currently
@@ -1313,9 +1319,13 @@
     $('#address-result').style.display = 'none';
     setAddressStatus(fmt(MSG.geocodeErrors.finding, { radius: radius }));
 
-    // Tier 2 "widen": if a county was carried over from Tier 1, scope the query
-    // to EXCLUDE it and request the out-of-county context list. ctx carries the
-    // county so renderContextList can label/empty-state correctly.
+    // Always request the PII-safe context list (context=1). Two shapes:
+    //   - Standalone Address lookup: no county to exclude -> the Worker returns
+    //     ALL in-range qualifying volunteers (renderContextList uses the plain
+    //     "in range" heading).
+    //   - Tier 2 "widen": a county carried over from Tier 1 scopes the query to
+    //     EXCLUDE it (out-of-county heading). ctx carries excludeCounty so
+    //     renderContextList can label/empty-state correctly.
     var excludeCounty = state.widenCounty || null;
     var base = readAnimalBaseInfo();
     var ctx = { radius: radius, rvs: base.rvs, issue: base.issue };
@@ -1323,7 +1333,7 @@
 
     // Single origin: send the typed address to the Worker, which geocodes it
     // server-side (no browser CORS) and returns the PII-free aggregate.
-    fetchAggregateByAddress(addr, radius, { excludeCounty: excludeCounty, base: base })
+    fetchAggregateByAddress(addr, radius, { context: true, excludeCounty: excludeCounty, base: base })
       .then(function (agg) {
         setAddressStatus('');
         // Render in its OWN try/catch so a rendering bug (e.g. a missing DOM

@@ -539,7 +539,7 @@ async function runTier2Empty() {
   assert.strictEqual(block.style.display, 'block', 'context block shown even when empty');
   const empty = doc.getElementById('ctx-empty');
   assert.strictEqual(empty.style.display, 'block', 'empty-state message is shown');
-  assert.ok(/No out-of-county volunteers/i.test(empty.textContent || ''),
+  assert.ok(/No qualifying volunteers/i.test(empty.textContent || ''),
     'empty-state copy present (got: "' + empty.textContent + '")');
   assert.strictEqual(doc.querySelectorAll('#ctx-list .ctx-row').length, 0,
     'no rows in empty-state');
@@ -1808,10 +1808,117 @@ async function runDeconfliction() {
   console.log('PASS: deconfliction — address rebinds governing area + clears county coordinator (no dual display); switching back restores county.');
 }
 
+// ── Standalone Address lookup ALSO renders the PII-safe qualifying-volunteer
+//    context list (context=1 WITHOUT exclude_county). No widen flow involved.
+//    Proves: (1) the request opts into context=1 but sends NO exclude_county,
+//    (2) #ctx-list rows render with qual badges, (3) the heading uses the
+//    standalone "Qualifying volunteers" wording (NOT the out-of-county widen
+//    wording), and (4) rows carry ONLY the whitelisted fields (no name/phone/
+//    coords). ───────────────────────────────────────────────────────────────
+async function runStandaloneAddressContextList() {
+  const agg = {
+    total_in_range: 4,
+    role_counts: { 'C&T': 1, 'RVS C&T': 1, 'COURIER': 2 },
+    win_areas: ['10', '11'],
+    // context=1 (no exclude_county) -> Worker returns ALL in-range qualifying
+    // volunteers (no county filtered out). Mix of counties incl. Allegheny.
+    out_of_county: [
+      { roles: ['RVS C&T'], distance_mi: 5.1, win_area: '10', county: 'Allegheny' },
+      { roles: ['C&T'], distance_mi: 9.4, win_area: '11', county: 'Beaver' },
+      { roles: ['COURIER'], distance_mi: 18.6, win_area: '11', county: 'Beaver' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const aggCalls = [];
+  const { window } = loadDom({
+    workerAgg: agg,
+    aggCalls: aggCalls,
+    data: { 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS },
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  // Plain Address mode (NO widen): switch to address mode directly.
+  const addrRadio = doc.querySelector('input[name="mode"][value="address"]');
+  addrRadio.checked = true;
+  addrRadio.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+
+  // Set the SHARED animal base info so the qualification tag renders.
+  doc.querySelector('input[name="rvs"][value="yes"]').checked = true;
+  doc.querySelector('input[name="issue"][value="capture"]').checked = true;
+
+  doc.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';
+  doc.getElementById('radius-mi').value = '40';
+  doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  // (1) Request opts into context=1 but sends NO exclude_county.
+  const url = aggCalls[aggCalls.length - 1] || '';
+  assert.ok(/[?&]context=1(&|$)/.test(url),
+    'standalone address request opts into context=1 (url: ' + url + ')');
+  assert.ok(!/[?&]exclude_county=/.test(url),
+    'standalone address request must NOT send exclude_county (url: ' + url + ')');
+
+  // Aggregate cards still render (list is ADDITIVE, not a replacement).
+  const result = doc.getElementById('address-result');
+  assert.strictEqual(result.style.display, 'block', 'address-result section is shown');
+  assert.strictEqual(doc.getElementById('agg-total').textContent, '4', 'aggregate total still renders');
+
+  // (2) Context block + rows render.
+  const block = doc.getElementById('ctx-block');
+  assert.strictEqual(block.style.display, 'block', 'context block is shown for standalone address');
+  const rows = Array.prototype.slice.call(doc.querySelectorAll('#ctx-list .ctx-row'));
+  assert.strictEqual(rows.length, 3, 'one row per in-range volunteer (got ' + rows.length + ')');
+
+  // Nearest-first order preserved.
+  const dists = rows.map(function (r) {
+    return (r.querySelector('.ctx-dist').textContent || '').trim();
+  });
+  assert.deepStrictEqual(dists, ['5.1 mi', '9.4 mi', '18.6 mi'],
+    'distances render nearest-first (got ' + JSON.stringify(dists) + ')');
+
+  // (2b) Qualification badges render (base info present). Every row gets a
+  // badge; for RVS=yes/capture the RVS C&T row qualifies.
+  const qualBadges = doc.querySelectorAll('#ctx-list .ctx-row .qual-badge');
+  assert.ok(qualBadges.length === rows.length,
+    'every row carries a qualification badge (got ' + qualBadges.length + ' for ' + rows.length + ' rows)');
+  const yes = doc.querySelectorAll('#ctx-list .ctx-row .qual-badge.qual-yes');
+  assert.ok(yes.length >= 1, 'at least one row is tagged Qualified for the animal');
+
+  // (3) Heading uses the standalone "Qualifying volunteers" wording, NOT the
+  // out-of-county widen phrasing.
+  const hdr = doc.getElementById('ctx-header').textContent || '';
+  assert.ok(hdr.indexOf('Qualifying volunteers') !== -1 && hdr.indexOf('40 mi') !== -1,
+    'standalone heading reads "Qualifying volunteers within 40 mi" (got: "' + hdr + '")');
+  assert.strictEqual(hdr.indexOf('Out-of-county'), -1,
+    'standalone heading must NOT use the out-of-county widen wording (got: "' + hdr + '")');
+
+  // (4) Row shape: ONLY role badges + qual badge + distance + area/county
+  // context. No name, no phone, no raw coordinates anywhere in the surface.
+  rows.forEach(function (r) {
+    const txt = r.textContent || '';
+    assert.ok(!/\d{3}[-.\s]?\d{3}[-.\s]?\d{4}/.test(txt),
+      'context rows must never render a phone number (got: "' + txt + '")');
+    // No decimal-degree coordinate pair (e.g. "40.4443, -79.9569").
+    assert.ok(!/-?\d{1,3}\.\d{3,}\s*,\s*-?\d{1,3}\.\d{3,}/.test(txt),
+      'context rows must never render raw coordinates (got: "' + txt + '")');
+  });
+  assert.ok((rows[0].textContent || '').indexOf('Allegheny') !== -1,
+    'in-county (Allegheny) volunteer IS included for a standalone lookup (no exclusion)');
+
+  console.log('PASS: standalone Address lookup renders 3 qualifying context rows (context=1, no exclude_county), qual badges, standalone heading, no PII.');
+}
+
 async function run() {
   await runHelpLink();
   await runHelpViewerRenders();
   await runAddressMode();
+  await runStandaloneAddressContextList();
   await runTier1Coordinator();
   await runTier2ContextList();
   await runTier2Overflow();
@@ -1837,7 +1944,7 @@ async function run() {
   await runCountyAreaBadge();
   await runAddressResolvedArea();
   await runDeconfliction();
-  console.log('\nALL DOM TESTS PASSED (28 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (29 scenarios).');
 }
 
 run().then(function () {
