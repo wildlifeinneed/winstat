@@ -25,3 +25,7 @@ pa_wildlife_rehab_facilities.csv
 # Phase B — PRIVATE volunteer coords dataset (derived from PII addresses).
 # Contains only lat/lon/roles/home_county/win_area but must NEVER be committed.
 data/volunteer_coords.json
+
+# Phase F — CI sentinel cache. Records the last VolDB_Status date the refresh
+# job acted on so the next run can compare. Local/CI-only state, never committed.
+last_refresh_date.json

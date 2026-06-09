@@ -53,3 +53,137 @@ jobs:
           ts="$(date -u +'%Y-%m-%d %H:%M UTC')"
           git commit -m "Auto-refresh capacity snapshot (${ts})"
           git push
+
+  # ---------------------------------------------------------------------------
+  # Phase F — dispatcher data refresh + private-dataset push to Cloudflare KV.
+  #
+  # Gated by the VolDB_Status sentinel (refresh_sentinel.needs_refresh) so the
+  # large Monday boards are only pulled when the tracker has actually advanced.
+  # On a refresh it:
+  #   * runs refresh_monday.py (volunteers+rehabbers+coordinators, geocodes,
+  #     writes the PRIVATE coords dataset + the PUBLIC docs/data/* aggregates),
+  #   * pushes ONLY the PRIVATE volunteer coords to Cloudflare KV under the
+  #     exact key the Worker reads (`volunteer_coords`, per worker/src/handler.js),
+  #   * commits ONLY the public docs/data/* aggregates (NEVER the private coords),
+  #   * records the sentinel date so the next run can compare.
+  #
+  # NOTE: the rehabber dataset (docs/data/rehabbers.json) is PUBLIC in this repo
+  # (committed + served by GitHub Pages, NOT read from KV by the Worker), so it
+  # is committed like the other public aggregates and is NOT pushed to KV. The
+  # ONLY private, KV-served dataset is volunteer_coords (data/volunteer_coords.json).
+  refresh-dispatcher-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node (for wrangler KV push)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Sentinel gate. Writes refresh=true|false to $GITHUB_OUTPUT. needs_refresh
+      # is fail-safe: any Monday API error returns False (no download), so a
+      # tracker hiccup can never trigger an expensive pull nor fail the run.
+      - name: Sentinel — does VolDB_Status require a refresh?
+        id: sentinel
+        env:
+          MONDAY_API_TOKEN: ${{ secrets.MONDAY_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import refresh_sentinel as rs
+
+          token = os.environ["MONDAY_API_TOKEN"]
+          stored = rs.DEFAULT_STORED_PATH
+          decision = rs.needs_refresh(token, stored)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"refresh={'true' if decision else 'false'}\n")
+          print(f"needs_refresh -> {decision}")
+          PY
+
+      - name: Refresh Monday datasets
+        if: steps.sentinel.outputs.refresh == 'true'
+        env:
+          MONDAY_API_TOKEN: ${{ secrets.MONDAY_TOKEN }}
+        run: |
+          python3 refresh_monday.py
+
+      # Push ONLY the PRIVATE volunteer coords to Cloudflare KV under the exact
+      # key the Worker reads. wrangler is used (not the REST API): the repo
+      # already ships worker/wrangler.toml with account_id + the VOLUNTEER_COORDS
+      # namespace, so `wrangler kv key put` needs no hand-built auth headers —
+      # it picks up CLOUDFLARE_API_TOKEN from the env automatically and the
+      # namespace id is passed explicitly. Cleaner + less error-prone than a
+      # raw curl PUT to the KV REST endpoint.
+      - name: Push private volunteer coords to Cloudflare KV
+        if: steps.sentinel.outputs.refresh == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ ! -f data/volunteer_coords.json ]; then
+            echo "ERROR: data/volunteer_coords.json missing after refresh." >&2
+            exit 1
+          fi
+          npx --yes wrangler@3 kv key put \
+            --namespace-id=43bdd5e237544683b20cdbc61d42dd49 \
+            volunteer_coords \
+            --path=data/volunteer_coords.json
+
+      # Commit ONLY the public, PII-free aggregates. The private coords
+      # (data/volunteer_coords.json) and the sentinel date file are gitignored,
+      # so a `git add` of these explicit public paths can never include them.
+      - name: Commit + push public aggregates if changed
+        if: steps.sentinel.outputs.refresh == 'true'
+        run: |
+          if git diff --quiet -- \
+              docs/data/county_capacity.json \
+              docs/data/.last_remote_update \
+              docs/data/rehabbers.json \
+              docs/data/coordinators.json; then
+            echo "No public-aggregate changes to commit."
+          else
+            git config user.name  "wildlife-dispatcher-bot"
+            git config user.email "dispatcher-bot@users.noreply.github.com"
+            git add docs/data/county_capacity.json \
+                    docs/data/.last_remote_update \
+                    docs/data/rehabbers.json \
+                    docs/data/coordinators.json
+            ts="$(date -u +'%Y-%m-%d %H:%M UTC')"
+            git commit -m "Auto-refresh dispatcher data (${ts})"
+            git push
+          fi
+
+      # Record the sentinel date so the next run compares against it. Written
+      # to a gitignored file (never committed). Runs only on a successful
+      # refresh so a failed pull doesn't advance the cache.
+      - name: Update stored sentinel date
+        if: steps.sentinel.outputs.refresh == 'true'
+        env:
+          MONDAY_API_TOKEN: ${{ secrets.MONDAY_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import refresh_sentinel as rs
+
+          token = os.environ["MONDAY_API_TOKEN"]
+          d = rs.get_last_updated(token)
+          if d is None:
+              print("Sentinel date unreadable post-refresh; leaving stored date unchanged.")
+          else:
+              rs.save_stored_date(d, rs.DEFAULT_STORED_PATH)
+              print(f"Stored sentinel date -> {d.isoformat()}")
+          PY
