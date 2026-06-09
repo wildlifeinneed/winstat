@@ -1968,11 +1968,92 @@ async function runAddressNoHorizontalOverflowCss() {
     'cards-grid minmax(0,1fr), .ctx-ctx overflow-wrap:anywhere, single width=device-width/initial-scale=1 viewport (no fixed width, no zoom lockout).');
 }
 
+// ── Regression: NO-RVS CAPTURE qualifying list must include RVS C&T rows. ───
+//    Real-user bug: for RVS=No + ISSUE=capture, ANY C&T-capable volunteer
+//    qualifies. The aggregate Worker emits 'RVS C&T' EXCLUSIVELY for a
+//    both-capable volunteer (so panel role_counts stay mutually exclusive like
+//    Tier 1's ct_no_rvs/ct_rvs), which means those rows carry roles:['RVS C&T']
+//    and NOT a plain 'C&T' token. qualifiesForAnimal must still treat RVS C&T
+//    as C&T-capable so ALL 4 (1 plain C&T + 3 RVS C&T) render AND tag Qualified
+//    in #ctx-list. role_counts (1 C&T / 3 RVS C&T) are surfaced UNCHANGED.
+async function runStandaloneNoRvsCaptureAllCtCapable() {
+  const agg = {
+    total_in_range: 4,
+    // Mutually-exclusive counts (unchanged): 1 plain C&T + 3 RVS C&T.
+    role_counts: { 'C&T': 1, 'RVS C&T': 3, 'COURIER': 0 },
+    win_areas: ['10', '11'],
+    out_of_county: [
+      { roles: ['C&T'], distance_mi: 3.0, win_area: '10', county: 'Allegheny' },
+      { roles: ['RVS C&T'], distance_mi: 6.0, win_area: '10', county: 'Allegheny' },
+      { roles: ['RVS C&T'], distance_mi: 9.0, win_area: '11', county: 'Beaver' },
+      { roles: ['RVS C&T'], distance_mi: 12.0, win_area: '11', county: 'Beaver' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { window } = loadDom({
+    workerAgg: agg,
+    data: { 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS },
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  const addrRadio = doc.querySelector('input[name="mode"][value="address"]');
+  addrRadio.checked = true;
+  addrRadio.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+
+  // RVS=No + ISSUE=capture: any C&T-capable qualifies.
+  doc.querySelector('input[name="rvs"][value="no"]').checked = true;
+  doc.querySelector('input[name="issue"][value="capture"]').checked = true;
+
+  doc.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';
+  doc.getElementById('radius-mi').value = '40';
+  doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  // ALL 4 C&T-capable rows render (the bug rendered only the 1 plain C&T).
+  const rows = Array.prototype.slice.call(doc.querySelectorAll('#ctx-list .ctx-row'));
+  assert.strictEqual(rows.length, 4,
+    'all 4 C&T-capable volunteers (1 C&T + 3 RVS C&T) render in the list (got ' + rows.length + ')');
+
+  // EVERY row qualifies for a no-RVS capture (RVS C&T implies C&T capability).
+  const yes = doc.querySelectorAll('#ctx-list .ctx-row .qual-badge.qual-yes');
+  assert.strictEqual(yes.length, 4,
+    'every C&T-capable row is tagged Qualified for a no-RVS capture (got ' + yes.length + ')');
+  const no = doc.querySelectorAll('#ctx-list .ctx-row .qual-badge.qual-no');
+  assert.strictEqual(no.length, 0,
+    'no C&T-capable row is tagged Not qualified for a no-RVS capture (got ' + no.length + ')');
+
+  // The 3 RVS C&T rows specifically qualify (regression: they were omitted).
+  const rvsRows = rows.filter(function (r) {
+    return Array.prototype.slice.call(r.querySelectorAll('.role-badge'))
+      .some(function (b) { return b.textContent.trim() === 'RVS C&T'; });
+  });
+  assert.strictEqual(rvsRows.length, 3, 'exactly 3 RVS C&T rows present');
+  rvsRows.forEach(function (r) {
+    assert.ok(r.querySelector('.qual-badge.qual-yes'),
+      'each RVS C&T row qualifies for a no-RVS capture');
+  });
+
+  // Panel role_counts UNCHANGED: 1 C&T / 3 RVS C&T (mutually exclusive).
+  // (No role_available in this payload -> avail span falls back to the count.)
+  assert.strictEqual(doc.getElementById('agg-ct').textContent, '1', 'C&T count UNCHANGED = 1');
+  assert.strictEqual(doc.getElementById('agg-rvs').textContent, '3', 'RVS C&T count UNCHANGED = 3');
+
+  console.log('PASS: no-RVS capture — all 4 C&T-capable rows (1 C&T + 3 RVS C&T) render AND tag Qualified; ' +
+    'role_counts unchanged (1 C&T / 3 RVS C&T).');
+}
+
 async function run() {
   await runHelpLink();
   await runHelpViewerRenders();
   await runAddressMode();
   await runStandaloneAddressContextList();
+  await runStandaloneNoRvsCaptureAllCtCapable();
   await runTier1Coordinator();
   await runTier2ContextList();
   await runTier2Overflow();
@@ -1999,7 +2080,7 @@ async function run() {
   await runAddressResolvedArea();
   await runDeconfliction();
   await runAddressNoHorizontalOverflowCss();
-  console.log('\nALL DOM TESTS PASSED (30 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (31 scenarios).');
 }
 
 run().then(function () {

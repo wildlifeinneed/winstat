@@ -110,8 +110,14 @@
     for (var i = 0; i < arr.length; i++) {
       declared[normRole(arr[i])] = true;
     }
-    var hasCt = !!declared[normRole('C&T')];
+    // RVS C&T implies C&T capability. The aggregate worker emits 'RVS C&T'
+    // EXCLUSIVELY for a both-capable volunteer (to keep panel role_counts
+    // mutually exclusive like Tier 1's ct_no_rvs/ct_rvs buckets), so the plain
+    // 'C&T' token is absent on those rows. For QUALIFICATION (capability), an
+    // RVS C&T volunteer is still C&T-capable -- count it as hasCt here. This is
+    // role MATCHING only; it does not change the exclusive role emission/counts.
     var hasRvs = !!declared[normRole('RVS C&T')];
+    var hasCt = !!declared[normRole('C&T')] || hasRvs;
     var hasCourier = !!declared[normRole('COURIER')];
     var issueNorm = (typeof issue === 'string') ? issue.toLowerCase().trim() : '';
 

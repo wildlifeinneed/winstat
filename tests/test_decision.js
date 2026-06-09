@@ -7,6 +7,7 @@ var assert = require('assert');
 var path = require('path');
 var mod = require(path.resolve(__dirname, '../docs/assets/decision.js'));
 var recommend = mod.recommend;
+var qualifiesForAnimal = mod.qualifiesForAnimal;
 var ACTIONS = mod.ACTIONS;
 
 // Sanity: ACTIONS registry shape
@@ -268,6 +269,46 @@ assert.ok(!('name' in staleRec.marginal_volunteers[0]),
   'recommend() must strip volunteer `name` from marginal_volunteers');
 assert.strictEqual(staleRec.marginal_volunteers[0].availability_note,
   'Contact for avail', 'availability_note must be preserved verbatim');
+passed++;
+
+// ── qualifiesForAnimal: hasCt-includes-RVS-C&T capability matrix ────────────
+// The aggregate Worker emits 'RVS C&T' EXCLUSIVELY for a both-capable
+// volunteer (to keep panel role_counts mutually exclusive), dropping the plain
+// 'C&T' token. QUALIFICATION must still treat an RVS C&T volunteer as
+// C&T-capable, so for a NON-RVS capture ALL C&T-capable roles (plain C&T AND
+// RVS C&T) qualify, while a Courier-only does not. For an RVS capture ONLY
+// RVS C&T qualifies.
+//
+// No-RVS capture (RVS=No, ISSUE=capture): any C&T-capable qualifies.
+assert.strictEqual(qualifiesForAnimal(['C&T'], false, 'capture'), true,
+  'no-RVS capture: plain C&T qualifies');
+assert.strictEqual(qualifiesForAnimal(['RVS C&T'], false, 'capture'), true,
+  'no-RVS capture: RVS C&T qualifies (RVS C&T implies C&T capability)');
+assert.strictEqual(qualifiesForAnimal(['COURIER'], false, 'capture'), false,
+  'no-RVS capture: Courier-only does NOT qualify');
+// Whitespace/case-insensitive combined token still treated as RVS C&T.
+assert.strictEqual(qualifiesForAnimal(['rvs c&t'], false, 'capture'), true,
+  'no-RVS capture: lowercase "rvs c&t" qualifies');
+
+// RVS capture (RVS=Yes): ONLY RVS C&T qualifies.
+assert.strictEqual(qualifiesForAnimal(['RVS C&T'], true, 'capture'), true,
+  'RVS capture: RVS C&T qualifies');
+assert.strictEqual(qualifiesForAnimal(['C&T'], true, 'capture'), false,
+  'RVS capture: plain C&T does NOT qualify');
+assert.strictEqual(qualifiesForAnimal(['COURIER'], true, 'capture'), false,
+  'RVS capture: Courier-only does NOT qualify');
+
+// Transport: C&T, RVS C&T, and Courier all qualify.
+assert.strictEqual(qualifiesForAnimal(['C&T'], false, 'transport'), true,
+  'transport: plain C&T qualifies');
+assert.strictEqual(qualifiesForAnimal(['RVS C&T'], false, 'transport'), true,
+  'transport: RVS C&T qualifies');
+assert.strictEqual(qualifiesForAnimal(['COURIER'], false, 'transport'), true,
+  'transport: Courier qualifies');
+
+// Unknown issue -> never qualifies (mirrors recommend's E-branch).
+assert.strictEqual(qualifiesForAnimal(['RVS C&T'], false, 'unknown'), false,
+  'unknown issue: nobody qualifies');
 passed++;
 
 console.log('OK: ' + passed + ' tests passed');
