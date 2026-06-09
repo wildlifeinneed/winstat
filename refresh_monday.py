@@ -686,9 +686,15 @@ def build_geocode_input(
     if not (set(roles) & QUALIFYING_ROLES):
         return None
 
+    availability_text = _column_text(item, column_ids[COL_TITLE_AVAILABILITY])
     return {
         "county": county,
         "roles": roles,
+        # Availability is computed here (SAME definition as build_volunteer_record
+        # / Tier 1 county capacity) so the geocoder can propagate a PII-free
+        # boolean onto each coords record. This lets the Worker tally Tier 2
+        # availability the same way Tier 1 does.
+        "available": is_available(availability_text),
         "street": _column_text(item, ADDRESS_COL_IDS["street"]),
         "city": _column_text(item, ADDRESS_COL_IDS["city"]),
         "state": _column_text(item, ADDRESS_COL_IDS["state"]),

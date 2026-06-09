@@ -21,6 +21,7 @@
 const {
   findVolunteersInRadius,
   findContextRows,
+  buildAggregateResponse,
   buildTier2Response,
 } = require('./aggregate');
 const { geocodeAddress } = require('./census');
@@ -312,8 +313,11 @@ async function handleRequest(request, deps) {
     return jsonResponse(ResponseCtor, 200, tier2, allowedOrigin);
   }
 
-  // PII boundary: return ONLY the aggregate shape (byte-identical to today).
-  return jsonResponse(ResponseCtor, 200, aggregate, allowedOrigin);
+  // PII boundary: return ONLY the legacy aggregate shape (byte-identical to
+  // today). findVolunteersInRadius now also computes availability counts, so we
+  // route through buildAggregateResponse to re-whitelist down to the historical
+  // three keys -- the availability fields surface ONLY via the Tier 2 response.
+  return jsonResponse(ResponseCtor, 200, buildAggregateResponse(aggregate), allowedOrigin);
 }
 
 module.exports = {

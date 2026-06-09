@@ -615,18 +615,54 @@
     highlightAreas(animalArea ? [animalArea] : [], Object.keys(helperSet));
   }
 
+  // Render one Tier 2 summary card the SAME way Tier 1 (renderCardsForCounty)
+  // does: an avail/total ratio plus a "Marginal" badge when available is at or
+  // below the marginal threshold. `total` is the in-range presence count;
+  // `avail` is the available count. Backward compatible: when the Worker payload
+  // predates availability (avail undefined), we fall back to total so the ratio
+  // reads N/N and no spurious Marginal badge appears.
+  function renderAggCard(bucket, total, avail, marginalThreshold) {
+    var card = document.querySelector('.cap-card[data-bucket="' + bucket + '"]');
+    if (!card) return;
+    var hasAvail = (typeof avail === 'number');
+    var availVal = hasAvail ? avail : total;
+
+    var availEl = $('.avail', card);
+    var totalEl = $('.total', card);
+    if (availEl) availEl.textContent = String(availVal);
+    if (totalEl) totalEl.textContent = String(total);
+
+    var existing = $('.badge', card);
+    if (existing) existing.remove();
+
+    if (hasAvail && total > 0 && availVal <= marginalThreshold) {
+      var badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = 'Marginal';
+      card.appendChild(badge);
+    }
+  }
+
   function renderAggregate(agg, ctx) {
     var roles = (agg && agg.role_counts) || {};
+    var avail = (agg && agg.role_available) || null;
     var ct = roles['C&T'] || 0;
     var rvs = roles['RVS C&T'] || 0;
     var courier = roles['COURIER'] || 0;
     var total = (typeof agg.total_in_range === 'number') ? agg.total_in_range : 0;
     var areas = (agg && Array.isArray(agg.win_areas)) ? agg.win_areas.slice() : [];
 
+    // Marginal threshold mirrors Tier 1: prefer the Worker-supplied value
+    // (global default), else fall back to the frontend config default.
+    var marginalThreshold = (typeof agg.marginal_threshold === 'number')
+      ? agg.marginal_threshold
+      : ((state.config && typeof state.config.marginal_threshold === 'number')
+          ? state.config.marginal_threshold : 1);
+
     setText('#agg-total', String(total));
-    setText('#agg-ct', String(ct));
-    setText('#agg-rvs', String(rvs));
-    setText('#agg-courier', String(courier));
+    renderAggCard('C&T', ct, avail ? (avail['C&T'] || 0) : undefined, marginalThreshold);
+    renderAggCard('RVS C&T', rvs, avail ? (avail['RVS C&T'] || 0) : undefined, marginalThreshold);
+    renderAggCard('COURIER', courier, avail ? (avail['COURIER'] || 0) : undefined, marginalThreshold);
 
     var areasEl = $('#agg-areas');
     if (areas.length) {

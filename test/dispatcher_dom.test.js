@@ -459,6 +459,77 @@ async function runTier2Empty() {
   console.log('PASS: Tier 2 empty-state renders when out_of_county is [].');
 }
 
+// ── Tier 2 availability: summary cards render avail/total ratio + a "Marginal"
+//    badge when available <= marginal_threshold, mirroring Tier 1. ───────────
+async function runTier2Availability() {
+  const agg = {
+    total_in_range: 6,
+    role_counts: { 'C&T': 4, 'RVS C&T': 2, 'COURIER': 3 },
+    role_available: { 'C&T': 3, 'RVS C&T': 1, 'COURIER': 0 },
+    total_available: 4,
+    marginal_threshold: 1,
+    win_areas: ['10'],
+    out_of_county: [
+      { roles: ['C&T'], distance_mi: 8.2, win_area: '11', county: 'Beaver' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc } = await driveTier2(agg, 'Allegheny');
+
+  function card(bucket) { return doc.querySelector('.cap-card[data-bucket="' + bucket + '"]'); }
+  function availOf(bucket) { return (card(bucket).querySelector('.avail').textContent || '').trim(); }
+  function totalOf(bucket) { return (card(bucket).querySelector('.total').textContent || '').trim(); }
+  function badge(bucket) { return card(bucket).querySelector('.badge'); }
+
+  // avail/total ratio mirrors Tier 1 (.avail / .total).
+  assert.strictEqual(availOf('C&T'), '3', 'C&T avail = 3');
+  assert.strictEqual(totalOf('C&T'), '4', 'C&T total = 4');
+  assert.strictEqual(availOf('RVS C&T'), '1', 'RVS avail = 1');
+  assert.strictEqual(totalOf('RVS C&T'), '2', 'RVS total = 2');
+  assert.strictEqual(availOf('COURIER'), '0', 'COURIER avail = 0');
+  assert.strictEqual(totalOf('COURIER'), '3', 'COURIER total = 3');
+
+  // Marginal badge: RVS (avail 1 <= threshold 1) and COURIER (avail 0) are
+  // marginal; C&T (avail 3 > 1) is NOT.
+  assert.ok(!badge('C&T'), 'C&T (avail 3) is NOT marginal');
+  assert.ok(badge('RVS C&T'), 'RVS C&T (avail 1 <= 1) shows Marginal badge');
+  assert.strictEqual(badge('RVS C&T').textContent.trim(), 'Marginal');
+  assert.ok(badge('COURIER'), 'COURIER (avail 0) shows Marginal badge');
+
+  // PII guard: the summary cards carry only counts, never identity.
+  const cardsText = doc.querySelector('.cards-grid').textContent || '';
+  assert.ok(!/\d{3}[-.\s]?\d{3}[-.\s]?\d{4}/.test(cardsText),
+    'Tier 2 summary cards must never render a phone number');
+
+  console.log('PASS: Tier 2 cards render avail/total (3/4, 1/2, 0/3) + Marginal badges on RVS & COURIER.');
+}
+
+// ── Tier 2 backward compat: a Worker payload WITHOUT availability fields must
+//    still render (avail falls back to total, NO spurious Marginal badge). ───
+async function runTier2AvailabilityBackcompat() {
+  const agg = {
+    total_in_range: 5,
+    role_counts: { 'C&T': 2, 'RVS C&T': 1, 'COURIER': 3 },
+    // NO role_available / total_available / marginal_threshold (old Worker).
+    win_areas: ['10'],
+    out_of_county: [],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc } = await driveTier2(agg, 'Allegheny');
+
+  function card(bucket) { return doc.querySelector('.cap-card[data-bucket="' + bucket + '"]'); }
+  // avail falls back to the count so the ratio reads N/N.
+  assert.strictEqual((card('C&T').querySelector('.avail').textContent || '').trim(), '2');
+  assert.strictEqual((card('C&T').querySelector('.total').textContent || '').trim(), '2');
+  // NO Marginal badge anywhere when availability is unknown.
+  assert.strictEqual(doc.querySelectorAll('.cards-grid .cap-card .badge').length, 0,
+    'no Marginal badge when the payload predates availability');
+
+  console.log('PASS: Tier 2 cards degrade gracefully (avail=count, no badge) for pre-availability payloads.');
+}
+
 // ── D5.2: the WIN Areas map renders 67 county <path>s from the GeoJSON, each
 //    tagged with its win_area, and the projection puts Erie (NW) up-and-left of
 //    Philadelphia (SE). ─────────────────────────────────────────────────────
@@ -627,11 +698,13 @@ async function run() {
   await runTier2ContextList();
   await runTier2Overflow();
   await runTier2Empty();
+  await runTier2Availability();
+  await runTier2AvailabilityBackcompat();
   await runMapRender();
   await runHighlightAreas();
   await runTier2Highlight();
   await runTier1Highlight();
-  console.log('\nALL DOM TESTS PASSED (9 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (11 scenarios).');
 }
 
 run().then(function () {

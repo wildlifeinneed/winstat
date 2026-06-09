@@ -28,9 +28,12 @@ const {
   haversineMi,
   findVolunteersInRadius,
   findContextRows,
+  buildAggregateResponse,
   buildTier2Response,
+  isAvailableRecord,
   DEFAULT_RADIUS_MI,
   MAX_RADIUS_MI,
+  DEFAULT_MARGINAL_THRESHOLD,
 } = require('../src/aggregate');
 const { geocodeAddress } = require('../src/census');
 const { autocompleteAddress } = require('../src/autocomplete');
@@ -195,6 +198,12 @@ async function main() {
     assert.strictEqual(agg.role_counts['RVS C&T'], 1, 'RVS C&T count');
     assert.strictEqual(agg.role_counts['COURIER'], 2, 'COURIER count');
     assert.deepStrictEqual(agg.win_areas, ['WIN-1', 'WIN-2'], 'sorted distinct areas');
+    // Records here carry NO `available` field -> default-available (mirrors
+    // DEFAULT_AVAILABLE_WHEN_BLANK=True), so available == counts.
+    assert.strictEqual(agg.total_available, 3, 'all default-available');
+    assert.strictEqual(agg.role_available['C&T'], 1);
+    assert.strictEqual(agg.role_available['RVS C&T'], 1);
+    assert.strictEqual(agg.role_available['COURIER'], 2);
   });
 
   await test('(a2) larger radius pulls in the far volunteer', () => {
@@ -568,10 +577,11 @@ async function main() {
     );
     assert.strictEqual(res.status, 200);
     const body = await res.json();
-    // Top-level whitelist.
+    // Top-level whitelist (now includes availability fields).
     assert.deepStrictEqual(Object.keys(body).sort(),
-      ['out_of_county', 'out_of_county_truncated', 'radius_too_broad',
-       'role_counts', 'total_in_range', 'win_areas']);
+      ['marginal_threshold', 'out_of_county', 'out_of_county_truncated',
+       'radius_too_broad', 'role_available', 'role_counts', 'total_available',
+       'total_in_range', 'win_areas']);
     // Deep-walk every key name; none may be forbidden.
     const allKeys = collectKeys(body, []);
     for (const k of TIER2_FORBIDDEN_KEYS) {
@@ -608,6 +618,114 @@ async function main() {
       { ResponseCtor: MockResponse, kv: mockKV(COORDS_PII), allowedOrigin: 'https://pages.example' }
     );
     assert.strictEqual(res.header('Access-Control-Allow-Origin'), 'https://pages.example');
+  });
+
+  // (j) AVAILABILITY TALLY -- Tier 2 mirrors Tier 1 available/total -------
+  // Coords carrying explicit `available` booleans. Animal anchor = Harrisburg.
+  // Within 20mi: 4 volunteers spanning all 3 buckets, mixed availability.
+  const COORDS_AVAIL = [
+    // ~0 mi, C&T + COURIER, AVAILABLE.
+    { lat: 40.2732, lon: -76.8867, roles: ['C&T', 'COURIER'], home_county: 'Dauphin', win_area: 'WIN-1', available: true },
+    // ~8 mi, RVS C&T, NOT available.
+    { lat: 40.36, lon: -76.78, roles: ['rvs c&t'], home_county: 'Lebanon', win_area: 'WIN-2', available: false },
+    // ~12 mi, COURIER, AVAILABLE.
+    { lat: 40.10, lon: -76.75, roles: ['Courier'], home_county: 'Lancaster', win_area: 'WIN-1', available: true },
+    // ~14 mi, C&T, NOT available.
+    { lat: 40.15, lon: -77.05, roles: ['C&T'], home_county: 'Perry', win_area: 'WIN-3', available: false },
+    // invalid -> skipped.
+    { lat: null, lon: null, roles: ['C&T'], home_county: 'Nowhere', win_area: 'WIN-X', available: true },
+  ];
+
+  await test('(j1) isAvailableRecord: blank/missing -> available, explicit false -> not', () => {
+    assert.strictEqual(isAvailableRecord({}), true, 'missing field => available');
+    assert.strictEqual(isAvailableRecord({ available: true }), true);
+    assert.strictEqual(isAvailableRecord({ available: false }), false);
+    assert.strictEqual(isAvailableRecord(null), false, 'null record not available');
+  });
+
+  await test('(j2) findVolunteersInRadius tallies role_available/total_available', () => {
+    const agg = findVolunteersInRadius(ANIMAL.lat, ANIMAL.lon, 20, COORDS_AVAIL);
+    // Presence: C&T=2 (Dauphin + Perry), RVS=1 (Lebanon), COURIER=2 (Dauphin+Lancaster).
+    assert.strictEqual(agg.role_counts['C&T'], 2);
+    assert.strictEqual(agg.role_counts['RVS C&T'], 1);
+    assert.strictEqual(agg.role_counts['COURIER'], 2);
+    assert.strictEqual(agg.total_in_range, 4);
+    // Availability: Dauphin(avail) + Lancaster(avail) available; Lebanon + Perry not.
+    assert.strictEqual(agg.total_available, 2, 'two distinct available volunteers');
+    assert.strictEqual(agg.role_available['C&T'], 1, 'only Dauphin C&T available (Perry not)');
+    assert.strictEqual(agg.role_available['RVS C&T'], 0, 'Lebanon RVS not available');
+    assert.strictEqual(agg.role_available['COURIER'], 2, 'both couriers available');
+  });
+
+  await test('(j3) buildTier2Response whitelists role_available/total_available/marginal_threshold', () => {
+    const agg = findVolunteersInRadius(ANIMAL.lat, ANIMAL.lon, 20, COORDS_AVAIL);
+    const rows = findContextRows(ANIMAL.lat, ANIMAL.lon, 20, COORDS_AVAIL, 'Dauphin');
+    const resp = buildTier2Response(agg, rows);
+    assert.strictEqual(resp.role_available['C&T'], 1);
+    assert.strictEqual(resp.role_available['RVS C&T'], 0);
+    assert.strictEqual(resp.role_available['COURIER'], 2);
+    assert.strictEqual(resp.total_available, 2);
+    assert.strictEqual(resp.marginal_threshold, DEFAULT_MARGINAL_THRESHOLD);
+    // available can never exceed the in-range count for any bucket.
+    for (const role of ['C&T', 'RVS C&T', 'COURIER']) {
+      assert.ok(resp.role_available[role] <= resp.role_counts[role], role + ' avail <= total');
+    }
+  });
+
+  await test('(j4) buildTier2Response clamps malformed available counts to [0,total]', () => {
+    const resp = buildTier2Response(
+      {
+        total_in_range: 2,
+        role_counts: { 'C&T': 2, 'RVS C&T': 0, 'COURIER': 0 },
+        role_available: { 'C&T': 99, 'RVS C&T': -5, 'COURIER': 0 },
+        total_available: 99,
+      },
+      []
+    );
+    assert.strictEqual(resp.role_available['C&T'], 2, 'clamped down to total');
+    assert.strictEqual(resp.role_available['RVS C&T'], 0, 'negative clamped to 0');
+    assert.strictEqual(resp.total_available, 2, 'total_available clamped to total_in_range');
+  });
+
+  await test('(j5) handler context=1 surfaces availability fields end-to-end (PII-safe)', async () => {
+    const res = await handleRequest(
+      mockRequest('GET', {
+        animal_lat: ANIMAL.lat, animal_lon: ANIMAL.lon, radius_mi: 20,
+        exclude_county: 'Dauphin', context: '1',
+      }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS_AVAIL), allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.strictEqual(body.total_available, 2);
+    assert.strictEqual(body.role_available['COURIER'], 2);
+    assert.strictEqual(body.role_available['RVS C&T'], 0);
+    assert.strictEqual(typeof body.marginal_threshold, 'number');
+    // PII still clean: deep-walk finds no forbidden key (available is a count, not identity).
+    const allKeys = collectKeys(body, []);
+    for (const k of TIER2_FORBIDDEN_KEYS) {
+      assert.strictEqual(allKeys.indexOf(k), -1, 'PII key leaked: ' + k);
+    }
+  });
+
+  await test('(j6) plain (non-context) path STILL omits availability fields (backward compat)', async () => {
+    const res = await handleRequest(
+      mockRequest('GET', { animal_lat: ANIMAL.lat, animal_lon: ANIMAL.lon, radius_mi: 20 }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS_AVAIL), allowedOrigin: 'https://pages.example' }
+    );
+    const body = await res.json();
+    assert.deepStrictEqual(Object.keys(body).sort(),
+      ['role_counts', 'total_in_range', 'win_areas'], 'legacy 3-key shape unchanged');
+    assert.strictEqual(body.role_available, undefined, 'no availability leak on plain path');
+    assert.strictEqual(body.marginal_threshold, undefined);
+  });
+
+  await test('(j7) buildAggregateResponse re-whitelists down to legacy 3 keys', () => {
+    const agg = findVolunteersInRadius(ANIMAL.lat, ANIMAL.lon, 20, COORDS_AVAIL);
+    const legacy = buildAggregateResponse(agg);
+    assert.deepStrictEqual(Object.keys(legacy).sort(),
+      ['role_counts', 'total_in_range', 'win_areas']);
+    assert.strictEqual(legacy.total_in_range, 4);
   });
 
   console.log('\n----------------------------------------');

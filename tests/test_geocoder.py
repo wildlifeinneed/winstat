@@ -163,9 +163,10 @@ def test_batch_strips_all_pii_fields():
 
     assert len(out) == 1
     rec = out[0]
-    # ONLY these keys allowed (plus the internal, non-PII _addr_sig).
+    # ONLY these keys allowed (plus the internal, non-PII _addr_sig and the
+    # PII-free `available` boolean used for Tier 2 availability tallying).
     assert set(rec.keys()) == {
-        "lat", "lon", "roles", "home_county", "win_area", "_addr_sig",
+        "lat", "lon", "roles", "home_county", "win_area", "available", "_addr_sig",
     }
     # No PII leaked.
     for forbidden in ("name", "phone", "email", "street", "city", "address"):
@@ -174,6 +175,9 @@ def test_batch_strips_all_pii_fields():
     assert rec["lon"] == -76.3
     assert rec["roles"] == ["C&T", "RVS"]
     assert rec["home_county"] == "Lancaster"
+    # available defaults to True when the input omits it (mirrors
+    # DEFAULT_AVAILABLE_WHEN_BLANK).
+    assert rec["available"] is True
     # win_area resolved via county_win (Lancaster is a real PA county).
     assert isinstance(rec["win_area"], str) and rec["win_area"]
     # _addr_sig must not contain the raw, human-readable street value.
@@ -282,3 +286,37 @@ def test_address_signature_is_case_and_whitespace_insensitive():
     a = geocoder._address_signature("100 Main St", "Lancaster", "PA", "17601")
     b = geocoder._address_signature("  100 MAIN st ", "lancaster ", " pa", "17601 ")
     assert a == b
+
+
+# ---------------------------------------------------------------------------
+# 4. availability propagation — feeds Tier 2 available/total tally
+# ---------------------------------------------------------------------------
+
+
+def test_batch_propagates_available_flag_true_and_false():
+    """The PII-free `available` boolean from build_geocode_input flows through
+    to the coords record so the Worker can tally Tier 2 availability the same
+    way Tier 1 does. Counts/ratios only — never identity."""
+    volunteers = [
+        {
+            "street": "1 Avail St", "city": "Lancaster", "state": "PA",
+            "zip": "17601", "county": "Lancaster", "roles": ["C&T"],
+            "available": True,
+        },
+        {
+            "street": "2 Busy Rd", "city": "Lancaster", "state": "PA",
+            "zip": "17601", "county": "Lancaster", "roles": ["Courier"],
+            "available": False,
+        },
+    ]
+    with mock.patch.object(
+        geocoder, "geocode_address", return_value=(40.0, -76.3)
+    ):
+        out = geocoder.batch_geocode_volunteers(volunteers)
+
+    assert len(out) == 2
+    assert out[0]["available"] is True
+    assert out[1]["available"] is False
+    # available is a plain boolean, never carries identity.
+    for rec in out:
+        assert isinstance(rec["available"], bool)

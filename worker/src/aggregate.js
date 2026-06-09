@@ -21,6 +21,13 @@
 const DEFAULT_RADIUS_MI = 20.0;
 const MAX_RADIUS_MI = 100.0;
 
+// Marginal-capacity threshold (mirror DEFAULT_CONFIG.marginal_threshold in
+// refresh_monday.py AND dispatcher.js). Tier 2 is radius-scoped across many
+// counties (not a single county), so it uses the GLOBAL default threshold --
+// the same value Tier 1 falls back to when no per-county override applies. A
+// (role) bucket is "marginal" when its available count <= this threshold.
+const DEFAULT_MARGINAL_THRESHOLD = 1;
+
 // Mean Earth radius in miles (must match EARTH_RADIUS_MI in dispatch_core.py).
 const EARTH_RADIUS_MI = 3958.7613;
 
@@ -103,25 +110,55 @@ function rolesOf(volunteer) {
 }
 
 /**
+ * Decide whether a coords record counts as AVAILABLE.
+ *
+ * Mirrors the Tier 1 / county_capacity definition exactly: the refresh job
+ * computes a boolean ``available`` per volunteer (refresh_monday.is_available,
+ * DEFAULT_AVAILABLE_WHEN_BLANK = True) and the geocoder now propagates it onto
+ * each PII-free coords record. To stay consistent with that default-available
+ * semantics AND remain backward compatible with older datasets that predate
+ * the field, a record is treated as available UNLESS it explicitly carries
+ * available === false (or a falsey availability flag). Missing/undefined ->
+ * available, identical to Tier 1's "blank availability => active".
+ */
+function isAvailableRecord(rec) {
+  if (!rec || typeof rec !== 'object') {
+    return false;
+  }
+  return rec.available !== false;
+}
+
+/**
  * Aggregate the volunteers within radiusMi straight-line of the animal.
  *
  * coordsDataset is the PRIVATE in-memory volunteer-coords dataset (records
- * shaped {lat, lon, roles, home_county, win_area, ...}). Returns ONLY the
- * PII-free AggregateResult shape. Records missing/invalid lat or lon are
- * skipped defensively. Inclusive boundary (dist <= radius), mirror Python.
+ * shaped {lat, lon, roles, home_county, win_area, available, ...}). Returns
+ * ONLY the PII-free AggregateResult shape. Records missing/invalid lat or lon
+ * are skipped defensively. Inclusive boundary (dist <= radius), mirror Python.
  *
- * @returns {{total_in_range:number, role_counts:Object, win_areas:string[]}}
+ * In addition to the presence counts (role_counts / total_in_range), this now
+ * tallies AVAILABILITY the SAME way Tier 1 does: role_available[role] is the
+ * count of in-radius volunteers declaring that role who are currently
+ * available, and total_available is the count of distinct in-radius volunteers
+ * who are available. These are COUNTS only -- never per-volunteer identity --
+ * so the PII boundary is preserved.
+ *
+ * @returns {{total_in_range:number, role_counts:Object,
+ *            role_available:Object, total_available:number, win_areas:string[]}}
  */
 function findVolunteersInRadius(animalLat, animalLon, radiusMi, coordsDataset, distanceFn) {
   const dist = distanceFn || haversineMi;
   const radius = clampRadius(radiusMi);
 
   const roleCounts = {};
+  const roleAvailable = {};
   for (const role of QUALIFYING_ROLES) {
     roleCounts[role] = 0;
+    roleAvailable[role] = 0;
   }
   const winAreas = new Set();
   let total = 0;
+  let totalAvailable = 0;
 
   const dataset = Array.isArray(coordsDataset) ? coordsDataset : [];
   for (const rec of dataset) {
@@ -144,8 +181,15 @@ function findVolunteersInRadius(animalLat, animalLon, radiusMi, coordsDataset, d
     }
 
     total += 1;
+    const available = isAvailableRecord(rec);
+    if (available) {
+      totalAvailable += 1;
+    }
     for (const role of rolesOf(rec)) {
       roleCounts[role] += 1;
+      if (available) {
+        roleAvailable[role] += 1;
+      }
     }
 
     const area = rec.win_area;
@@ -157,6 +201,8 @@ function findVolunteersInRadius(animalLat, animalLon, radiusMi, coordsDataset, d
   return {
     total_in_range: total,
     role_counts: roleCounts,
+    role_available: roleAvailable,
+    total_available: totalAvailable,
     win_areas: Array.from(winAreas).sort(),
   };
 }
@@ -259,21 +305,57 @@ function findContextRows(animalLat, animalLon, radiusMi, coordsDataset, excludeC
 }
 
 /**
+ * LEGACY aggregate serialization seam. Re-whitelists the aggregate object down
+ * to the THREE historical top-level keys { total_in_range, role_counts,
+ * win_areas } so the non-context (Tier 1 / address-only) response stays
+ * byte-identical to what callers have always received. The availability fields
+ * (role_available / total_available) that findVolunteersInRadius now also
+ * computes are INTENTIONALLY dropped here -- they surface only via the Tier 2
+ * response below. This keeps existing callers unaffected (backward compatible).
+ *
+ * @param {{total_in_range:number, role_counts:Object, win_areas:string[]}} aggregate
+ * @returns {Object} PII-safe legacy aggregate response object
+ */
+function buildAggregateResponse(aggregate) {
+  const agg = aggregate || {};
+  const roleCounts = {};
+  for (const role of QUALIFYING_ROLES) {
+    roleCounts[role] =
+      agg.role_counts && Number.isFinite(Number(agg.role_counts[role]))
+        ? Number(agg.role_counts[role])
+        : 0;
+  }
+  return {
+    total_in_range: Number.isFinite(Number(agg.total_in_range)) ? Number(agg.total_in_range) : 0,
+    role_counts: roleCounts,
+    win_areas: Array.isArray(agg.win_areas) ? agg.win_areas.slice() : [],
+  };
+}
+
+/**
  * SINGLE serialization seam for the Tier 2 response. This is the ONLY place the
  * Tier 2 JSON object is constructed; it explicitly WHITELISTS keys:
- *   top-level: { total_in_range, role_counts, win_areas, out_of_county,
+ *   top-level: { total_in_range, role_counts, role_available, total_available,
+ *                marginal_threshold, win_areas, out_of_county,
  *                out_of_county_truncated, radius_too_broad }
  *   per row:   { roles, distance_mi, win_area, county }
  *
  * It receives ALREADY-projected rows from findContextRows (which never copies
  * lat/lon/_addr_sig/etc.), so raw KV objects are never passed here.
  *
+ * AVAILABILITY (mirrors Tier 1): role_available[role] / total_available are
+ * COUNTS of currently-available in-radius volunteers (never identities), and
+ * marginal_threshold is the global Tier 1 default. The frontend renders an
+ * avail/total ratio per role + a "Marginal" badge when available <= threshold,
+ * exactly like the Tier 1 county cards. PII boundary unchanged -- only counts.
+ *
  * Overflow rule (user-locked): if contextRows.length > 15, emit ONLY the
  * nearest 5 (rows are pre-sorted ascending) and set radius_too_broad = true +
  * out_of_county_truncated = true; otherwise emit all rows, radius_too_broad =
  * false.
  *
- * @param {{total_in_range:number, role_counts:Object, win_areas:string[]}} aggregate
+ * @param {{total_in_range:number, role_counts:Object, role_available:Object,
+ *          total_available:number, win_areas:string[]}} aggregate
  * @param {Array} contextRows  rows from findContextRows (already projected/sorted)
  * @returns {Object} PII-safe Tier 2 response object
  */
@@ -282,13 +364,30 @@ function buildTier2Response(aggregate, contextRows) {
 
   // Re-whitelist the aggregate block (never spread unknown keys through).
   const roleCounts = {};
+  const roleAvailable = {};
   for (const role of QUALIFYING_ROLES) {
     roleCounts[role] =
       agg.role_counts && Number.isFinite(Number(agg.role_counts[role]))
         ? Number(agg.role_counts[role])
         : 0;
+    // available count per role, clamped to [0, total] so a malformed dataset
+    // can never report more available than present in range.
+    let avail =
+      agg.role_available && Number.isFinite(Number(agg.role_available[role]))
+        ? Number(agg.role_available[role])
+        : 0;
+    if (avail < 0) avail = 0;
+    if (avail > roleCounts[role]) avail = roleCounts[role];
+    roleAvailable[role] = avail;
   }
   const winAreas = Array.isArray(agg.win_areas) ? agg.win_areas.slice() : [];
+
+  const totalInRange =
+    Number.isFinite(Number(agg.total_in_range)) ? Number(agg.total_in_range) : 0;
+  let totalAvailable =
+    Number.isFinite(Number(agg.total_available)) ? Number(agg.total_available) : 0;
+  if (totalAvailable < 0) totalAvailable = 0;
+  if (totalAvailable > totalInRange) totalAvailable = totalInRange;
 
   const allRows = Array.isArray(contextRows) ? contextRows : [];
   const overflow = allRows.length > OVERFLOW_THRESHOLD;
@@ -303,8 +402,11 @@ function buildTier2Response(aggregate, contextRows) {
   }));
 
   return {
-    total_in_range: Number.isFinite(Number(agg.total_in_range)) ? Number(agg.total_in_range) : 0,
+    total_in_range: totalInRange,
     role_counts: roleCounts,
+    role_available: roleAvailable,
+    total_available: totalAvailable,
+    marginal_threshold: DEFAULT_MARGINAL_THRESHOLD,
     win_areas: winAreas,
     out_of_county: outOfCounty,
     out_of_county_truncated: overflow,
@@ -316,6 +418,7 @@ module.exports = {
   DEFAULT_RADIUS_MI,
   MAX_RADIUS_MI,
   EARTH_RADIUS_MI,
+  DEFAULT_MARGINAL_THRESHOLD,
   QUALIFYING_ROLES,
   OVERFLOW_THRESHOLD,
   OVERFLOW_NEAREST,
@@ -325,7 +428,9 @@ module.exports = {
   normalizeCounty,
   round1,
   rolesOf,
+  isAvailableRecord,
   findVolunteersInRadius,
   findContextRows,
+  buildAggregateResponse,
   buildTier2Response,
 };

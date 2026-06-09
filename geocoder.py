@@ -7,8 +7,8 @@ geocodes them to (lat, lon) via the free, keyless US Census Geocoding API, and
 produces a PRIVATE coords dataset that is NEVER committed to the public repo.
 
 PII rules (hard):
-  * The emitted records contain ONLY {lat, lon, roles, home_county, win_area}.
-    NO name, NO address string, NO phone, NO email.
+  * The emitted records contain ONLY {lat, lon, roles, home_county, win_area,
+    available}. NO name, NO address string, NO phone, NO email.
   * The caller (refresh_monday.py) is responsible for writing the result to a
     gitignored path (e.g. data/volunteer_coords.json) — this module never
     writes any file itself.
@@ -181,7 +181,7 @@ def batch_geocode_volunteers(
     ``street`` / ``city`` / ``state`` / ``zip`` plus ``roles`` and
     ``county`` (home county). Output records contain ONLY::
 
-        {lat, lon, roles, home_county, win_area, _addr_sig}
+        {lat, lon, roles, home_county, win_area, available, _addr_sig}
 
     NO name, NO address string, NO phone, NO email is propagated. ``_addr_sig``
     is an internal, non-PII hash of the address used purely for idempotent
@@ -231,6 +231,11 @@ def batch_geocode_volunteers(
                 "roles": list(v.get("roles") or []),
                 "home_county": home_county,
                 "win_area": win_area,
+                # PII-free availability flag (boolean) so the Worker can tally
+                # Tier 2 availability the SAME way Tier 1 does. Computed upstream
+                # by build_geocode_input via the shared is_available() rule;
+                # defaults to True when absent (mirrors DEFAULT_AVAILABLE_WHEN_BLANK).
+                "available": bool(v.get("available", True)),
                 "_addr_sig": sig,
             }
         )
