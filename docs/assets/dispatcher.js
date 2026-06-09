@@ -530,16 +530,34 @@
     $('#address-mode').hidden = !isAddress;
   }
 
-  function loadCoordinators() {
-    return fetch('data/win_area_coordinators.json', { cache: 'no-store' })
+  // Coordinator NAMES are an area-string -> name map (NAME only, never phone).
+  // Locked source-of-truth: the auto-refreshing Monday board writes
+  // docs/data/coordinators.json. We PREFER that (board-sourced, fresh) and
+  // FALL BACK to docs/data/win_area_coordinators.json (xlsx-derived, static)
+  // only when coordinators.json is missing, unreadable, or empty.
+  function fetchCoordMap(path) {
+    return fetch(path, { cache: 'no-store' })
       .then(function (resp) {
         if (!resp.ok) return {};
         return resp.json();
       })
       .then(function (json) {
-        state.coordinators = (json && typeof json === 'object' && !Array.isArray(json)) ? json : {};
+        return (json && typeof json === 'object' && !Array.isArray(json)) ? json : {};
       })
-      .catch(function () { state.coordinators = {}; });
+      .catch(function () { return {}; });
+  }
+
+  function loadCoordinators() {
+    return fetchCoordMap('data/coordinators.json').then(function (board) {
+      if (board && Object.keys(board).length) {
+        state.coordinators = board;
+        return;
+      }
+      // Board map empty/missing — fall back to the static xlsx-derived map.
+      return fetchCoordMap('data/win_area_coordinators.json').then(function (xlsx) {
+        state.coordinators = xlsx;
+      });
+    });
   }
 
   function loadRehabbers() {
