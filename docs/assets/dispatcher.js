@@ -37,8 +37,23 @@
     snapshot: null,   // parsed county_capacity.json or null
     loadError: false,
     config: null,           // parsed config.json (or null = use defaults)
-    configError: false      // true when config.json was present but malformed
+    configError: false,     // true when config.json was present but malformed
+    coordinators: {},       // area-string -> coordinator NAME (public-safe, no phone)
+    rehabbers: [],          // public rehabber dataset (may be empty)
+    addressBusy: false      // guard against concurrent address lookups
   };
+
+  // ─── Address-mode (Phase G) configuration ──────────────────────────
+  // Live aggregate Worker. Query params are EXACT: animal_lat/animal_lon/radius_mi.
+  var WORKER_URL = 'https://pa-wildlife-dispatcher.winstat.workers.dev';
+  // Free, keyless US Census geocoder (same source the backend uses).
+  var CENSUS_URL = 'https://geocoding.geo.census.gov/geocoder/locations/onelineaddress';
+  var RADIUS_DEFAULT = 20;
+  var RADIUS_MAX = 100;
+  // PA Game Commission dispatch lines (already public on the page footer).
+  var PGC_PHONE = '(833) 742-4868 or (833) 742-9453';
+  // Roles that count as "qualified to respond" for the call-PGC decision.
+  var QUALIFYING_ROLES = ['C&T', 'RVS C&T', 'COURIER'];
 
   function $(sel, root) { return (root || document).querySelector(sel); }
   function $$(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
@@ -278,6 +293,265 @@
     renderRecommendation(rec);
   }
 
+  // ─── Address-mode: geocode → Worker → render aggregate ─────────────
+
+  function haversineMiles(lat1, lon1, lat2, lon2) {
+    var R = 3958.7613; // mean Earth radius in miles
+    var toRad = Math.PI / 180;
+    var dLat = (lat2 - lat1) * toRad;
+    var dLon = (lon2 - lon1) * toRad;
+    var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+  }
+
+  function clampRadius(raw) {
+    var n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return RADIUS_DEFAULT;
+    if (n > RADIUS_MAX) return RADIUS_MAX;
+    return n;
+  }
+
+  // Geocode an address via the keyless US Census geocoder. Resolves to
+  // {lat, lon, matched} or null when there is no match. Never throws.
+  function geocodeAddress(address) {
+    var url = CENSUS_URL +
+      '?address=' + encodeURIComponent(address) +
+      '&benchmark=Public_AR_Current&format=json';
+    return fetch(url, { cache: 'no-store' })
+      .then(function (resp) {
+        if (!resp.ok) throw new Error('census_http_' + resp.status);
+        return resp.json();
+      })
+      .then(function (json) {
+        var matches = json && json.result && json.result.addressMatches;
+        if (!matches || !matches.length) return null;
+        var c = matches[0].coordinates;
+        if (!c || typeof c.y !== 'number' || typeof c.x !== 'number') return null;
+        return { lat: c.y, lon: c.x, matched: matches[0].matchedAddress || address };
+      });
+  }
+
+  // Call the live aggregate Worker. Returns the parsed AggregateResult or
+  // throws an Error whose message is a stable code for the UI.
+  function fetchAggregate(lat, lon, radiusMi) {
+    var url = WORKER_URL +
+      '?animal_lat=' + encodeURIComponent(lat) +
+      '&animal_lon=' + encodeURIComponent(lon) +
+      '&radius_mi=' + encodeURIComponent(radiusMi);
+    return fetch(url, { cache: 'no-store' })
+      .then(function (resp) {
+        if (resp.status === 400) throw new Error('worker_400');
+        if (!resp.ok) throw new Error('worker_http_' + resp.status);
+        return resp.json();
+      });
+  }
+
+  // Closest PUBLIC rehabber (prefers OPEN). Mirrors dispatch_core.find_closest_rehabber.
+  // Returns {rehab_name, distance_mi, open_closed, website, is_closed} or null.
+  function findClosestRehabber(lat, lon) {
+    var list = state.rehabbers || [];
+    var bestOpen = null, bestOpenD = Infinity;
+    var bestAny = null, bestAnyD = Infinity;
+    for (var i = 0; i < list.length; i++) {
+      var rec = list[i];
+      if (!rec || typeof rec.lat !== 'number' || typeof rec.lon !== 'number') continue;
+      var d = haversineMiles(lat, lon, rec.lat, rec.lon);
+      var oc = String(rec.open_closed || '');
+      var isOpen = oc.trim().toLowerCase() === 'open';
+      var cand = {
+        rehab_name: String(rec.rehab_name || ''),
+        distance_mi: d,
+        open_closed: oc,
+        website: String(rec.website || ''),
+        is_closed: !isOpen
+      };
+      if (d < bestAnyD) { bestAnyD = d; bestAny = cand; }
+      if (isOpen && d < bestOpenD) { bestOpenD = d; bestOpen = cand; }
+    }
+    return bestOpen || bestAny;
+  }
+
+  function coordinatorsForAreas(areas) {
+    var names = {};
+    (areas || []).forEach(function (a) {
+      var name = state.coordinators[String(a)];
+      if (name && String(name).trim()) names[String(name).trim()] = true;
+    });
+    return Object.keys(names).sort();
+  }
+
+  function setAddressStatus(msg) {
+    var el = $('#address-status');
+    if (!msg) { el.style.display = 'none'; el.textContent = ''; return; }
+    el.style.display = 'block';
+    el.textContent = msg;
+  }
+
+  function setAddressError(msg) {
+    var el = $('#address-error');
+    if (!msg) { el.style.display = 'none'; el.textContent = ''; return; }
+    el.style.display = 'block';
+    el.textContent = msg;
+  }
+
+  function actionLine(tone, iconLabel, html) {
+    return '<div class="action-line ' + tone + '">' +
+           '<span class="a-icon">' + escapeHtml(iconLabel) + '</span>' +
+           '<div>' + html + '</div></div>';
+  }
+
+  function renderAggregate(agg, ctx) {
+    var roles = (agg && agg.role_counts) || {};
+    var ct = roles['C&T'] || 0;
+    var rvs = roles['RVS C&T'] || 0;
+    var courier = roles['COURIER'] || 0;
+    var total = (typeof agg.total_in_range === 'number') ? agg.total_in_range : 0;
+    var areas = (agg && Array.isArray(agg.win_areas)) ? agg.win_areas.slice() : [];
+
+    $('#agg-total').textContent = String(total);
+    $('#agg-ct').textContent = String(ct);
+    $('#agg-rvs').textContent = String(rvs);
+    $('#agg-courier').textContent = String(courier);
+
+    var areasEl = $('#agg-areas');
+    if (areas.length) {
+      areasEl.innerHTML = areas.map(function (a) {
+        return '<span class="win-chip">Area ' + escapeHtml(a) + '</span>';
+      }).join('');
+    } else {
+      areasEl.innerHTML = '<span style="font-size:13px;color:var(--text-muted);">none</span>';
+    }
+
+    // ── Recommended actions (mirror dispatch_core.build_recommendation) ──
+    var hasQualified = QUALIFYING_ROLES.some(function (r) { return (roles[r] || 0) > 0; });
+    var coordinators = coordinatorsForAreas(areas);
+    var actions = [];
+
+    if (total > 0 && areas.length) {
+      actions.push(actionLine('go', '→',
+        'Task <strong>Connecteam</strong> volunteers in WIN area(s) ' +
+        '<strong>' + areas.map(escapeHtml).join(', ') + '</strong> ' +
+        '(' + total + ' in range).'));
+    }
+
+    if (coordinators.length) {
+      actions.push(actionLine('go', '→',
+        'Contact Area coordinator(s): <strong>' +
+        coordinators.map(escapeHtml).join(', ') + '</strong>.'));
+    }
+
+    if (!hasQualified) {
+      actions.push(actionLine('escalate', '!',
+        'No qualified volunteers within ' + ctx.radius + ' mi — ' +
+        'ask the finder to call <strong>PA Game Commission</strong>: ' +
+        escapeHtml(PGC_PHONE) + '.'));
+    }
+
+    var closest = findClosestRehabber(ctx.lat, ctx.lon);
+    if (closest) {
+      var dist = closest.distance_mi.toFixed(1);
+      var site = closest.website
+        ? ' (<a href="' + escapeHtml(closest.website) + '" target="_blank" rel="noopener">website</a>)'
+        : '';
+      var tone = closest.is_closed ? 'warn' : 'neutral';
+      var closedNote = closest.is_closed
+        ? ' <strong>Nearest is not marked OPEN — confirm before transport.</strong>'
+        : '';
+      actions.push(actionLine(tone, '⌂',
+        'Transport to closest rehabber: <strong>' + escapeHtml(closest.rehab_name) +
+        '</strong> (~' + dist + ' mi)' + site + '.' + closedNote));
+    }
+
+    if (!actions.length) {
+      actions.push(actionLine('escalate', '!',
+        'No volunteers in range and no rehabber data available — ' +
+        'ask the finder to call <strong>PA Game Commission</strong>: ' +
+        escapeHtml(PGC_PHONE) + '.'));
+    }
+
+    $('#agg-actions').innerHTML = actions.join('');
+    $('#address-result').style.display = 'block';
+  }
+
+  function onAddressSubmit() {
+    if (state.addressBusy) return;
+    setAddressError('');
+    var addr = ($('#animal-address').value || '').trim();
+    var radius = clampRadius($('#radius-mi').value);
+    $('#radius-mi').value = String(radius);
+
+    if (!addr) {
+      setAddressError('Enter the animal address first.');
+      return;
+    }
+
+    state.addressBusy = true;
+    var btn = $('#address-btn');
+    btn.disabled = true;
+    $('#address-result').style.display = 'none';
+    setAddressStatus('Looking up address…');
+
+    geocodeAddress(addr)
+      .then(function (coord) {
+        if (!coord) {
+          throw new Error('no_geocode_match');
+        }
+        setAddressStatus('Finding volunteers within ' + radius + ' mi…');
+        return fetchAggregate(coord.lat, coord.lon, radius).then(function (agg) {
+          setAddressStatus('');
+          renderAggregate(agg, { lat: coord.lat, lon: coord.lon, radius: radius });
+        });
+      })
+      .catch(function (err) {
+        setAddressStatus('');
+        var code = err && err.message ? err.message : '';
+        if (code === 'no_geocode_match') {
+          setAddressError('No match for that address. Check spelling, or try ' +
+            '"street, city, PA zip".');
+        } else if (code === 'worker_400') {
+          setAddressError('Dispatcher service could not resolve that location. Try a more specific address.');
+        } else if (code.indexOf('census_') === 0) {
+          setAddressError('Address lookup service is temporarily unavailable. Try again shortly.');
+        } else {
+          setAddressError('Could not reach the dispatcher service. Check your connection and try again.');
+        }
+      })
+      .then(function () {
+        state.addressBusy = false;
+        btn.disabled = false;
+      });
+  }
+
+  function setMode(mode) {
+    var isAddress = (mode === 'address');
+    $('#county-mode').hidden = isAddress;
+    $('#address-mode').hidden = !isAddress;
+  }
+
+  function loadCoordinators() {
+    return fetch('data/win_area_coordinators.json', { cache: 'no-store' })
+      .then(function (resp) {
+        if (!resp.ok) return {};
+        return resp.json();
+      })
+      .then(function (json) {
+        state.coordinators = (json && typeof json === 'object' && !Array.isArray(json)) ? json : {};
+      })
+      .catch(function () { state.coordinators = {}; });
+  }
+
+  function loadRehabbers() {
+    return fetch('data/rehabbers.json', { cache: 'no-store' })
+      .then(function (resp) {
+        if (!resp.ok) return [];
+        return resp.json();
+      })
+      .then(function (json) { state.rehabbers = Array.isArray(json) ? json : []; })
+      .catch(function () { state.rehabbers = []; });
+  }
+
   function loadSnapshot() {
     return fetch('data/county_capacity.json', { cache: 'no-store' })
       .then(function (resp) {
@@ -312,7 +586,26 @@
     });
     $('#recommend-btn').addEventListener('click', onRecommendClick);
 
-    Promise.all([loadSnapshot(), loadConfig()]).then(function () {
+    // Address-mode wiring (Phase G).
+    $$('input[name="mode"]').forEach(function (radio) {
+      radio.addEventListener('change', function (e) {
+        if (e.target.checked) setMode(e.target.value);
+      });
+    });
+    var addrBtn = $('#address-btn');
+    if (addrBtn) addrBtn.addEventListener('click', onAddressSubmit);
+    var addrInput = $('#animal-address');
+    if (addrInput) {
+      addrInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); onAddressSubmit(); }
+      });
+    }
+    var checkedMode = document.querySelector('input[name="mode"]:checked');
+    setMode(checkedMode ? checkedMode.value : 'county');
+
+    Promise.all([
+      loadSnapshot(), loadConfig(), loadCoordinators(), loadRehabbers()
+    ]).then(function () {
       renderBanner();
       renderConfigError();
       renderCardsForCounty($('#county').value);

@@ -367,6 +367,133 @@
       width: 44px; height: auto; margin: 0 auto 8px; display: block; opacity: .9;
     }
 
+    /* ─── Mode toggle (County / Address) ──────────────────────── */
+    .mode-toggle {
+      display: inline-flex;
+      border: 1.5px solid var(--border);
+      border-radius: 999px;
+      background: var(--surface);
+      padding: 3px;
+      gap: 3px;
+      box-shadow: var(--shadow);
+      margin-bottom: 18px;
+    }
+    .mode-toggle label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text-muted);
+      padding: 7px 16px;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: background var(--transition), color var(--transition);
+      user-select: none;
+    }
+    .mode-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+    .mode-toggle label:has(input:checked) {
+      background: var(--green);
+      color: #fff;
+    }
+    @media (max-width: 640px) {
+      .mode-toggle { display: flex; width: 100%; }
+      .mode-toggle label { flex: 1; justify-content: center; }
+    }
+
+    .mode-panel[hidden] { display: none; }
+
+    .help-text {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      margin-top: 6px;
+      line-height: 1.45;
+    }
+
+    /* ─── Address-mode aggregate result ───────────────────────── */
+    .agg-summary {
+      font-family: 'Bitter', Georgia, serif;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--green-deep);
+      margin: 2px 0 12px;
+    }
+    .agg-summary .count { font-size: 22px; }
+    .agg-meta {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+    }
+    .agg-meta strong { color: var(--text); }
+
+    .win-areas { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+    .win-chip {
+      display: inline-block;
+      padding: 3px 10px;
+      font-size: 12.5px;
+      font-weight: 700;
+      border-radius: 999px;
+      background: var(--green-light);
+      color: var(--green-dark);
+      border: 1px solid #c8e6d2;
+    }
+
+    .actions-header {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin: 16px 0 8px;
+    }
+    .action-line {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 10px 12px;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      font-size: 14px;
+      line-height: 1.45;
+      background: var(--green-light);
+      border-left: 4px solid var(--green);
+      color: var(--green-deep);
+    }
+    .action-line.escalate {
+      background: var(--amber-light);
+      border-left-color: var(--amber);
+      color: #7a4900;
+    }
+    .action-line.neutral {
+      background: #f0efeb;
+      border-left-color: var(--text-light);
+      color: var(--text);
+    }
+    .action-line.warn {
+      background: var(--red-light);
+      border-left-color: var(--red);
+      color: var(--red);
+    }
+    .action-line .a-icon { font-weight: 700; flex-shrink: 0; }
+    .action-line strong { font-weight: 700; }
+
+    .inline-error {
+      background: var(--red-light);
+      border: 1px solid #f0b8b0;
+      border-left: 4px solid var(--red);
+      color: var(--red);
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 13.5px;
+      margin-top: 12px;
+    }
+    .inline-status {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 12px;
+      font-style: italic;
+    }
+
     /* ─── Feature status strip (under header) ─────────────────── */
     .status-strip {
       padding: 9px 16px;
@@ -419,6 +546,12 @@
 <div id="refresh-banner" class="refresh-banner">Loading snapshot…</div>
 
 <main>
+  <div class="mode-toggle" role="radiogroup" aria-label="Lookup mode">
+    <label><input type="radio" name="mode" value="county" checked /> By County</label>
+    <label><input type="radio" name="mode" value="address" /> By Animal Address</label>
+  </div>
+
+  <div id="county-mode" class="mode-panel">
   <section class="panel">
     <label class="field-label" for="county">County</label>
     <select id="county" aria-label="County">
@@ -471,6 +604,64 @@
 
     <div id="rec-output" class="rec-output" role="status" aria-live="polite"></div>
   </section>
+  </div><!-- /#county-mode -->
+
+  <div id="address-mode" class="mode-panel" hidden>
+    <section class="panel">
+      <label class="field-label" for="animal-address">Animal Address</label>
+      <input type="text" id="animal-address" autocomplete="off"
+             placeholder="e.g. 4400 Forbes Ave, Pittsburgh, PA 15213" />
+      <p class="help-text">
+        Enter where the animal is. We geocode the address (US Census, no key) and
+        ask the dispatcher service which volunteers are within range. No address is stored.
+      </p>
+
+      <div class="form-row" style="margin-top:14px;">
+        <div>
+          <label class="field-label" for="radius-mi">Search Radius (miles)</label>
+          <input type="text" id="radius-mi" inputmode="numeric" value="20" />
+          <p class="help-text">Straight-line distance. Default 20, max 100.</p>
+        </div>
+      </div>
+
+      <button id="address-btn" class="btn-primary" type="button">Find Help Nearby</button>
+
+      <div id="address-status" class="inline-status" style="display:none;"></div>
+      <div id="address-error" class="inline-error" style="display:none;"></div>
+    </section>
+
+    <section id="address-result" class="panel" style="display:none;">
+      <div class="agg-summary">
+        <span class="count" id="agg-total">0</span> volunteer(s) in range
+      </div>
+
+      <div class="cards-grid" style="margin-bottom:6px;">
+        <div class="cap-card" data-bucket="C&amp;T">
+          <div class="role">C&amp;T</div>
+          <div class="num"><span class="agg-ct">0</span></div>
+          <div class="sub">in range</div>
+        </div>
+        <div class="cap-card" data-bucket="RVS C&amp;T">
+          <div class="role">RVS C&amp;T</div>
+          <div class="num"><span class="agg-rvs">0</span></div>
+          <div class="sub">in range</div>
+        </div>
+        <div class="cap-card" data-bucket="COURIER">
+          <div class="role">Courier</div>
+          <div class="num"><span class="agg-courier">0</span></div>
+          <div class="sub">in range</div>
+        </div>
+      </div>
+
+      <div class="agg-meta">
+        WIN areas covered:
+        <div class="win-areas" id="agg-areas"></div>
+      </div>
+
+      <div class="actions-header">Recommended Actions</div>
+      <div id="agg-actions"></div>
+    </section>
+  </div><!-- /#address-mode -->
 </main>
 
 <footer class="site-footer">
