@@ -96,6 +96,19 @@ function makeFetch(workerHost, opts) {
           },
         });
       }
+      // Rehabber DRIVING-distance route. Separate from the aggregate so it is
+      // NOT counted in aggCalls (revealing the panel must not register as a new
+      // lookup). Default body is a haversine-source response (duration_min:null)
+      // so the panel keeps the straight-line "X.X mi" display; a scenario can
+      // pass opts.rehabDist to simulate the ORS success path.
+      if (u.indexOf('mode=rehabber_distances') !== -1) {
+        var rehabDist = opts.rehabDist || { source: 'haversine', distances: [] };
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: function () { return Promise.resolve(rehabDist); },
+        });
+      }
       aggCalls.push(u);
       return Promise.resolve({
         ok: true,
@@ -1238,6 +1251,144 @@ async function runRehabNoOrigin() {
   console.log('PASS: rehab panel hides the reveal control entirely when no origin (no animal coords, no county).');
 }
 
+// DRIVING-distance enhancement: the Worker returns ORS driving distance + time
+// for the candidate pool. The panel must (a) re-rank by driving distance and
+// (b) display the "X.X mi driving / ~Y min" label. The mock pool order matches
+// the haversine sort of REHAB_DATA: [Near Open Site, Mid Closed NoSite,
+// Far Open Site, Farthest]. We hand back driving numbers that make "Far Open
+// Site" the closest by ROAD to prove the re-rank actually happens.
+async function runRehabDrivingDistances() {
+  const aggWithCoords = Object.assign({}, WORKER_AGG, {
+    animal_lat: 40.4443, animal_lon: -79.9569,
+  });
+  const aggCalls = [];
+  const { window } = loadDom({
+    workerAgg: aggWithCoords,
+    data: { 'rehabbers.json': REHAB_DATA },
+    aggCalls: aggCalls,
+    // Parallel to the pool order (Near, Mid, Far, Farthest). Far has the
+    // smallest driving distance/time -> it must sort to the top after the
+    // re-rank, even though it is NOT the closest by straight line.
+    rehabDist: {
+      source: 'ors',
+      distances: [
+        { distance_mi: 18.4, duration_min: 31 }, // Near (straight-line 1st)
+        { distance_mi: 26.7, duration_min: 44 }, // Mid
+        { distance_mi: 9.2, duration_min: 17 },  // Far -> closest by road
+        { distance_mi: 71.0, duration_min: 95 }, // Farthest
+      ],
+    },
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  const addrRadio = doc.querySelector('input[name="mode"][value="address"]');
+  addrRadio.checked = true;
+  addrRadio.dispatchEvent(new window.Event('change', { bubbles: true }));
+  doc.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  const aggCallsBeforeReveal = aggCalls.length;
+  const toggle = doc.getElementById('rehab-toggle');
+  toggle.dispatchEvent(new window.Event('click', { bubbles: true }));
+  // The driving fetch resolves asynchronously after reveal; flush a few turns
+  // so the .then() re-render runs.
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  // The driving-distance fetch is NOT an aggregate lookup -> aggCalls unchanged.
+  assert.strictEqual(aggCalls.length, aggCallsBeforeReveal,
+    'driving-distance fetch did NOT register as a new aggregate lookup');
+
+  const rows = Array.prototype.slice.call(doc.querySelectorAll('#rehab-list .rehab-row'));
+  assert.strictEqual(rows.length, 3, 'still shows exactly the top 3 (got ' + rows.length + ')');
+
+  const names = rows.map(function (r) {
+    return (r.querySelector('.rehab-name').textContent || '').trim();
+  });
+  assert.deepStrictEqual(names, ['Far Open Site', 'Near Open Site', 'Mid Closed NoSite'],
+    're-ranked ascending by DRIVING distance (got ' + JSON.stringify(names) + ')');
+
+  // Each row shows the driving label "X.X mi driving / ~Y min".
+  rows.forEach(function (r) {
+    const d = (r.querySelector('.rehab-dist').textContent || '').trim();
+    assert.ok(/^\d+\.\d mi driving \/ ~\d+ min$/.test(d),
+      'distance formatted "X.X mi driving / ~Y min" (got "' + d + '")');
+  });
+  // Row 0 (Far) shows its specific driving numbers.
+  assert.strictEqual((rows[0].querySelector('.rehab-dist').textContent || '').trim(),
+    '9.2 mi driving / ~17 min', 'row0 shows Far driving distance + time');
+
+  console.log('PASS: rehab panel uses ORS driving distance — re-ranks by road distance and shows "X.X mi driving / ~Y min".');
+}
+
+// GRACEFUL FALLBACK: when the Worker returns its haversine fallback (source
+// 'haversine', no durations) the panel must keep the straight-line "X.X mi"
+// display and the original haversine ranking — never break or show "~null min".
+async function runRehabDrivingFallback() {
+  const aggWithCoords = Object.assign({}, WORKER_AGG, {
+    animal_lat: 40.4443, animal_lon: -79.9569,
+  });
+  const aggCalls = [];
+  const { window } = loadDom({
+    workerAgg: aggWithCoords,
+    data: { 'rehabbers.json': REHAB_DATA },
+    aggCalls: aggCalls,
+    // Worker could not reach ORS -> straight-line fallback, durations null.
+    rehabDist: {
+      source: 'haversine',
+      distances: [
+        { distance_mi: 3.6, duration_min: null },
+        { distance_mi: 18.5, duration_min: null },
+        { distance_mi: 40.1, duration_min: null },
+        { distance_mi: 120.2, duration_min: null },
+      ],
+    },
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  const addrRadio = doc.querySelector('input[name="mode"][value="address"]');
+  addrRadio.checked = true;
+  addrRadio.dispatchEvent(new window.Event('change', { bubbles: true }));
+  doc.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  doc.getElementById('rehab-toggle').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  const rows = Array.prototype.slice.call(doc.querySelectorAll('#rehab-list .rehab-row'));
+  const names = rows.map(function (r) {
+    return (r.querySelector('.rehab-name').textContent || '').trim();
+  });
+  // Unchanged haversine ranking.
+  assert.deepStrictEqual(names, ['Near Open Site', 'Mid Closed NoSite', 'Far Open Site'],
+    'fallback keeps the straight-line ranking (got ' + JSON.stringify(names) + ')');
+  // Plain "X.X mi" label, never the driving label and never "~null min".
+  rows.forEach(function (r) {
+    const d = (r.querySelector('.rehab-dist').textContent || '').trim();
+    assert.ok(/^\d+\.\d mi$/.test(d),
+      'fallback keeps straight-line "X.X mi" (got "' + d + '")');
+    assert.ok(d.indexOf('driving') < 0 && d.indexOf('null') < 0,
+      'fallback shows no driving/null text (got "' + d + '")');
+  });
+
+  console.log('PASS: rehab panel degrades gracefully — Worker haversine fallback keeps straight-line "X.X mi" + ranking.');
+}
+
 // ── Stale-flag (Approach B): ADDRESS mode ───────────────────────────────────
 // Render an aggregate result, then change the RVS toggle. The shown
 // #address-result must be flagged stale (NOT silently trusted, NOT auto-
@@ -1513,9 +1664,11 @@ async function run() {
   await runRehabAddressPath();
   await runRehabCountyPath();
   await runRehabNoOrigin();
+  await runRehabDrivingDistances();
+  await runRehabDrivingFallback();
   await runStaleAddressMode();
   await runStaleCountyMode();
-  console.log('\nALL DOM TESTS PASSED (23 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (25 scenarios).');
 }
 
 run().then(function () {

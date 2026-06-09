@@ -28,6 +28,7 @@ const {
 } = require('./aggregate');
 const { geocodeAddress } = require('./census');
 const { autocompleteAddress } = require('./autocomplete');
+const { rehabberDistances } = require('./distance');
 
 // KV key under which the Phase F refresh job stores the coords array (JSON).
 const KV_COORDS_KEY = 'volunteer_coords';
@@ -109,6 +110,22 @@ function parseFiniteNumber(value) {
   }
   const n = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Read the `mode` discriminator from the URL query string ONLY (never the
+ * body). The rehabber-distance route detects itself this way so it can read
+ * the JSON body exactly once afterwards. Returns the trimmed string or ''.
+ */
+function urlMode(request) {
+  let url;
+  try {
+    url = new URL(request.url);
+  } catch (e) {
+    return '';
+  }
+  const m = url.searchParams.get('mode');
+  return m === null || m === undefined ? '' : String(m).trim();
 }
 
 /**
@@ -198,7 +215,7 @@ async function readCoordsFromKV(kv) {
 
 /**
  * Handle one request. Dependency-injected so tests pass mocks:
- *   deps = { ResponseCtor, kv, fetchFn, allowedOrigin }
+ *   deps = { ResponseCtor, kv, fetchFn, allowedOrigin, orsApiKey }
  */
 async function handleRequest(request, deps) {
   const ResponseCtor = deps.ResponseCtor;
@@ -213,6 +230,40 @@ async function handleRequest(request, deps) {
   }
   if (method !== 'GET' && method !== 'POST') {
     return jsonResponse(ResponseCtor, 405, { error: 'method_not_allowed' }, allowedOrigin);
+  }
+
+  // ── Rehabber DRIVING-distance route ─────────────────────────────────
+  // POST ?mode=rehabber_distances with JSON body { origin:{lat,lon},
+  // destinations:[{lat,lon}, ...] }. Rehabber coords are PUBLIC, so this path
+  // is PII-safe. Returns driving distance + duration parallel to the
+  // destinations, with automatic haversine fallback when ORS is unavailable.
+  // SCOPE: rehabbers only — it never reads the private volunteer KV.
+  // Detected from the URL query BEFORE readParams so the body is consumed once.
+  if (urlMode(request) === 'rehabber_distances') {
+    let rbody = {};
+    if (method === 'POST') {
+      try {
+        rbody = await request.json();
+      } catch (e) {
+        rbody = {};
+      }
+    }
+    if (!rbody || typeof rbody !== 'object') rbody = {};
+    const origin = rbody.origin;
+    const destinations = Array.isArray(rbody.destinations) ? rbody.destinations : [];
+    let result;
+    try {
+      result = await rehabberDistances(origin, destinations, deps.orsApiKey, deps.fetchFn);
+    } catch (e) {
+      // Never break the panel: degrade to nulls of the right length.
+      result = {
+        source: 'haversine',
+        distances: destinations.map(function () {
+          return { distance_mi: null, duration_min: null };
+        }),
+      };
+    }
+    return jsonResponse(ResponseCtor, 200, result, allowedOrigin);
   }
 
   const params = await readParams(request);
@@ -339,6 +390,7 @@ module.exports = {
   DEFAULT_ALLOWED_ORIGIN,
   corsHeaders,
   readParams,
+  urlMode,
   isContextOn,
   resolveAnimalCoord,
   readCoordsFromKV,

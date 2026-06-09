@@ -38,6 +38,7 @@ const {
 } = require('../src/aggregate');
 const { geocodeAddress } = require('../src/census');
 const { autocompleteAddress } = require('../src/autocomplete');
+const { rehabberDistances } = require('../src/distance');
 const { handleRequest } = require('../src/handler');
 
 // --- tiny test framework ---------------------------------------------------
@@ -163,6 +164,29 @@ const mockPhotonNetworkError = async () => { throw new Error('photon down'); };
 
 // Mock Photon fetch that returns an HTTP error.
 const mockPhotonHttpError = async () => ({ status: 503, json: async () => ({}) });
+
+// --- ORS Matrix mocks (rehabber DRIVING distance) --------------------------
+// Captures the request so a test can assert the Worker sent [lon,lat] tuples
+// and the Authorization key. Returns metres/seconds matrices ORS-style.
+function mockOrsFetch(distancesM, durationsS, captured) {
+  return async (url, init) => {
+    if (captured) {
+      captured.url = url;
+      captured.init = init;
+      try { captured.body = JSON.parse(init.body); } catch (e) { captured.body = null; }
+    }
+    return {
+      status: 200,
+      json: async () => ({ distances: [distancesM], durations: [durationsS] }),
+    };
+  };
+}
+
+// Mock ORS fetch that errors at the network layer (provider down/timeout).
+const mockOrsNetworkError = async () => { throw new Error('ors down'); };
+
+// Mock ORS fetch that returns an HTTP error status.
+const mockOrsHttpError = async () => ({ status: 500, json: async () => ({}) });
 
 
 // --- synthetic PRIVATE coords dataset --------------------------------------
@@ -751,6 +775,116 @@ async function main() {
     assert.deepStrictEqual(Object.keys(legacy).sort(),
       ['role_counts', 'total_in_range', 'win_areas']);
     assert.strictEqual(legacy.total_in_range, 4);
+  });
+
+  // (k) REHABBER DRIVING-DISTANCE route (ORS Matrix + haversine fallback) ----
+  // Rehabber coords are PUBLIC, so this route is PII-safe. ORS key from env;
+  // when missing/empty or the call fails, it degrades to haversine (no time).
+  const ORIGIN = { lat: 40.4443, lon: -79.9569 };       // Pittsburgh-ish
+  const DESTS = [
+    { lat: 40.45, lon: -79.99 },   // ~2 mi
+    { lat: 41.00, lon: -79.80 },   // ~40 mi
+  ];
+
+  await test('(k1) rehabberDistances ORS path: metres/seconds -> miles/min, key sent', async () => {
+    const captured = {};
+    // 8046.72 m = 5.0 mi; 64373.76 m = 40.0 mi. 1500s = 25 min; 3000s = 50 min.
+    const fetchFn = mockOrsFetch([8046.72, 64373.76], [1500, 3000], captured);
+    const out = await rehabberDistances(ORIGIN, DESTS, 'secret-key', fetchFn);
+    assert.strictEqual(out.source, 'ors', 'used the ORS path');
+    assert.strictEqual(out.distances.length, 2, 'one entry per destination');
+    assert.strictEqual(out.distances[0].distance_mi, 5.0, 'metres -> miles, 1dp');
+    assert.strictEqual(out.distances[0].duration_min, 25, 'seconds -> whole minutes');
+    assert.strictEqual(out.distances[1].distance_mi, 40.0);
+    assert.strictEqual(out.distances[1].duration_min, 50);
+    // Auth header carries the key; payload uses [lon,lat] with origin first.
+    assert.strictEqual(captured.init.headers.Authorization, 'secret-key');
+    assert.deepStrictEqual(captured.body.locations[0], [ORIGIN.lon, ORIGIN.lat],
+      'origin is [lon,lat] and first');
+    assert.deepStrictEqual(captured.body.sources, [0]);
+  });
+
+  await test('(k2) rehabberDistances FALLBACK when ORS key missing/empty', async () => {
+    let called = false;
+    const fetchFn = async () => { called = true; return { status: 200, json: async () => ({}) }; };
+    const out = await rehabberDistances(ORIGIN, DESTS, '', fetchFn);
+    assert.strictEqual(out.source, 'haversine', 'no key -> haversine');
+    assert.strictEqual(called, false, 'ORS NOT called without a key');
+    assert.strictEqual(out.distances.length, 2);
+    out.distances.forEach((d) => {
+      assert.strictEqual(typeof d.distance_mi, 'number', 'straight-line miles present');
+      assert.strictEqual(d.duration_min, null, 'no driving time on fallback');
+    });
+    // Sanity: dest[0] (~2mi) is clearly closer than dest[1] (~40mi).
+    assert.ok(out.distances[0].distance_mi < out.distances[1].distance_mi);
+  });
+
+  await test('(k3) rehabberDistances FALLBACK on ORS network error', async () => {
+    const out = await rehabberDistances(ORIGIN, DESTS, 'secret-key', mockOrsNetworkError);
+    assert.strictEqual(out.source, 'haversine', 'network error -> haversine');
+    assert.strictEqual(out.distances.length, 2);
+    out.distances.forEach((d) => assert.strictEqual(d.duration_min, null));
+  });
+
+  await test('(k4) rehabberDistances FALLBACK on ORS HTTP error', async () => {
+    const out = await rehabberDistances(ORIGIN, DESTS, 'secret-key', mockOrsHttpError);
+    assert.strictEqual(out.source, 'haversine', 'HTTP 500 -> haversine');
+    out.distances.forEach((d) => assert.strictEqual(d.duration_min, null));
+  });
+
+  await test('(k5) handler route ?mode=rehabber_distances ORS path (env key) + CORS', async () => {
+    const captured = {};
+    const fetchFn = mockOrsFetch([8046.72, 64373.76], [1500, 3000], captured);
+    const res = await handleRequest(
+      mockRequest('POST', { mode: 'rehabber_distances' }, { origin: ORIGIN, destinations: DESTS }),
+      {
+        ResponseCtor: MockResponse, kv: mockKV(COORDS), fetchFn: fetchFn,
+        allowedOrigin: 'https://pages.example', orsApiKey: 'env-key-123',
+      }
+    );
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.strictEqual(body.source, 'ors');
+    assert.strictEqual(body.distances[0].distance_mi, 5.0);
+    assert.strictEqual(body.distances[0].duration_min, 25);
+    assert.strictEqual(captured.init.headers.Authorization, 'env-key-123', 'env key forwarded');
+    assert.strictEqual(res.header('Access-Control-Allow-Origin'), 'https://pages.example');
+  });
+
+  await test('(k6) handler route degrades to haversine when env key empty (NOT counted as agg)', async () => {
+    let called = false;
+    const fetchFn = async () => { called = true; return { status: 200, json: async () => ({}) }; };
+    const res = await handleRequest(
+      mockRequest('POST', { mode: 'rehabber_distances' }, { origin: ORIGIN, destinations: DESTS }),
+      {
+        ResponseCtor: MockResponse, kv: mockKV(COORDS), fetchFn: fetchFn,
+        allowedOrigin: 'https://pages.example', orsApiKey: '',
+      }
+    );
+    assert.strictEqual(res.status, 200, 'never breaks the panel');
+    const body = await res.json();
+    assert.strictEqual(body.source, 'haversine');
+    assert.strictEqual(called, false, 'no ORS call without a key');
+    assert.strictEqual(body.distances.length, 2);
+  });
+
+  await test('(k7) handler route never reads the volunteer KV (PII-safe)', async () => {
+    let kvRead = false;
+    const res = await handleRequest(
+      mockRequest('POST', { mode: 'rehabber_distances' }, { origin: ORIGIN, destinations: DESTS }),
+      {
+        ResponseCtor: MockResponse,
+        kv: { get: async () => { kvRead = true; return null; } },
+        allowedOrigin: 'https://pages.example', orsApiKey: '',
+      }
+    );
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(kvRead, false, 'rehabber-distance route must NOT touch volunteer KV');
+    // Response carries only the distance contract -> no PII keys.
+    const serialized = JSON.stringify(await res.json());
+    ['home_county', 'roles', 'name', 'address'].forEach((k) => {
+      assert.strictEqual(serialized.indexOf('"' + k + '"'), -1, 'no PII key: ' + k);
+    });
   });
 
   console.log('\n----------------------------------------');

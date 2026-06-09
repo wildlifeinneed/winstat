@@ -168,6 +168,11 @@
       rehabOriginCounty: 'distance from {county} County center',
       // Per-row distance text. {dist} = miles, one decimal place.
       rehabDistance: '{dist} mi',
+      // Per-row distance text when DRIVING distance + time are available from
+      // the Worker (ORS). {dist} = driving miles (one decimal); {mins} = whole
+      // driving minutes. Falls back to rehabDistance ("X.X mi") when the Worker
+      // is unavailable or returns straight-line only.
+      rehabDistanceDriving: '{dist} mi driving / ~{mins} min',
       // Per-row county label. {county} = facility county name.
       rehabCounty: '{county} County',
       // Per-row phone link label (rendered as a tel: link when present).

@@ -535,7 +535,13 @@
         rehab_name: String(rec.rehab_name || ''),
         county: String(rec.county || ''),
         phone: String(rec.phone || '').trim(),
+        lat: rec.lat,
+        lon: rec.lon,
         distance_mi: haversineMiles(lat, lon, rec.lat, rec.lon),
+        // Driving distance/time from the Worker (ORS); null until/unless the
+        // Worker supplies them. duration_min stays null on the haversine path.
+        drive_distance_mi: null,
+        duration_min: null,
         availability: String(rec.availability || ''),
         website: String(rec.website || '').trim()
       });
@@ -812,6 +818,57 @@
     btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
   }
 
+  // Ask the Worker for ORS DRIVING distance + time for a pool of rehabber
+  // candidates, then re-rank by driving distance and re-render the top `top`
+  // rows via `rerender`. PII-safe: rehabber coords are PUBLIC. This is a pure
+  // enhancement — on ANY failure (no ORS key, network/timeout, the Worker's
+  // haversine fallback, or missing durations) it leaves the already-rendered
+  // straight-line list untouched and never throws.
+  function enhanceRehabDrivingDistances(origin, pool, top, rerender) {
+    try {
+      var url = WORKER_URL + '/?mode=rehabber_distances';
+      var body = {
+        origin: { lat: origin.lat, lon: origin.lon },
+        destinations: pool.map(function (r) { return { lat: r.lat, lon: r.lon }; })
+      };
+      fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      }).then(function (resp) {
+        if (!resp || !resp.ok) return null;
+        return resp.json();
+      }).then(function (data) {
+        if (!data || !Array.isArray(data.distances)) return;
+        // Only upgrade the display when the Worker actually returned DRIVING
+        // numbers (source 'ors' AND at least one usable duration). Otherwise the
+        // straight-line render is already correct — leave it.
+        if (data.source !== 'ors') return;
+        var anyDriving = false;
+        for (var i = 0; i < pool.length && i < data.distances.length; i++) {
+          var d = data.distances[i];
+          if (!d) continue;
+          if (typeof d.distance_mi === 'number') pool[i].drive_distance_mi = d.distance_mi;
+          if (typeof d.duration_min === 'number') {
+            pool[i].duration_min = d.duration_min;
+            anyDriving = true;
+          }
+        }
+        if (!anyDriving) return;
+        // Re-rank by driving distance when present, else fall back to the
+        // straight-line distance so every row still has a sensible key.
+        var ranked = pool.slice().sort(function (a, b) {
+          var ka = (typeof a.drive_distance_mi === 'number') ? a.drive_distance_mi : a.distance_mi;
+          var kb = (typeof b.drive_distance_mi === 'number') ? b.drive_distance_mi : b.distance_mi;
+          return ka - kb;
+        });
+        rerender(ranked.slice(0, top));
+      }).catch(function () { /* graceful: keep straight-line render */ });
+    } catch (e) {
+      /* graceful: keep straight-line render */
+    }
+  }
+
   function renderNearestRehabbers(origin) {
     var T2 = MSG.tier2Aggregate;
     var block = $('#rehab-block');
@@ -832,61 +889,101 @@
       return;
     }
 
-    var rows = nearestRehabbers(origin.lat, origin.lon, 3);
+    // Rank a WIDER candidate pool by straight-line distance. We render the top
+    // 3 immediately (the always-available fallback) but keep a few extra
+    // candidates so an optional DRIVING-distance re-rank can reorder sensibly.
+    var REHAB_TOP = 3;
+    var REHAB_CANDIDATES = 8;
+    var pool = nearestRehabbers(origin.lat, origin.lon, REHAB_CANDIDATES);
+    var rows = pool.slice(0, REHAB_TOP);
     var originNote = (origin.source === 'county' && origin.county)
       ? fmt(T2.rehabOriginCounty, { county: escapeHtml(origin.county) })
       : T2.rehabOriginAnimal;
 
-    if (headerEl) {
-      headerEl.innerHTML = fmt(T2.rehabHeader, { count: rows.length }) +
-        ' <span style="font-weight:400;font-size:12.5px;color:var(--text-muted);">· ' +
-        originNote + '</span>';
-    }
-
-    if (!rows.length) {
-      if (listEl) listEl.innerHTML = '';
-      if (emptyEl) { emptyEl.textContent = T2.rehabNone; emptyEl.style.display = 'block'; }
-    } else {
-      if (emptyEl) { emptyEl.style.display = 'none'; emptyEl.textContent = ''; }
-      if (listEl) {
-        listEl.innerHTML = rows.map(function (r) {
-          var distTxt = fmt(T2.rehabDistance, { dist: r.distance_mi.toFixed(1) });
-
-          var countyHtml = r.county
-            ? '<div class="rehab-county">' +
-              escapeHtml(fmt(T2.rehabCounty, { county: r.county })) + '</div>'
-            : '';
-
-          var phoneHtml;
-          if (r.phone) {
-            // tel: href uses digits/+ only; the visible label keeps the verbatim
-            // formatted phone string from the dataset.
-            var telHref = r.phone.replace(/[^0-9+]/g, '');
-            phoneHtml = '<div class="rehab-phone"><a href="tel:' + escapeHtml(telHref) +
-              '">' + escapeHtml(fmt(T2.rehabPhoneLabel, { phone: r.phone })) + '</a></div>';
-          } else {
-            phoneHtml = '<div class="rehab-phone rehab-phone-missing">' +
-              escapeHtml(T2.rehabPhoneMissing) + '</div>';
-          }
-
-          var avail = r.availability && r.availability.trim()
-            ? '<div class="rehab-avail">' + escapeHtml(r.availability) + '</div>'
-            : '';
-          var site = r.website
-            ? '<div class="rehab-site"><a href="' + escapeHtml(r.website) +
-              '" target="_blank" rel="noopener">' + escapeHtml(T2.rehabWebsiteLabel) + '</a></div>'
-            : '';
-
-          return '<li class="rehab-row">' +
-                 '<div class="rehab-top">' +
-                 '<span class="rehab-name">' + escapeHtml(r.rehab_name) + '</span>' +
-                 '<span class="rehab-dist">' + escapeHtml(distTxt) + '</span>' +
-                 '</div>' +
-                 countyHtml + phoneHtml + avail + site +
-                 '</li>';
-        }).join('');
+    function renderRehabHeader(count) {
+      if (headerEl) {
+        headerEl.innerHTML = fmt(T2.rehabHeader, { count: count }) +
+          ' <span style="font-weight:400;font-size:12.5px;color:var(--text-muted);">· ' +
+          originNote + '</span>';
       }
     }
+    renderRehabHeader(rows.length);
+
+    // Build one <li> for a ranked rehabber row. Uses the DRIVING label
+    // ("X.X mi driving / ~Y min") when both a driving distance and duration are
+    // present; otherwise the straight-line label ("X.X mi"). Open/closed is
+    // never surfaced (see nearestRehabbers note).
+    function rehabRowHtml(r) {
+      var distTxt;
+      if (typeof r.drive_distance_mi === 'number' && typeof r.duration_min === 'number') {
+        distTxt = fmt(T2.rehabDistanceDriving, {
+          dist: r.drive_distance_mi.toFixed(1),
+          mins: String(r.duration_min)
+        });
+      } else {
+        distTxt = fmt(T2.rehabDistance, { dist: r.distance_mi.toFixed(1) });
+      }
+
+      var countyHtml = r.county
+        ? '<div class="rehab-county">' +
+          escapeHtml(fmt(T2.rehabCounty, { county: r.county })) + '</div>'
+        : '';
+
+      var phoneHtml;
+      if (r.phone) {
+        // tel: href uses digits/+ only; the visible label keeps the verbatim
+        // formatted phone string from the dataset.
+        var telHref = r.phone.replace(/[^0-9+]/g, '');
+        phoneHtml = '<div class="rehab-phone"><a href="tel:' + escapeHtml(telHref) +
+          '">' + escapeHtml(fmt(T2.rehabPhoneLabel, { phone: r.phone })) + '</a></div>';
+      } else {
+        phoneHtml = '<div class="rehab-phone rehab-phone-missing">' +
+          escapeHtml(T2.rehabPhoneMissing) + '</div>';
+      }
+
+      var avail = r.availability && r.availability.trim()
+        ? '<div class="rehab-avail">' + escapeHtml(r.availability) + '</div>'
+        : '';
+      var site = r.website
+        ? '<div class="rehab-site"><a href="' + escapeHtml(r.website) +
+          '" target="_blank" rel="noopener">' + escapeHtml(T2.rehabWebsiteLabel) + '</a></div>'
+        : '';
+
+      return '<li class="rehab-row">' +
+             '<div class="rehab-top">' +
+             '<span class="rehab-name">' + escapeHtml(r.rehab_name) + '</span>' +
+             '<span class="rehab-dist">' + escapeHtml(distTxt) + '</span>' +
+             '</div>' +
+             countyHtml + phoneHtml + avail + site +
+             '</li>';
+    }
+
+    function renderRehabRows(rowList) {
+      renderRehabHeader(rowList.length);
+      if (!rowList.length) {
+        if (listEl) listEl.innerHTML = '';
+        if (emptyEl) { emptyEl.textContent = T2.rehabNone; emptyEl.style.display = 'block'; }
+        return;
+      }
+      if (emptyEl) { emptyEl.style.display = 'none'; emptyEl.textContent = ''; }
+      if (listEl) {
+        listEl.innerHTML = rowList.map(rehabRowHtml).join('');
+      }
+    }
+
+    renderRehabRows(rows);
+
+    // ── On-demand DRIVING distance enhancement (rehabbers only) ──────────
+    // Ask the Worker for ORS driving distance + time for the candidate pool.
+    // Rehabber coords are PUBLIC, so this is PII-safe. On success we re-rank by
+    // driving distance and re-render with the "X.X mi driving / ~Y min" label.
+    // On ANY failure (no key, network/timeout, haversine fallback from the
+    // Worker, missing durations) the already-rendered straight-line list stays
+    // exactly as-is — the panel must never break.
+    if (pool.length) {
+      enhanceRehabDrivingDistances(origin, pool, REHAB_TOP, renderRehabRows);
+    }
+
 
     // The block (with its toggle button) is shown, but the prepared content is
     // collapsed by default. Each lookup resets it to the collapsed state.

@@ -24,6 +24,14 @@ account_id = "290463cfd0bc273076e8c62678f7c845"
 # TODO(deploy): replace with the project's real Pages origin.
 [vars]
 ALLOWED_ORIGIN = "https://mjpierzga.github.io"
+# OpenRouteService Matrix API key for DRIVING distances on the PUBLIC rehabber
+# top-3 panel. Left EMPTY here on purpose: the real key is a SECRET and must
+# NEVER be committed. Set it at deploy time as a Worker secret:
+#     wrangler secret put ORS_API_KEY
+# (A `[vars]` entry with the same name is overridden by the secret at runtime.)
+# While empty/unset, the /mode=rehabber_distances route degrades gracefully to
+# haversine straight-line distances (duration_min: null) — the panel never breaks.
+ORS_API_KEY = ""
 
 # PRIVATE volunteer coords store. The Phase F refresh job writes the coords
 # array (JSON) under key `volunteer_coords`. id is a PLACEHOLDER -- replace at
