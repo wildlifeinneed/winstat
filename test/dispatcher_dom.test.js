@@ -63,7 +63,7 @@ const WORKER_AGG = {
 // coordinator-name (Tier 1) scenario. Allegheny is WIN area 10 -> Julia Meredith
 // in the real docs/data files.
 const COUNTY_WIN = { Allegheny: '10', Beaver: '10', Erie: '1' };
-const COORDINATORS = { '10': 'Julia Meredith', '1': 'Sue DeArment' };
+const COORDINATORS = { '10': 'Julia Meredith', '1': 'Sue DeArment', '9': 'Judith Ullman', '15N': 'Sue DeArment' };
 
 // Resolve a fetch() call against a tiny in-memory router. The dispatcher loads
 // data/*.json on init (we return empty/ok) and calls the Worker on submit.
@@ -887,6 +887,8 @@ async function runTier2Availability() {
     total_available: 4,
     marginal_threshold: 1,
     win_areas: ['10'],
+    animal_area: '10',
+    animal_county: 'Allegheny',
     out_of_county: [
       { roles: ['C&T'], distance_mi: 8.2, win_area: '11', county: 'Beaver' },
     ],
@@ -2618,6 +2620,73 @@ async function runTier1FallbackFlag() {
   console.log('PASS: county_source=tier1_fallback -> amber .tier1-fallback-flag present with "Tier-1 selection" text, county/area still shown.');
 }
 
+// ── P5: single animal-area coordinator ──────────────────────────────────────
+// When volunteers span multiple WIN areas (e.g. 9, 10, 15N) but the animal is
+// in area 10, the RECOMMENDED ACTIONS section must show ONLY the Area 10
+// coordinator — never a coordinator per volunteer area. The animal's area owns
+// the incident.
+async function runTier2SingleAnimalAreaCoordinator() {
+  const agg = {
+    total_in_range: 15,
+    role_counts: { 'C&T': 8, 'RVS C&T': 4, 'COURIER': 3 },
+    win_areas: ['9', '10', '15N'],
+    animal_area: '10',
+    animal_county: 'Allegheny',
+    out_of_county: [],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  // Use an extended coordinator map so areas 9, 10, and 15N all have entries;
+  // without the fix, all three would appear — exposing the per-volunteer-area bug.
+  const coords = { '9': 'Judith Ullman', '10': 'Julia Meredith', '15N': 'Sue DeArment' };
+  const { window, opts } = loadDom({
+    workerAgg: agg,
+    data: { 'county_win.json': COUNTY_WIN, 'coordinators.json': coords },
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  const countySel = doc.getElementById('county');
+  countySel.value = 'Allegheny';
+  countySel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+
+  doc.getElementById('widen-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+
+  doc.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  const result = doc.getElementById('address-result');
+  assert.strictEqual(result.style.display, 'block', 'address-result shown');
+
+  const actionLines = Array.prototype.slice
+    .call(doc.querySelectorAll('#agg-actions .action-line'))
+    .map(function (el) { return (el.textContent || '').trim(); });
+
+  const coordLines = actionLines.filter(function (t) { return /Coordinator:/.test(t); });
+
+  // Exactly ONE coordinator line — for the ANIMAL's area (10), not per volunteer area.
+  assert.strictEqual(coordLines.length, 1,
+    'exactly one coordinator line (animal area only, not per volunteer area); got: ' +
+    JSON.stringify(coordLines));
+  assert.ok(/Area 10 Coordinator: Julia Meredith/.test(coordLines[0]),
+    'coordinator line is for animal area 10 — Julia Meredith (got: "' + coordLines[0] + '")');
+
+  // Area 9 and 15N coordinators must NOT appear (volunteers are there, animal is not).
+  assert.ok(!/Area 9 Coordinator/.test(actionLines.join(' ')),
+    'Area 9 Coordinator must NOT appear (Area 9 is a volunteer area, not the animal area)');
+  assert.ok(!/Area 15N Coordinator/.test(actionLines.join(' ')),
+    'Area 15N Coordinator must NOT appear (Area 15N is a volunteer area, not the animal area)');
+
+  console.log('PASS: P5 single animal-area coordinator — volunteers span areas [9, 10, 15N], animal_area=10 -> only "Area 10 Coordinator: Julia Meredith" shown.');
+}
+
 async function run() {
   await runHelpLink();
   await runHelpViewerRenders();
@@ -2659,7 +2728,8 @@ async function run() {
   await runDeconfliction();
   await runStaleCountyLeakSchuylkill();
   await runAddressNoHorizontalOverflowCss();
-  console.log('\nALL DOM TESTS PASSED (38 scenarios).');
+  await runTier2SingleAnimalAreaCoordinator();
+  console.log('\nALL DOM TESTS PASSED (39 scenarios).');
 }
 
 run().then(function () {

@@ -1285,18 +1285,20 @@
       })));
     }
 
-    // INFORMATIONAL: list the single coordinator for each in-range WIN area,
-    // one line per area (each area has exactly one coordinator). Mirrors the
-    // Tier 1 banner phrasing "Area XX Coordinator: <name>". area -> name via
-    // state.coordinators (coordinators.json); no hardcoding.
-    areas.forEach(function (a) {
-      var name = state.coordinators[String(a)];
-      if (name && String(name).trim()) {
+    // INFORMATIONAL: show the coordinator for the ANIMAL's OWN resolved WIN area
+    // only. The animal's area owns the incident — exactly ONE coordinator line,
+    // never one per volunteer area. agg.animal_area (PIP-resolved by the Worker,
+    // surfaced via renderResolvedLocation → animalArea) drives this. If null
+    // (outside PA or unresolved), omit the coordinator line entirely.
+    if (animalArea) {
+      var animalAreaCoordName = state.coordinators[String(animalArea)];
+      if (animalAreaCoordName && String(animalAreaCoordName).trim()) {
         actions.push(actionLine('go', '→', fmt(T2.areaCoordinatorListed, {
-          area: escapeHtml(a), name: escapeHtml(String(name).trim())
+          area: escapeHtml(animalArea),
+          name: escapeHtml(String(animalAreaCoordName).trim())
         })));
       }
-    });
+    }
 
     // ── R2 LENIENT recommendation (Tier 2 widen / out-of-county) ─────────
     // When the shared animal base info (rvs/issue) is present AND the response
