@@ -27,9 +27,14 @@ const {
   buildTier2Response,
 } = require('./aggregate');
 const { geocodeAddress } = require('./census');
-const { countyToArea } = require('./county_win');
 const { autocompleteAddress, photonGeocode, looksLikeFullAddress, hasHouseNumberMatch, censusAutocompleteFallback } = require('./autocomplete');
 const { rehabberDistances, drivingDistancesMiles } = require('./distance');
+const { countyForPoint } = require('./pip');
+// Single source of truth for county polygons: the SAME committed GeoJSON the
+// frontend fetches for the WIN-area map (docs/data/pa_counties.json). Imported
+// (not forked) so the worker and browser never diverge on boundaries. esbuild
+// inlines this JSON into the Worker bundle; Node resolves it natively for tests.
+const PA_COUNTIES_GEOJSON = require('../../docs/data/pa_counties.json');
 
 // KV key under which the Phase F refresh job stores the coords array (JSON).
 const KV_COORDS_KEY = 'volunteer_coords';
@@ -393,14 +398,18 @@ async function handleRequest(request, deps) {
   }
   const coord = resolved.coord;
 
-  // ANIMAL's own county + WIN area (from the geocoder, via county->area map).
-  // Both are null when only explicit lat/lon were supplied or the geocoder did
-  // not return a county. These describe the ANIMAL location (already echoed as
-  // animal_lat/animal_lon) and are NOT volunteer PII. The UI uses animal_area as
-  // the single governing area in address mode; when null it falls back to the
-  // in-range win_areas spread without an animal-area header.
-  const animalCounty = resolved.county || null;
-  const animalArea = animalCounty ? countyToArea(animalCounty) : null;
+  // ANIMAL's own county + WIN area + geoid, derived by POINT-IN-POLYGON from the
+  // FINAL resolved coordinate (coord) — uniformly for EVERY resolution path
+  // (explicit picked lat/lon, Photon fallback, Census geographies string). The
+  // committed county polygons are the single source of truth, so a county is
+  // always available whenever the coordinate falls inside PA. All three are null
+  // (clean "county not determined") when the coordinate is outside every PA
+  // county polygon — the UI then degrades to the in-range win_areas without an
+  // animal-area header and never shows a stale value.
+  const pip = countyForPoint(coord.lon, coord.lat, PA_COUNTIES_GEOJSON);
+  const animalCounty = pip ? pip.county : null;
+  const animalArea = pip ? pip.win_area : null;
+  const animalGeoid = pip ? pip.geoid : null;
 
   const coords = await readCoordsFromKV(deps.kv);
 
@@ -458,6 +467,7 @@ async function handleRequest(request, deps) {
     // or only lat/lon were supplied). Lets the UI bind the governing area.
     tier2.animal_county = animalCounty;
     tier2.animal_area = animalArea;
+    tier2.animal_geoid = animalGeoid;
     return jsonResponse(ResponseCtor, 200, tier2, allowedOrigin);
   }
 
@@ -475,6 +485,7 @@ async function handleRequest(request, deps) {
   // or only lat/lon were supplied). Lets the UI bind the governing area.
   aggregateResponse.animal_county = animalCounty;
   aggregateResponse.animal_area = animalArea;
+  aggregateResponse.animal_geoid = animalGeoid;
   return jsonResponse(ResponseCtor, 200, aggregateResponse, allowedOrigin);
 }
 

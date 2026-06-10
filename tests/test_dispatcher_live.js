@@ -240,7 +240,7 @@ function testCountyCentroidFromGeojson() {
   console.log('\n[rehab] county centroid from pa_counties.geojson is inside PA');
   const { sandbox } = buildRehabSandbox([]);
   const geo = JSON.parse(fs.readFileSync(
-    path.join(__dirname, '..', 'docs', 'data', 'pa_counties.geojson'), 'utf8'));
+    path.join(__dirname, '..', 'docs', 'data', 'pa_counties.json'), 'utf8'));
   const alleg = geo.features.find(function (f) {
     return f.properties && f.properties.county === 'Allegheny';
   });

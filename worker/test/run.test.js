@@ -356,8 +356,11 @@ async function main() {
     const body = await res.json();
     assert.strictEqual(body.animal_lat, 40.9, 'animal_lat from Photon fallback');
     assert.strictEqual(body.animal_lon, -77.8, 'animal_lon from Photon fallback');
-    // Photon carries no county layer -> animal_county is null.
-    assert.strictEqual(body.animal_county, null, 'no county from Photon fallback');
+    // Photon carries no county layer, but POINT-IN-POLYGON now derives the
+    // county/area/geoid from the FINAL coord -> never null on the Photon path.
+    assert.strictEqual(body.animal_county, 'Centre', 'PIP fills county on the Photon fallback path');
+    assert.strictEqual(body.animal_area, '7', 'PIP fills WIN area on the Photon fallback path');
+    assert.strictEqual(body.animal_geoid, '42027', 'PIP fills geoid on the Photon fallback path');
   });
 
   await test('(c3d) 422 address_not_found only when BOTH Census and Photon fail', async () => {
@@ -394,7 +397,7 @@ async function main() {
     assert.strictEqual(res.status, 200);
     const body = await res.json();
     const keys = Object.keys(body).sort();
-    assert.deepStrictEqual(keys, ['animal_area', 'animal_county', 'animal_lat', 'animal_lon', 'distance_mode', 'role_counts', 'total_in_range', 'win_areas'],
+    assert.deepStrictEqual(keys, ['animal_area', 'animal_county', 'animal_geoid', 'animal_lat', 'animal_lon', 'distance_mode', 'role_counts', 'total_in_range', 'win_areas'],
       'exact top-level key set, got: ' + JSON.stringify(keys));
     // No ORS key supplied in deps -> driving falls back to straight_line.
     assert.strictEqual(body.distance_mode, 'straight_line', 'fallback mode without ORS key');
@@ -426,14 +429,16 @@ async function main() {
     assert.strictEqual(res.status, 200);
     const body = await res.json();
     assert.deepStrictEqual(Object.keys(body).sort(),
-      ['animal_area', 'animal_county', 'animal_lat', 'animal_lon', 'distance_mode', 'role_counts', 'total_in_range', 'win_areas']);
+      ['animal_area', 'animal_county', 'animal_geoid', 'animal_lat', 'animal_lon', 'distance_mode', 'role_counts', 'total_in_range', 'win_areas']);
     assert.strictEqual(body.total_in_range, 3);
     // animal coords come from the geocoder on the address path.
     assert.strictEqual(body.animal_lat, ANIMAL.lat, 'geocoded animal_lat present');
     assert.strictEqual(body.animal_lon, ANIMAL.lon, 'geocoded animal_lon present');
-    // No Counties layer in this mock -> county/area null (never invented).
-    assert.strictEqual(body.animal_county, null, 'no county when geocoder omits Counties layer');
-    assert.strictEqual(body.animal_area, null, 'no area when county absent');
+    // Census mock has no Counties layer, but POINT-IN-POLYGON derives county/
+    // area/geoid from the FINAL coord (Harrisburg -> Dauphin) -> never null.
+    assert.strictEqual(body.animal_county, 'Dauphin', 'PIP fills county even when geocoder omits Counties layer');
+    assert.strictEqual(body.animal_area, '13', 'PIP fills WIN area from the coord');
+    assert.strictEqual(body.animal_geoid, '42043', 'PIP fills geoid from the coord');
   });
 
   await test('(d4) address path WITH Census county -> animal_county + animal_area mapped', async () => {
@@ -442,17 +447,19 @@ async function main() {
       {
         ResponseCtor: MockResponse,
         kv: mockKV(COORDS),
-        // Census geographies mock returns Allegheny county -> WIN Area 10.
-        fetchFn: mockCensusFetchWithCounty(ANIMAL.lat, ANIMAL.lon, 'Allegheny'),
+        // Census geographies mock returns a real Pittsburgh coord + Allegheny.
+        // POINT-IN-POLYGON resolves the SAME county/area/geoid from that coord.
+        fetchFn: mockCensusFetchWithCounty(40.4443, -79.9569, 'Allegheny'),
         allowedOrigin: 'https://pages.example',
       }
     );
     assert.strictEqual(res.status, 200);
     const body = await res.json();
-    assert.strictEqual(body.animal_county, 'Allegheny', 'county from Census geographies layer');
-    assert.strictEqual(body.animal_area, '10', 'county mapped to WIN area via county_win');
-    assert.strictEqual(body.animal_lat, ANIMAL.lat, 'animal coords still echoed');
-    assert.strictEqual(body.animal_lon, ANIMAL.lon);
+    assert.strictEqual(body.animal_county, 'Allegheny', 'county resolved from the final coord');
+    assert.strictEqual(body.animal_area, '10', 'Allegheny -> WIN Area 10');
+    assert.strictEqual(body.animal_geoid, '42003', 'Allegheny geoid from PIP');
+    assert.strictEqual(body.animal_lat, 40.4443, 'animal coords still echoed');
+    assert.strictEqual(body.animal_lon, -79.9569);
     // Still PII-free: county/area describe the ANIMAL, not any volunteer.
     const ser = JSON.stringify(body);
     for (const k of PII_FORBIDDEN_KEYS) {
@@ -467,7 +474,7 @@ async function main() {
     );
     assert.strictEqual(res.status, 200);
     assert.deepStrictEqual(Object.keys(await res.json()).sort(),
-      ['animal_area', 'animal_county', 'animal_lat', 'animal_lon', 'distance_mode', 'role_counts', 'total_in_range', 'win_areas']);
+      ['animal_area', 'animal_county', 'animal_geoid', 'animal_lat', 'animal_lon', 'distance_mode', 'role_counts', 'total_in_range', 'win_areas']);
   });
 
   // (e) CORS header present ----------------------------------------------
@@ -533,7 +540,7 @@ async function main() {
     assert.strictEqual(body.total_in_range, 0);
     assert.deepStrictEqual(body.win_areas, []);
     assert.deepStrictEqual(Object.keys(body).sort(),
-      ['animal_area', 'animal_county', 'animal_lat', 'animal_lon', 'distance_mode', 'role_counts', 'total_in_range', 'win_areas']);
+      ['animal_area', 'animal_county', 'animal_geoid', 'animal_lat', 'animal_lon', 'distance_mode', 'role_counts', 'total_in_range', 'win_areas']);
     // Even with an empty KV, the geocoded animal coord is still echoed back.
     assert.strictEqual(body.animal_lat, ANIMAL.lat);
     assert.strictEqual(body.animal_lon, ANIMAL.lon);
@@ -1075,7 +1082,7 @@ async function main() {
     const body = await res.json();
     // Top-level whitelist (now includes availability fields + animal coords + distance_mode).
     assert.deepStrictEqual(Object.keys(body).sort(),
-      ['animal_area', 'animal_county', 'animal_lat', 'animal_lon', 'distance_mode', 'marginal_threshold', 'out_of_county',
+      ['animal_area', 'animal_county', 'animal_geoid', 'animal_lat', 'animal_lon', 'distance_mode', 'marginal_threshold', 'out_of_county',
        'out_of_county_truncated', 'radius_too_broad', 'role_available',
        'role_counts', 'total_available', 'total_in_range', 'win_areas']);
     // No ORS key in deps -> straight_line fallback.
@@ -1110,7 +1117,7 @@ async function main() {
     // Byte-for-byte equal bodies; legacy keys + animal coords; no out_of_county.
     assert.strictEqual(resPlain.body, resOff.body, 'context off is byte-identical');
     assert.deepStrictEqual(Object.keys(await resPlain.json()).sort(),
-      ['animal_area', 'animal_county', 'animal_lat', 'animal_lon', 'distance_mode', 'role_counts', 'total_in_range', 'win_areas']);
+      ['animal_area', 'animal_county', 'animal_geoid', 'animal_lat', 'animal_lon', 'distance_mode', 'role_counts', 'total_in_range', 'win_areas']);
   });
 
   await test('(i7) handler context=1 carries CORS header', async () => {
@@ -1395,13 +1402,15 @@ async function main() {
     );
     const body = await res.json();
     assert.deepStrictEqual(Object.keys(body).sort(),
-      ['animal_area', 'animal_county', 'animal_lat', 'animal_lon', 'distance_mode', 'role_counts', 'total_in_range', 'win_areas'],
+      ['animal_area', 'animal_county', 'animal_geoid', 'animal_lat', 'animal_lon', 'distance_mode', 'role_counts', 'total_in_range', 'win_areas'],
       'legacy aggregate shape + animal coords + animal county/area + distance_mode, no availability fields');
     assert.strictEqual(body.role_available, undefined, 'no availability leak on plain path');
     assert.strictEqual(body.marginal_threshold, undefined);
-    // lat/lon path carries no county -> animal_county/animal_area are null (not guessed).
-    assert.strictEqual(body.animal_county, null, 'no county from explicit lat/lon');
-    assert.strictEqual(body.animal_area, null, 'no area from explicit lat/lon');
+    // explicit lat/lon (picked-coordinate path) now carries county/area/geoid
+    // via POINT-IN-POLYGON from the final coord (Harrisburg -> Dauphin).
+    assert.strictEqual(body.animal_county, 'Dauphin', 'PIP fills county on the picked-coordinate path');
+    assert.strictEqual(body.animal_area, '13', 'PIP fills area on the picked-coordinate path');
+    assert.strictEqual(body.animal_geoid, '42043', 'PIP fills geoid on the picked-coordinate path');
   });
 
   await test('(j7) buildAggregateResponse re-whitelists down to legacy 3 keys', () => {
@@ -1739,7 +1748,7 @@ async function main() {
     assert.strictEqual(body.total_in_range, 2, 'driving filter shrank the set');
     // Top-level key set still PII-free + animal coords + distance_mode.
     assert.deepStrictEqual(Object.keys(body).sort(),
-      ['animal_area', 'animal_county', 'animal_lat', 'animal_lon', 'distance_mode', 'role_counts', 'total_in_range', 'win_areas']);
+      ['animal_area', 'animal_county', 'animal_geoid', 'animal_lat', 'animal_lon', 'distance_mode', 'role_counts', 'total_in_range', 'win_areas']);
     const ser = JSON.stringify(body);
     for (const k of PII_FORBIDDEN_KEYS) {
       assert.strictEqual(ser.indexOf('"' + k + '"'), -1, 'PII key leaked: ' + k);
@@ -1872,6 +1881,55 @@ async function main() {
     assert.strictEqual(county['RVS C&T'], 2, 'two ct_rvs volunteers');
     assert.strictEqual(county['C&T'], 2, 'two ct_no_rvs volunteers (Dauphin C&T+courier, Perry C&T)');
     assert.strictEqual(county['COURIER'], 2, 'two couriers');
+  });
+
+  // (pip) POINT-IN-POLYGON foundation over docs/data/pa_counties.json --------
+  // The SAME committed GeoJSON the frontend uses; the worker imports it (not a
+  // fork) and ray-casts to derive county/WIN-area/geoid from a coordinate.
+  const { countyForPoint } = require('../src/pip');
+  const PA_COUNTIES = require('../../docs/data/pa_counties.json');
+
+  await test('(pip1) PIP: Allegheny intersection coord -> Allegheny / 10 / 42003', () => {
+    // The diagnosis-spike coordinate that sits inside Allegheny.
+    const hit = countyForPoint(-79.837476, 40.498948, PA_COUNTIES);
+    assert.deepStrictEqual(hit, { county: 'Allegheny', win_area: '10', geoid: '42003' });
+  });
+
+  await test('(pip2) PIP: MultiPolygon feature (Chester) resolves via MP handling', () => {
+    const chester = PA_COUNTIES.features.find((f) => f.properties.county === 'Chester');
+    assert.strictEqual(chester.geometry.type, 'MultiPolygon', 'Chester is the MultiPolygon feature');
+    // West Chester sits inside a MultiPolygon part -> proves MP iteration.
+    const hit = countyForPoint(-75.6055, 39.9607, PA_COUNTIES);
+    assert.deepStrictEqual(hit, { county: 'Chester', win_area: '16', geoid: '42029' });
+  });
+
+  await test('(pip3) PIP: coordinate outside every PA polygon -> null (no guess)', () => {
+    assert.strictEqual(countyForPoint(-74.0, 39.0, PA_COUNTIES), null, 'Atlantic Ocean -> null');
+    assert.strictEqual(countyForPoint(NaN, 40, PA_COUNTIES), null, 'NaN -> null');
+  });
+
+  await test('(pip4) picked-coord path: 564 E Maiden St, Washington PA -> Washington / 10', async () => {
+    // Frontend "pick a candidate" flow sends the resolved coord as animal_lat/lon.
+    const res = await handleRequest(
+      mockRequest('GET', { animal_lat: 40.1740, animal_lon: -80.2462, radius_mi: 20 }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS), allowedOrigin: 'https://pages.example' }
+    );
+    const body = await res.json();
+    assert.strictEqual(body.animal_county, 'Washington', 'picked-coord county is Washington');
+    assert.strictEqual(body.animal_area, '10', 'Washington WIN area');
+    assert.strictEqual(body.animal_geoid, '42125', 'Washington geoid');
+  });
+
+  await test('(pip5) picked-coord path: 321 2nd St, Port Carbon PA -> Schuylkill / 14 (NOT Monroe/9)', async () => {
+    const res = await handleRequest(
+      mockRequest('GET', { animal_lat: 40.6968, animal_lon: -76.1664, radius_mi: 20 }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS), allowedOrigin: 'https://pages.example' }
+    );
+    const body = await res.json();
+    assert.strictEqual(body.animal_county, 'Schuylkill', 'Port Carbon resolves to Schuylkill');
+    assert.strictEqual(body.animal_area, '14', 'Schuylkill WIN area 14');
+    assert.notStrictEqual(body.animal_county, 'Monroe', 'must NOT be Monroe (stale Tier-1 county)');
+    assert.notStrictEqual(body.animal_area, '9', 'must NOT be WIN area 9');
   });
 
   console.log('\n----------------------------------------');

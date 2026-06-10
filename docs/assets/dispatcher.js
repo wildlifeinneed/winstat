@@ -59,7 +59,7 @@
   var AREA_FALLBACK = '#c9c4bd';
   // Path to the committed PA county GeoJSON (relative to dispatcher.html, which
   // lives in docs/ alongside data/). Properties: {county, win_area, geoid}.
-  var GEOJSON_PATH = 'data/pa_counties.geojson';
+  var GEOJSON_PATH = 'data/pa_counties.json';
   var MAP_PANEL_KEY = 'win_map_panel_open'; // localStorage collapse persistence
 
   // Threshold values relocated to messages.js (MSG.thresholds) so the numeric
@@ -750,6 +750,19 @@
     return animalArea;
   }
 
+  // Reset the ANIMAL's resolved-location header (county + WIN area) AND the map
+  // area highlight to a neutral, empty state. Called at the START of every
+  // address-mode lookup so a prior By-County (Tier-1) selection — its county,
+  // WIN area, or green animal-area highlight — can NEVER persist and render
+  // against a fresh address result (or against a lookup that errors out before
+  // an aggregate arrives). The correct values are re-rendered from the new
+  // aggregate's POINT-IN-POLYGON animal_county/animal_area once it resolves.
+  function clearResolvedLocation() {
+    var el = $('#resolved-location');
+    if (el) { el.innerHTML = ''; el.style.display = 'none'; }
+    if (typeof highlightAreas === 'function') highlightAreas([], []);
+  }
+
   function setAddressStatus(msg) {
     var el = $('#address-status');
     if (!msg) { el.style.display = 'none'; el.textContent = ''; return; }
@@ -853,7 +866,7 @@
         emptyEl.style.display = 'block';
       }
       block.style.display = 'block';
-      highlightFromContext(rows, county);
+      highlightFromContext(rows, agg.animal_area);
       return;
     }
     if (emptyEl) { emptyEl.style.display = 'none'; emptyEl.textContent = ''; }
@@ -902,15 +915,18 @@
 
     if (listEl) listEl.innerHTML = html;
     block.style.display = 'block';
-    highlightFromContext(rows, county);
+    highlightFromContext(rows, agg.animal_area);
   }
 
-  // Tier 2 highlight: emphasize the animal county's WIN area (green) PLUS the
-  // union of WIN areas present in the out_of_county rows (amber helper areas),
-  // so the dispatcher sees where helpers cluster relative to the animal.
-  function highlightFromContext(rows, excludeCounty) {
-    var animalArea = (excludeCounty && state.countyWin)
-      ? state.countyWin[excludeCounty] : null;
+  // Tier 2 highlight: emphasize the ANIMAL's OWN resolved WIN area (green) PLUS
+  // the union of WIN areas present in the out_of_county rows (amber helper
+  // areas), so the dispatcher sees where helpers cluster relative to the animal.
+  // The primary area is the animal's POINT-IN-POLYGON area (agg.animal_area) —
+  // NOT a carried-over By-County (Tier-1) selection — so a stale county can
+  // never green-highlight the wrong area. Null when the coordinate is outside PA.
+  function highlightFromContext(rows, animalArea) {
+    var primary = (animalArea !== null && animalArea !== undefined &&
+                   String(animalArea).trim() !== '') ? String(animalArea).trim() : null;
     var helperSet = {};
     (rows || []).forEach(function (row) {
       if (row && row.win_area !== null && row.win_area !== undefined) {
@@ -918,7 +934,7 @@
         if (a !== '') helperSet[a] = true;
       }
     });
-    highlightAreas(animalArea ? [animalArea] : [], Object.keys(helperSet));
+    highlightAreas(primary ? [primary] : [], Object.keys(helperSet));
   }
 
   // Render one Tier 2 summary card the SAME way Tier 1 (renderCardsForCounty)
@@ -1211,6 +1227,14 @@
       }));
     }
 
+    // Map: green-highlight the ANIMAL's OWN resolved WIN area (derived from the
+    // final coordinate by the Worker's point-in-polygon). This is the single
+    // authoritative animal-area highlight in plain Address mode and REPLACES any
+    // stale By-County (Tier-1) highlight. The Tier-2 context flow re-highlights
+    // with helper areas below; a null area leaves the map with no animal
+    // highlight (coordinate outside PA).
+    highlightAreas(animalArea ? [String(animalArea)] : [], []);
+
     // Marginal threshold mirrors Tier 1: prefer the Worker-supplied value
     // (global default), else fall back to the frontend config default.
     var marginalThreshold = (typeof agg.marginal_threshold === 'number')
@@ -1380,6 +1404,9 @@
     // Re-running the lookup clears any stale flag on the result surface.
     clearStale($('#address-result'));
     $('#address-result').style.display = 'none';
+    // Reset the animal's resolved county/area header + map highlight up front so
+    // a prior By-County (Tier-1) selection can never leak into this address run.
+    clearResolvedLocation();
     setAddressStatus(fmt(MSG.geocodeErrors.finding, { radius: radius }));
 
     // Always request the PII-safe context list (context=1). Two shapes:

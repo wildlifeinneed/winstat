@@ -46,7 +46,7 @@ const HTML_PATH = path.join(DOCS, 'dispatcher.html');
 const MESSAGES_JS = path.join(DOCS, 'assets', 'messages.js');
 const DECISION_JS = path.join(DOCS, 'assets', 'decision.js');
 const DISPATCHER_JS = path.join(DOCS, 'assets', 'dispatcher.js');
-const GEOJSON_PATH = path.join(DOCS, 'data', 'pa_counties.geojson');
+const GEOJSON_PATH = path.join(DOCS, 'data', 'pa_counties.json');
 
 // Real committed PA county GeoJSON (67 features, win_area baked in). Served by
 // the fetch mock so the map renders against production data — and the
@@ -132,7 +132,7 @@ function makeFetch(workerHost, opts) {
     }
     let body = {};
     if (u.indexOf('rehabbers.json') !== -1) body = [];
-    if (u.indexOf('pa_counties.geojson') !== -1) {
+    if (u.indexOf('pa_counties.json') !== -1) {
       // Serve the real committed GeoJSON so the WIN Areas map renders its 67
       // county paths against production data.
       return Promise.resolve({
@@ -1274,6 +1274,15 @@ async function runTier2Highlight() {
     total_in_range: 4,
     role_counts: { 'C&T': 0, 'RVS C&T': 0, 'COURIER': 0 },
     win_areas: [],
+    // The animal's OWN county/area now arrive on the aggregate from the Worker's
+    // POINT-IN-POLYGON of the resolved coord (Pittsburgh -> Allegheny / area 10),
+    // and that is what drives the green animal-area highlight — NOT the prior
+    // By-County selection passed to driveTier2().
+    animal_county: 'Allegheny',
+    animal_area: '10',
+    animal_geoid: '42003',
+    animal_lat: 40.4443,
+    animal_lon: -79.9569,
     out_of_county: [
       { roles: ['C&T'], distance_mi: 9.1, win_area: '7', county: 'Centre' },
       { roles: ['RVS C&T'], distance_mi: 18.6, win_area: '13', county: 'Dauphin' },
@@ -2134,6 +2143,74 @@ async function runDeconfliction() {
   console.log('PASS: deconfliction — address rebinds governing area + clears county coordinator (no dual display); switching back restores county.');
 }
 
+// Regression for the stale county-state LEAK (DEFECT B): a prior By-County
+// (Tier-1) Monroe selection (WIN area 9) must NOT persist into a new address
+// lookup that resolves to Schuylkill (WIN area 14, Port Carbon). The resolved
+// header AND the green animal-area map highlight must reflect Schuylkill/14,
+// never the leftover Monroe/9.
+async function runStaleCountyLeakSchuylkill() {
+  // Worker returns the Port Carbon -> Schuylkill aggregate (area 14), with the
+  // county/area/geoid the Worker now derives by point-in-polygon of the coord.
+  const agg = {
+    total_in_range: 2,
+    role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 1 },
+    win_areas: ['14'],
+    animal_county: 'Schuylkill',
+    animal_area: '14',
+    animal_geoid: '42107',
+    animal_lat: 40.6968,
+    animal_lon: -76.1664,
+  };
+  const { window } = loadDom({
+    workerAgg: agg,
+    data: {
+      // Dropdown + centroids need Monroe (9) and Schuylkill (14); the map's
+      // data-area paths come from the real GeoJSON regardless.
+      'county_win.json': { Monroe: '9', Schuylkill: '14' },
+      'coordinators.json': { '9': 'Monroe Coord', '14': 'Schuylkill Coord' },
+    },
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  // 1) Prior By-County (Tier-1) selection: Monroe -> WIN area 9.
+  const countySel = doc.getElementById('county');
+  countySel.value = 'Monroe';
+  countySel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+  assert.ok((doc.getElementById('coord-line').textContent || '').indexOf('Monroe Coord') !== -1,
+    'county mode initially shows the Monroe (area 9) coordinator');
+  assert.ok(doc.querySelectorAll('path.county-path[data-area="9"].hl-animal').length > 0,
+    'Monroe area 9 is initially green-highlighted in county mode');
+
+  // 2) New address lookup resolves to Schuylkill (area 14, Port Carbon).
+  const addrRadio = doc.querySelector('input[name="mode"][value="address"]');
+  addrRadio.checked = true;
+  addrRadio.dispatchEvent(new window.Event('change', { bubbles: true }));
+  doc.getElementById('animal-address').value = '321 2nd St, Port Carbon, PA 17965';
+  doc.getElementById('radius-mi').value = '20';
+  doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  // Resolved header reflects Schuylkill / Area 14 — Monroe / Area 9 does NOT leak.
+  const rtxt = doc.getElementById('resolved-location').textContent || '';
+  assert.ok(/Schuylkill County\s*·\s*Area\s*14/.test(rtxt),
+    'resolved header shows Schuylkill County / Area 14');
+  assert.strictEqual(rtxt.indexOf('Monroe'), -1, 'no leftover Monroe county in resolved header');
+  assert.strictEqual(/Area\s*9\b/.test(rtxt), false, 'no leftover Area 9 in resolved header');
+
+  // Map: the animal-area green highlight is Schuylkill/14, NOT Monroe/9.
+  assert.ok(doc.querySelectorAll('path.county-path[data-area="14"].hl-animal').length > 0,
+    'Schuylkill area 14 is green-highlighted after the address resolves');
+  assert.strictEqual(doc.querySelectorAll('path.county-path[data-area="9"].hl-animal').length, 0,
+    'stale Monroe area 9 highlight is cleared (no leak)');
+
+  console.log('PASS: stale-leak — prior By-County Monroe (area 9) does not persist; address resolves Schuylkill/14 in header + map.');
+}
+
 // ── Standalone Address lookup ALSO renders the PII-safe qualifying-volunteer
 //    context list (context=1 WITHOUT exclude_county). No widen flow involved.
 //    Proves: (1) the request opts into context=1 but sends NO exclude_county,
@@ -2435,8 +2512,9 @@ async function run() {
   await runCountyAreaBadge();
   await runAddressResolvedArea();
   await runDeconfliction();
+  await runStaleCountyLeakSchuylkill();
   await runAddressNoHorizontalOverflowCss();
-  console.log('\nALL DOM TESTS PASSED (35 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (36 scenarios).');
 }
 
 run().then(function () {
