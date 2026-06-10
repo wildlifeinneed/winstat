@@ -315,7 +315,7 @@
     });
   }
 
-  function renderRecommendation(rec) {
+  function renderRecommendation(rec, base) {
     var actionMeta = (window.WildlifeDecision &&
                       window.WildlifeDecision.ACTIONS &&
                       window.WildlifeDecision.ACTIONS[rec.action]) || null;
@@ -324,6 +324,12 @@
     var html = '';
     var REC = MSG.recommendation;
     html += '<button type="button" class="rec-dismiss" id="rec-dismiss" aria-label="' + REC.dismiss + '">' + REC.dismiss + '</button>';
+    if (base) {
+      var ISSUE_LABELS = { capture: 'Capture', transport: 'Transport' };
+      var issueLabel = ISSUE_LABELS[base.issue] || base.issue;
+      var rvsLabel = base.rvs ? 'RVS' : 'non-RVS';
+      html += '<div class="rec-premise">' + escapeHtml(fmt(REC.premiseLine, { issue: issueLabel, rvsLabel: rvsLabel })) + '</div>';
+    }
     html += '<div class="rec-action ' + tone + '">' + escapeHtml(label) + '</div>';
     if (rec.target) {
       var targetLabel = TARGET_LABELS[rec.target] || rec.target;
@@ -475,7 +481,7 @@
 
     var resolved = resolveForCounty(state.config, county);
     var rec = window.WildlifeDecision.recommend(capacity, base.rvs, base.issue, resolved);
-    renderRecommendation(rec);
+    renderRecommendation(rec, base);
   }
 
   // ─── Address-mode: geocode → Worker → render aggregate ─────────────
@@ -1396,7 +1402,15 @@
       })));
     }
 
-    $('#agg-actions').innerHTML = actions.join('');
+    var premiseHtml = '';
+    if (ctx && typeof ctx.issue === 'string') {
+      var P_ISSUE_LABELS = { capture: 'Capture', transport: 'Transport' };
+      var pIssueLabel = P_ISSUE_LABELS[ctx.issue] || ctx.issue;
+      var pRvsLabel = ctx.rvs ? 'RVS' : 'non-RVS';
+      premiseHtml = '<div class="agg-premise">' + escapeHtml(fmt(T2.premiseLine, { issue: pIssueLabel, rvsLabel: pRvsLabel })) + '</div>';
+    }
+
+    $('#agg-actions').innerHTML = premiseHtml + actions.join('');
     renderContextList(agg, ctx);
     renderNearestRehabbers(pickRehabberOrigin(agg, ctx));
     $('#address-result').style.display = 'block';

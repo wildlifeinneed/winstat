@@ -92,6 +92,9 @@
     // ── renderRecommendation (Tier 1 modal) wording (dispatcher.js) ────────
     recommendation: {
       dismiss: 'Dismiss',
+      // Premise re-statement at the top of the panel. {issue} = issue label
+      // (e.g. "Capture"), {rvsLabel} = "RVS" or "non-RVS".
+      premiseLine: '{issue} of {rvsLabel} Animal',
       // {label} = resolved target-role label.
       targetRole: 'Target role: <strong>{label}</strong>',
       lowCapacityHeader: 'Low capacity',
@@ -129,6 +132,9 @@
 
     // ── Tier 2 aggregate / address-mode wording (dispatcher.js) ────────────
     tier2Aggregate: {
+      // Premise re-statement at the top of #agg-actions. {issue} = issue label
+      // (e.g. "Transport"), {rvsLabel} = "RVS" or "non-RVS".
+      premiseLine: '{issue} of {rvsLabel} Animal',
       configMalformed: 'Config file is malformed; using defaults.',
       snapshotUnavailable: 'Snapshot not available — run refresh_monday.py',
       // {ts} = formatted timestamp.
@@ -142,7 +148,7 @@
       areaCoordinatorListed: 'Area {area} Coordinator: <strong>{name}</strong>.',
       // LENIENT recommendation — qualified helpers in range.
       // {count}, {areaClause} (computed, may be empty), {radius}.
-      qualifiedHelpers: 'Qualified helpers: <strong>{count}</strong> {areaClause}  within {radius} mi — task via <strong>Connecteam</strong>.',
+      qualifiedHelpers: 'Qualified helpers: <strong>{count}</strong>  {areaClause}  within {radius} mi.',
       // The "; WIN areas: ..." clause appended to the qualified/backup lines.
       // {areas} = sorted area list.
       areaClause: '; WIN areas: <strong>{areas}</strong>',
@@ -198,11 +204,11 @@
       ctxHeaderBeyond: 'Out-of-county helpers within {radius} mi (beyond {county})',
       // Standalone Address lookup (no county excluded): ALL qualifying
       // volunteers in range. {radius}.
-      ctxHeader: 'Qualifying volunteers within {radius} mi',
+      ctxHeader: 'Qualified volunteers within {radius} mi',
       // {count} = rows shown.
       ctxOverflowNotice: 'Radius too large — showing the {count} nearest. Narrow the radius for a complete list.',
       // {radius}.
-      ctxEmpty: 'No qualifying volunteers within {radius} mi.',
+      ctxEmpty: 'No qualified volunteers within {radius} mi.',
       ctxEdge: 'edge',
       // Per-row distance text for the Tier 2 volunteer context list. {dist} =
       // miles, one decimal place. Used on the straight_line fallback (no time).

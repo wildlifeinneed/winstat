@@ -869,7 +869,7 @@ async function runTier2Empty() {
   assert.strictEqual(block.style.display, 'block', 'context block shown even when empty');
   const empty = doc.getElementById('ctx-empty');
   assert.strictEqual(empty.style.display, 'block', 'empty-state message is shown');
-  assert.ok(/No qualifying volunteers/i.test(empty.textContent || ''),
+  assert.ok(/No qualified volunteers/i.test(empty.textContent || ''),
     'empty-state copy present (got: "' + empty.textContent + '")');
   assert.strictEqual(doc.querySelectorAll('#ctx-list .ctx-row').length, 0,
     'no rows in empty-state');
@@ -2217,7 +2217,7 @@ async function runStaleCountyLeakSchuylkill() {
 //    context list (context=1 WITHOUT exclude_county). No widen flow involved.
 //    Proves: (1) the request opts into context=1 but sends NO exclude_county,
 //    (2) #ctx-list rows render with qual badges, (3) the heading uses the
-//    standalone "Qualifying volunteers" wording (NOT the out-of-county widen
+//    standalone "Qualified volunteers" wording (NOT the out-of-county widen
 //    wording), and (4) rows carry ONLY the whitelisted fields (no name/phone/
 //    coords). ───────────────────────────────────────────────────────────────
 async function runStandaloneAddressContextList() {
@@ -2301,11 +2301,11 @@ async function runStandaloneAddressContextList() {
   const qualBadges = doc.querySelectorAll('#ctx-list .ctx-row .qual-badge');
   assert.strictEqual(qualBadges.length, 0, 'no qual-badge tags rendered (qualified-only list)');
 
-  // (3) Heading uses the standalone "Qualifying volunteers" wording, NOT the
+  // (3) Heading uses the standalone "Qualified volunteers" wording, NOT the
   // out-of-county widen phrasing.
   const hdr = doc.getElementById('ctx-header').textContent || '';
-  assert.ok(hdr.indexOf('Qualifying volunteers') !== -1 && hdr.indexOf('40 mi') !== -1,
-    'standalone heading reads "Qualifying volunteers within 40 mi" (got: "' + hdr + '")');
+  assert.ok(hdr.indexOf('Qualified volunteers') !== -1 && hdr.indexOf('40 mi') !== -1,
+    'standalone heading reads "Qualified volunteers within 40 mi" (got: "' + hdr + '")');
   assert.strictEqual(hdr.indexOf('Out-of-county'), -1,
     'standalone heading must NOT use the out-of-county widen wording (got: "' + hdr + '")');
 
@@ -2687,6 +2687,44 @@ async function runTier2SingleAnimalAreaCoordinator() {
   console.log('PASS: P5 single animal-area coordinator — volunteers span areas [9, 10, 15N], animal_area=10 -> only "Area 10 Coordinator: Julia Meredith" shown.');
 }
 
+// ── PREMISE LINE: Tier 2 — RVS capture must show "Capture of RVS Animal" ────
+async function runPremiseLineRvsCapture() {
+  const agg = {
+    total_in_range: 3,
+    role_counts: { 'C&T': 0, 'RVS C&T': 3, 'COURIER': 0 },
+    win_areas: ['10'],
+    out_of_county: [],
+  };
+  const { doc } = await driveTier2(agg, 'Allegheny', { rvs: true, issue: 'capture' });
+
+  const premiseEl = doc.querySelector('#agg-actions .agg-premise');
+  assert.ok(premiseEl, 'Tier 2 premise element (.agg-premise) exists in #agg-actions');
+  const txt = (premiseEl.textContent || '').trim();
+  assert.strictEqual(txt, 'Capture of RVS Animal',
+    'Tier 2 premise reads "Capture of RVS Animal" for RVS=yes, Issue=capture (got: "' + txt + '")');
+
+  console.log('PASS: Tier 2 premise line renders "Capture of RVS Animal".');
+}
+
+// ── PREMISE LINE: Tier 2 — non-RVS transport must show "Transport of non-RVS Animal" ──
+async function runPremiseLineNonRvsTransport() {
+  const agg = {
+    total_in_range: 5,
+    role_counts: { 'C&T': 0, 'RVS C&T': 0, 'COURIER': 5 },
+    win_areas: ['5'],
+    out_of_county: [],
+  };
+  const { doc } = await driveTier2(agg, 'Allegheny', { rvs: false, issue: 'transport' });
+
+  const premiseEl = doc.querySelector('#agg-actions .agg-premise');
+  assert.ok(premiseEl, 'Tier 2 premise element (.agg-premise) exists in #agg-actions');
+  const txt = (premiseEl.textContent || '').trim();
+  assert.strictEqual(txt, 'Transport of non-RVS Animal',
+    'Tier 2 premise reads "Transport of non-RVS Animal" for RVS=no, Issue=transport (got: "' + txt + '")');
+
+  console.log('PASS: Tier 2 premise line renders "Transport of non-RVS Animal".');
+}
+
 async function run() {
   await runHelpLink();
   await runHelpViewerRenders();
@@ -2710,6 +2748,8 @@ async function run() {
   await runTier2QualTagCaptureTransport();
   await runTier2LenientBackup();
   await runTier1FallbackFlag();
+  await runPremiseLineRvsCapture();
+  await runPremiseLineNonRvsTransport();
   await runTier2LenientPrefersQualified();
   await runTier2QualTagBackcompat();
   await runMapRender();
@@ -2729,7 +2769,7 @@ async function run() {
   await runStaleCountyLeakSchuylkill();
   await runAddressNoHorizontalOverflowCss();
   await runTier2SingleAnimalAreaCoordinator();
-  console.log('\nALL DOM TESTS PASSED (39 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (41 scenarios).');
 }
 
 run().then(function () {
