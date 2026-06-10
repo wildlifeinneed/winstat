@@ -1003,7 +1003,9 @@ async function main() {
   // (h-int1) INTERSECTION GATE: looksLikeIntersection + looksLikeFullAddress ---
   await test('(h-int1) looksLikeIntersection detects suffix-bearing intersection queries', () => {
     // True cases: street suffix on both sides.
-    assert.strictEqual(looksLikeIntersection('Elliott St & Verona Rd, Penn Hills Township, PA'), true, '& with St+Rd');
+    assert.strictEqual(looksLikeIntersection('Elliott St & Verona Rd, Penn Hills Township, PA'), true, '& with St+Rd (with city/state)');
+    assert.strictEqual(looksLikeIntersection('Elliott St & Verona Rd Penn Hills'), true, '& with St+Rd (no comma/state)');
+    assert.strictEqual(looksLikeIntersection('Elliott St & Verona Rd'), true, 'bare & with St+Rd');
     assert.strictEqual(looksLikeIntersection('Main Ave and Oak St, Pittsburgh, PA'), true, 'and with Ave+St');
     assert.strictEqual(looksLikeIntersection('Route 30 Blvd & Forbes Dr'), true, 'Blvd+Dr');
     // False cases: no street suffix, or only one side has a suffix, or no connector.
@@ -1014,22 +1016,25 @@ async function main() {
     assert.strictEqual(looksLikeIntersection(''), false, 'empty string');
   });
 
-  await test('(h-int2) looksLikeFullAddress: intersection gate (requires city/state context)', () => {
-    // (a) from task: must return true.
+  await test('(h-int2) looksLikeFullAddress: intersection gate (loosened — suffix on both sides is sufficient)', () => {
+    // Comma+state context: still true.
     assert.strictEqual(looksLikeFullAddress('Elliott St & Verona Rd, Penn Hills Township, PA'), true,
-      '(a) Elliott St & Verona Rd -> true');
-    // (b) from task: must return true.
+      'Elliott St & Verona Rd with city/state -> true');
     assert.strictEqual(looksLikeFullAddress('Main Ave and Oak St, Pittsburgh, PA'), true,
-      '(b) Main Ave and Oak St -> true');
-    // (c) from task: single word -> false (existing behavior).
+      'Main Ave and Oak St with city/state -> true');
+    // Loosened: no comma/state/ZIP — suffix on both sides is enough.
+    assert.strictEqual(looksLikeFullAddress('Elliott St & Verona Rd Penn Hills'), true,
+      'Elliott St & Verona Rd Penn Hills (no comma/state) -> true');
+    assert.strictEqual(looksLikeFullAddress('Elliott St & Verona Rd'), true,
+      'bare intersection Elliott St & Verona Rd -> true');
+    assert.strictEqual(looksLikeFullAddress('Elliott St & Verona Rd, Penn Hills Township, PA 15147'), true,
+      'intersection with full city/state/zip -> true');
+    // (c) single word -> false (existing behavior).
     assert.strictEqual(looksLikeFullAddress('Washington'), false,
-      '(c) "Washington" -> false');
-    // (d) from task: existing digit-gate still works.
+      '"Washington" -> false');
+    // (d) existing digit-gate still works.
     assert.strictEqual(looksLikeFullAddress('564 E Maiden St, Washington, PA'), true,
-      '(d) house-number address -> true');
-    // Intersection WITHOUT city/state context -> false (no-fire mid-type).
-    assert.strictEqual(looksLikeFullAddress('Elliott St & Verona Rd'), false,
-      'intersection missing city/state -> false (conservative)');
+      'house-number address -> true');
     // Existing negative cases preserved.
     assert.strictEqual(looksLikeFullAddress('738 Neo'), false, 'partial no zip/state -> false');
     assert.strictEqual(looksLikeFullAddress('Neola Road'), false, 'no digit, no intersection -> false');
@@ -1037,6 +1042,8 @@ async function main() {
     // -> falls to digit check -> no digit -> false.
     assert.strictEqual(looksLikeFullAddress('Washington and Jefferson, PA'), false,
       'college name: no street suffixes -> false');
+    // "Main Street" alone: only one side present (no connector), no digit -> false.
+    assert.strictEqual(looksLikeFullAddress('Main Street'), false, '"Main Street" alone -> false');
   });
 
   await test('(h-int3) hasHouseNumberMatch returns false for intersections (forces Census)', () => {

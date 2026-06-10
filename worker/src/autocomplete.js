@@ -104,9 +104,9 @@ function looksLikeIntersection(query) {
  * Heuristic: does this query LOOK like a full street address (worth a single
  * exact-match Census call) rather than a typed partial? True when:
  *   (a) INTERSECTION pattern: two street-suffix segments joined by "&" or
- *       "and", with a city/state context (comma + trailing 2-letter state or
- *       5-digit ZIP) so the Census call doesn't fire on a mid-type fragment
- *       like "Elliott St & Verona Rd" (no city yet).
+ *       "and". The suffix requirement in looksLikeIntersection() is sufficient
+ *       to prevent false-positives; no comma/state/ZIP is required, so
+ *       dispatcher input like "Elliott St & Verona Rd Penn Hills" fires Census.
  *   (b) HOUSE-NUMBER pattern (existing): contains a digit AND (a 5-digit ZIP
  *       OR a 2-letter state token).
  * This gates the Census fallback so it never fires per-keystroke — only on a
@@ -114,13 +114,10 @@ function looksLikeIntersection(query) {
  */
 function looksLikeFullAddress(query) {
   var s = String(query || '');
-  // (a) Intersection branch: require city/state context (comma + trailing
-  //     2-letter abbrev OR a 5-digit ZIP) so partial "St & Rd" doesn't fire.
+  // (a) Intersection branch: suffix on both sides is sufficient; no
+  //     comma/state/ZIP requirement (dispatchers omit those routinely).
   if (looksLikeIntersection(s)) {
-    var hasZipI = /\b\d{5}(?:-\d{4})?\b/.test(s);
-    // Comma followed (possibly after a city token) by a 2-letter word at end.
-    var hasStateAfterComma = /,[^&]*\b[A-Za-z]{2}\b\s*$/.test(s);
-    return hasZipI || hasStateAfterComma;
+    return true;
   }
   // (b) House-number digit anywhere.
   if (!/\d/.test(s)) return false;
