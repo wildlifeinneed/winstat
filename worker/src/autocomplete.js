@@ -111,6 +111,46 @@ function isPennsylvania(props, lat, lon) {
   return false;
 }
 
+/**
+ * Does ANY Photon suggestion actually resolve the pasted HOUSE NUMBER?
+ *
+ * The Census fallback exists for the case Photon returns a NON-EMPTY but
+ * STREET-LEVEL list with the house number DROPPED (proven for real PA pastes
+ * like "564 E Maiden St" / "321 2nd St"). suggestions.length===0 misses those.
+ *
+ * Heuristic: if the query has a LEADING house number (e.g. /^\s*\d+\b/) and NO
+ * suggestion label contains that same number token, there is no house-number
+ * match -> the handler should fire the Census fallback. When the query carries
+ * no leading house number we return true (nothing to match -> don't force the
+ * Census call on a street/town-only query).
+ *
+ * @param {string} query             the pasted address
+ * @param {Array<{label:string}>} suggestions  Photon candidates
+ * @returns {boolean} true when a suggestion matches the house number (or the
+ *          query has no leading house number); false when the house number is
+ *          present but unmatched by every suggestion.
+ */
+function hasHouseNumberMatch(query, suggestions) {
+  var s = String(query || '');
+  var m = s.match(/^\s*(\d+)\b/);
+  if (!m) {
+    // No leading house number to match -> nothing to require.
+    return true;
+  }
+  var house = m[1];
+  var list = Array.isArray(suggestions) ? suggestions : [];
+  // Word-boundary match so "738" does not spuriously match "17380".
+  var re = new RegExp('\\b' + house + '\\b');
+  for (var i = 0; i < list.length; i++) {
+    var it = list[i] || {};
+    var label = it.label != null ? String(it.label) : '';
+    if (re.test(label)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function clampLimit(raw) {
   var n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) return DEFAULT_LIMIT;
@@ -363,6 +403,7 @@ module.exports = {
   labelFromProps,
   normalizeForPhoton,
   looksLikeFullAddress,
+  hasHouseNumberMatch,
   autocompleteAddress,
   photonGeocode,
   censusAutocompleteFallback,

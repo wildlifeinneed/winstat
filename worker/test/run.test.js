@@ -43,7 +43,7 @@ const {
   DEFAULT_MARGINAL_THRESHOLD,
 } = require('../src/aggregate');
 const { geocodeAddress } = require('../src/census');
-const { autocompleteAddress, photonGeocode, looksLikeFullAddress, censusAutocompleteFallback } = require('../src/autocomplete');
+const { autocompleteAddress, photonGeocode, looksLikeFullAddress, hasHouseNumberMatch, censusAutocompleteFallback } = require('../src/autocomplete');
 const { rehabberDistances, drivingDistancesMiles, MAX_MATRIX_DESTINATIONS } = require('../src/distance');
 const { handleRequest } = require('../src/handler');
 
@@ -753,6 +753,190 @@ async function main() {
     });
     const dropped = await censusAutocompleteFallback('1 Main St, Columbus, OH 43004', outPa);
     assert.deepStrictEqual(dropped, [], 'non-PA Census match is dropped');
+  });
+
+  // (h13) hasHouseNumberMatch unit: a Photon label carrying the pasted house
+  // number -> true; STREET-LEVEL-only labels (house # dropped) -> false; a query
+  // with no leading house number -> true (nothing to require).
+  await test('(h13) hasHouseNumberMatch heuristic (house# in a label vs street-only)', () => {
+    // House # present in a Photon label -> true (Photon already resolved it).
+    assert.strictEqual(
+      hasHouseNumberMatch('564 E Maiden St, Washington, PA 15301', [
+        { label: '564 E Maiden St, Washington, Pennsylvania 15301', lat: 40.16, lon: -80.23 },
+      ]),
+      true,
+      'matching house number in a suggestion label -> true'
+    );
+    // Only STREET-LEVEL labels (house # dropped) -> false.
+    assert.strictEqual(
+      hasHouseNumberMatch('564 E Maiden St, Washington, PA 15301', [
+        { label: 'E Maiden St, Washington, Pennsylvania', lat: 40.16, lon: -80.23 },
+        { label: 'Washington, Pennsylvania 15301', lat: 40.17, lon: -80.24 },
+      ]),
+      false,
+      'street/town-only labels (no house number) -> false'
+    );
+    // Empty list with a leading house number -> false (none match).
+    assert.strictEqual(
+      hasHouseNumberMatch('321 2nd St, Port Carbon, PA 17965', []),
+      false,
+      'empty suggestion list -> false'
+    );
+    // No leading house number -> true (nothing to require).
+    assert.strictEqual(
+      hasHouseNumberMatch('Maiden St, Washington, PA', [
+        { label: 'E Maiden St, Washington, Pennsylvania' },
+      ]),
+      true,
+      'query without a leading house number -> true'
+    );
+    // Word-boundary: "738" must NOT match inside a ZIP like "17380".
+    assert.strictEqual(
+      hasHouseNumberMatch('738 Neola Rd, PA 17380', [
+        { label: 'Neola Rd, Somewhere, Pennsylvania 17380' },
+      ]),
+      false,
+      'house number must not match a substring of an unrelated ZIP'
+    );
+  });
+
+  // (h14) REAL ADDRESS #1 — "564 E Maiden St, Washington, PA 15301": Photon
+  // returns STREET-LEVEL only (no 564); Census returns the exact 564 match.
+  // The Census exact-house candidate must be PRESENT and FIRST in suggestions.
+  await test('(h14) "564 E Maiden St": Photon street-only -> Census 564 candidate is FIRST', async () => {
+    let censusCalled = false;
+    const routed = async (url) => {
+      const u = String(url);
+      if (u.indexOf('census.gov') !== -1) {
+        censusCalled = true;
+        return {
+          status: 200,
+          json: async () => ({
+            result: {
+              addressMatches: [{
+                matchedAddress: '564 E MAIDEN ST, WASHINGTON, PA, 15301',
+                coordinates: { x: -80.231145, y: 40.164749 },
+              }],
+            },
+          }),
+        };
+      }
+      // Photon host: STREET-LEVEL only — no house number 564 anywhere.
+      return {
+        status: 200,
+        json: async () => ({
+          features: [{
+            geometry: { type: 'Point', coordinates: [-80.230, 40.165] },
+            properties: {
+              street: 'E Maiden St', city: 'Washington', state: 'Pennsylvania',
+              postcode: '15301', countrycode: 'US', country: 'United States',
+            },
+          }],
+        }),
+      };
+    };
+    const res = await handleRequest(
+      mockRequest('GET', { autocomplete: '564 E Maiden St, Washington, PA 15301', limit: 5 }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS), fetchFn: routed, allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.strictEqual(censusCalled, true, 'Census fired despite a NON-EMPTY street-level Photon list');
+    // The Census exact-house candidate is PRESENT...
+    const census = body.suggestions.find((s) => /\b564\b/.test(s.label));
+    assert.ok(census, 'Census 564 exact-house candidate is present');
+    assert.strictEqual(census.label, '564 E MAIDEN ST, WASHINGTON, PA, 15301');
+    assert.ok(Math.abs(census.lat - 40.164749) < 1e-9, 'lat from Census y');
+    assert.ok(Math.abs(census.lon - (-80.231145)) < 1e-9, 'lon from Census x');
+    // ...and it is FIRST, above the imprecise Photon street-level entry.
+    assert.strictEqual(body.suggestions[0].label, '564 E MAIDEN ST, WASHINGTON, PA, 15301',
+      'Census exact-house candidate is prepended to the TOP');
+    // The Photon street-level entry is kept (not discarded), below the Census one.
+    assert.ok(body.suggestions.length >= 2, 'Photon street-level entry is retained below');
+  });
+
+  // (h15) REAL ADDRESS #2 — "321 2nd St, Port Carbon, PA 17965": same shape.
+  await test('(h15) "321 2nd St": Photon street-only -> Census 321 candidate is FIRST', async () => {
+    let censusCalled = false;
+    const routed = async (url) => {
+      const u = String(url);
+      if (u.indexOf('census.gov') !== -1) {
+        censusCalled = true;
+        return {
+          status: 200,
+          json: async () => ({
+            result: {
+              addressMatches: [{
+                matchedAddress: '321 2ND ST, PORT CARBON, PA, 17965',
+                coordinates: { x: -76.166956, y: 40.698163 },
+              }],
+            },
+          }),
+        };
+      }
+      // Photon: only the town/street, house number 321 dropped.
+      return {
+        status: 200,
+        json: async () => ({
+          features: [{
+            geometry: { type: 'Point', coordinates: [-76.167, 40.698] },
+            properties: {
+              street: '2nd St', city: 'Port Carbon', state: 'Pennsylvania',
+              postcode: '17965', countrycode: 'US', country: 'United States',
+            },
+          }],
+        }),
+      };
+    };
+    const res = await handleRequest(
+      mockRequest('GET', { autocomplete: '321 2nd St, Port Carbon, PA 17965', limit: 5 }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS), fetchFn: routed, allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.strictEqual(censusCalled, true, 'Census fired on street-level Photon list');
+    const census = body.suggestions.find((s) => /\b321\b/.test(s.label));
+    assert.ok(census, 'Census 321 exact-house candidate is present');
+    assert.strictEqual(body.suggestions[0].label, '321 2ND ST, PORT CARBON, PA, 17965',
+      'Census exact-house candidate is FIRST');
+    assert.ok(Math.abs(body.suggestions[0].lat - 40.698163) < 1e-9, 'lat from Census y');
+    assert.ok(Math.abs(body.suggestions[0].lon - (-76.166956)) < 1e-9, 'lon from Census x');
+  });
+
+  // (h16) NEGATIVE: when a Photon result DOES contain the house number, the
+  // Census fallback must NOT be called (Photon already resolved it).
+  await test('(h16) Photon label contains the house number -> Census NOT called', async () => {
+    let censusCalled = false;
+    const routed = async (url) => {
+      const u = String(url);
+      if (u.indexOf('census.gov') !== -1) {
+        censusCalled = true;
+        return { status: 200, json: async () => ({ result: { addressMatches: [] } }) };
+      }
+      // Photon host: a candidate whose label carries the pasted 564.
+      return {
+        status: 200,
+        json: async () => ({
+          features: [{
+            geometry: { type: 'Point', coordinates: [-80.231145, 40.164749] },
+            properties: {
+              housenumber: '564', street: 'E Maiden St', city: 'Washington',
+              state: 'Pennsylvania', postcode: '15301', countrycode: 'US',
+              country: 'United States',
+            },
+          }],
+        }),
+      };
+    };
+    const res = await handleRequest(
+      mockRequest('GET', { autocomplete: '564 E Maiden St, Washington, PA 15301', limit: 5 }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS), fetchFn: routed, allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.strictEqual(censusCalled, false, 'Census must NOT fire when Photon already has the house number');
+    assert.strictEqual(body.suggestions.length, 1, 'only the Photon candidate is present');
+    assert.ok(/\b564\b/.test(body.suggestions[0].label), 'Photon house-number candidate retained');
   });
 
   // (i) TIER 2 -- out-of-county context list (PII-safe) ----------------

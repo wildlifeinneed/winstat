@@ -28,7 +28,7 @@ const {
 } = require('./aggregate');
 const { geocodeAddress } = require('./census');
 const { countyToArea } = require('./county_win');
-const { autocompleteAddress, photonGeocode, looksLikeFullAddress, censusAutocompleteFallback } = require('./autocomplete');
+const { autocompleteAddress, photonGeocode, looksLikeFullAddress, hasHouseNumberMatch, censusAutocompleteFallback } = require('./autocomplete');
 const { rehabberDistances, drivingDistancesMiles } = require('./distance');
 
 // KV key under which the Phase F refresh job stores the coords array (JSON).
@@ -305,23 +305,42 @@ async function handleRequest(request, deps) {
     }
     if (!Array.isArray(suggestions)) suggestions = [];
     // CENSUS FALLBACK: Photon (OSM) lacks many rural PA house numbers (e.g.
-    // 738 Neola Rd). When it yields 0 PA candidates AND the query looks like a
-    // COMPLETE pasted address (house-number digit + ZIP/state token), make ONE
-    // exact-match Census call for the SAME string and append the match as a
-    // selectable dropdown candidate ({label, lat, lon}) — same shape the picker
-    // already coord-captures. Gated so it never fires on short/typed partials.
-    if (suggestions.length === 0 && looksLikeFullAddress(String(params.autocomplete))) {
+    // 738 Neola Rd) AND for some real pasted addresses (e.g. "564 E Maiden St,
+    // Washington, PA"; "321 2nd St, Port Carbon, PA") it returns a NON-EMPTY but
+    // STREET-LEVEL list with the house number DROPPED. So a zero-length check
+    // misses the exact cases the fallback was built for. Fire it when the query
+    // looksLikeFullAddress() AND no Photon candidate resolves the pasted house
+    // number (hasHouseNumberMatch === false). One exact-match Census call for
+    // the SAME string; on a match the exact-house candidate is PREPENDED to the
+    // top of the list (above the imprecise Photon street-level entries, which
+    // stay below it), de-duped if its label equals a Photon label. Gated so it
+    // never fires per-keystroke — only on a complete pasted-style address.
+    var q = String(params.autocomplete);
+    if (looksLikeFullAddress(q) && !hasHouseNumberMatch(q, suggestions)) {
       let censusCands;
       try {
-        censusCands = await censusAutocompleteFallback(
-          String(params.autocomplete),
-          deps.fetchFn
-        );
+        censusCands = await censusAutocompleteFallback(q, deps.fetchFn);
       } catch (e) {
         censusCands = [];
       }
       if (Array.isArray(censusCands) && censusCands.length) {
-        suggestions = suggestions.concat(censusCands);
+        var seen = {};
+        for (var si = 0; si < suggestions.length; si++) {
+          if (suggestions[si] && suggestions[si].label != null) {
+            seen[String(suggestions[si].label)] = true;
+          }
+        }
+        var prepend = [];
+        for (var ci = 0; ci < censusCands.length; ci++) {
+          var cand = censusCands[ci];
+          var clabel = cand && cand.label != null ? String(cand.label) : '';
+          if (!seen[clabel]) {
+            prepend.push(cand);
+            seen[clabel] = true;
+          }
+        }
+        // Census exact-house candidate(s) FIRST, then the Photon entries.
+        suggestions = prepend.concat(suggestions);
       }
     }
     return jsonResponse(ResponseCtor, 200, { suggestions: suggestions }, allowedOrigin);

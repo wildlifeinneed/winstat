@@ -525,6 +525,71 @@ async function runPasteCensusFallback() {
     'candidate in the dropdown; picking it submits via animal_lat/animal_lon.');
 }
 
+// ── CENSUS FALLBACK on a STREET-LEVEL Photon list (real dispatcher paste):
+//    pasting "564 E Maiden St, Washington, PA 15301" — for which Photon returns
+//    a NON-EMPTY but STREET-LEVEL list (house # 564 DROPPED) — the Worker
+//    prepends the Census exact-house candidate to the TOP of the list. The
+//    dropdown must therefore show the 564 candidate FIRST (above the imprecise
+//    Photon street entry), and picking it submits animal_lat/animal_lon. ─────
+async function runPasteCensusStreetLevelTop() {
+  // Mirrors the Worker's prepended order: Census 564 candidate FIRST, then the
+  // imprecise Photon street-level entry below it (kept, not discarded).
+  const CENSUS_564 = { label: '564 E MAIDEN ST, WASHINGTON, PA, 15301', lat: 40.164749, lon: -80.231145 };
+  const PHOTON_STREET = { label: 'E Maiden St, Washington, Pennsylvania 15301', lat: 40.165, lon: -80.230 };
+  const { window, opts: domOpts } = loadDom({
+    acSuggestions: [CENSUS_564, PHOTON_STREET],
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  const addrRadio = doc.querySelector('input[name="mode"][value="address"]');
+  addrRadio.checked = true;
+  addrRadio.dispatchEvent(new window.Event('change', { bubbles: true }));
+
+  const addrInput = doc.getElementById('animal-address');
+  const acList = doc.getElementById('address-suggestions');
+
+  // Paste the real Washington County address Photon only resolves to street level.
+  addrInput.value = '564 E Maiden St, Washington, PA 15301';
+  addrInput.dispatchEvent(new window.Event('paste', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  const cands = Array.prototype.slice.call(acList.querySelectorAll('.ac-item'));
+  assert.strictEqual(acList.hidden, false, 'paste populates the dropdown with the Census-augmented list');
+  assert.ok(cands.length >= 2, 'street-level Photon entry kept below the Census one (got ' + cands.length + ')');
+  // The Census exact-house candidate is FIRST (top of #address-suggestions).
+  assert.strictEqual(cands[0].textContent.trim(), CENSUS_564.label,
+    'Census 564 exact-house candidate is at the TOP of the dropdown');
+  assert.ok(cands.some(function (c) { return c.textContent.trim() === PHOTON_STREET.label; }),
+    'the imprecise Photon street-level entry is still listed below');
+
+  // Pick the top (Census) candidate -> fills input + captures Census coords.
+  cands[0].dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+  await flush(window);
+  assert.strictEqual(addrInput.value, CENSUS_564.label, 'picking fills the input with the Census label');
+
+  // Submit -> animal_lat/animal_lon carry the Census coords (no address= path).
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  const url = domOpts.aggCalls[domOpts.aggCalls.length - 1] || '';
+  assert.ok(/[?&]animal_lat=40\.164749(&|$)/.test(url),
+    'Census street-level pick submits animal_lat (url: ' + url + ')');
+  assert.ok(/[?&]animal_lon=-80\.231145(&|$)/.test(url),
+    'Census street-level pick submits animal_lon (url: ' + url + ')');
+  assert.ok(!/[?&]address=/.test(url),
+    'Census pick must NOT use the address= path (url: ' + url + ')');
+
+  console.log('PASS: pasting "564 E Maiden St" with a STREET-LEVEL Photon list surfaces the Census ' +
+    'exact-house candidate at the TOP of #address-suggestions; picking it submits animal_lat/animal_lon.');
+}
+
 // ── Tier 1: selecting a county renders the COORDINATOR NAME (name only, no
 //    phone) resolved county -> WIN area (county_win.json) -> name
 //    (coordinators.json), plus the "Widen search" affordance. ──────────────
@@ -2340,6 +2405,7 @@ async function run() {
   await runSuggestionCoordSubmit();
   await runPasteAndGo();
   await runPasteCensusFallback();
+  await runPasteCensusStreetLevelTop();
   await runStandaloneAddressContextList();
   await runStandaloneNoRvsCaptureAllCtCapable();
   await runTier1Coordinator();
@@ -2370,7 +2436,7 @@ async function run() {
   await runAddressResolvedArea();
   await runDeconfliction();
   await runAddressNoHorizontalOverflowCss();
-  console.log('\nALL DOM TESTS PASSED (34 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (35 scenarios).');
 }
 
 run().then(function () {
