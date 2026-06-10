@@ -1382,8 +1382,13 @@
       ? window.WildlifeDecision.qualifiesForAnimal : null;
     var ooc = (agg && Array.isArray(agg.out_of_county)) ? agg.out_of_county : null;
     var leniencyHandled = false;
+    // leniencyRan: true when the qualifyFn block actually executed (ooc + issue present).
+    // leniencyQualifiedCount: qualifiedCount captured after the block for the outer banner check.
+    var leniencyRan = false;
+    var leniencyQualifiedCount = 0;
 
     if (qualifyFn && ooc && ctx && typeof ctx.issue === 'string' && ctx.issue !== '') {
+      leniencyRan = true;
       var qualifiedAreas = {};
       var backupAreas = {};
       var qualifiedCount = 0;
@@ -1406,6 +1411,7 @@
         }
       });
 
+      leniencyQualifiedCount = qualifiedCount;
       var qAreaList = Object.keys(qualifiedAreas).sort();
       var bAreaList = Object.keys(backupAreas).sort();
       var needRvs = (ctx.rvs === true);
@@ -1471,7 +1477,13 @@
       }
     }
 
-    if (!hasQualified && !leniencyHandled) {
+    // Show the no-qualified banner when:
+    //   (a) leniency block ran and found qualifiedCount=0 with no backups either
+    //       (leniencyHandled stays false — COURIER-only for Capture, etc.)
+    //   (b) leniency block never ran (no ooc/issue context) and role_counts
+    //       show no qualifying roles at all
+    if ((leniencyRan && leniencyQualifiedCount === 0 && !leniencyHandled) ||
+        (!leniencyRan && !hasQualified)) {
       actions.push('<div class="no-qualified-banner">' +
         escapeHtml(fmt(T2.noQualifiedBanner, { radius: ctx.radius })) + '</div>');
       actions.push(actionLine('escalate', '!', fmt(T2.noQualifiedEscalate, {

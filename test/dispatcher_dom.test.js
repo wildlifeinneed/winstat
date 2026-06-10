@@ -1112,9 +1112,11 @@ async function runTier2LenientBackup() {
 }
 
 // ── R2 no-qualified banner: bold .no-qualified-banner renders when qualified=0.
-//    Covers two sub-cases:
+//    Covers three sub-cases:
 //      (a) pure-zero: no ooc context, !hasQualified && !leniencyHandled path.
 //      (b) backup: ooc context present but qualifiedCount=0 and backupCount>0.
+//      (c) COURIER-only for Capture: total>0 but qualifiedCount=0 and backupCount=0
+//          (COURIER is in QUALIFYING_ROLES but doesn't qualify for Capture issue).
 async function runTier2NoQualifiedBanner() {
   // (a) Pure-zero path: no out_of_county context, all role counts 0.
   const aggZero = {
@@ -1157,7 +1159,31 @@ async function runTier2NoQualifiedBanner() {
   assert.ok(bannerIdx !== -1 && backupIdx !== -1 && bannerIdx < backupIdx,
     '(b) banner appears before the backup escalate line (bannerIdx=' + bannerIdx + ', backupIdx=' + backupIdx + ')');
 
-  console.log('PASS: Tier 2 no-qualified bold banner renders in both zero-qualified scenarios.');
+  // (c) COURIER-only for Capture: total_in_range=1, role_counts has COURIER=1,
+  //     but out_of_county=[] (the COURIER is in-county, not in ooc list).
+  //     leniencyRan=true, qualifiedCount=0, backupCount=0 -> banner must fire.
+  //     This is the DuBois PA / 45mi / non-RVS / Capture real-world bug scenario.
+  const aggCourierOnly = {
+    total_in_range: 1,
+    role_counts: { 'C&T': 0, 'RVS C&T': 0, 'COURIER': 1 },
+    win_areas: ['17'],
+    out_of_county: [], // in-county COURIER does NOT appear in ooc list
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc: docCourier } = await driveTier2(aggCourierOnly, 'Clearfield', { rvs: false, issue: 'capture' });
+  const bannerCourier = docCourier.querySelector('#agg-actions .no-qualified-banner');
+  assert.ok(bannerCourier,
+    '(c) .no-qualified-banner fires for COURIER-only result on Capture call (total=1 but qualifiedCount=0)');
+  assert.ok(/No qualified volunteers found/i.test(bannerCourier.textContent || ''),
+    '(c) banner text correct (got: "' + (bannerCourier.textContent || '') + '")');
+  // The escalate (PGC) action line must also appear.
+  const escalateLine = docCourier.querySelector('#agg-actions .action-line.escalate');
+  assert.ok(escalateLine, '(c) PGC escalate action-line also renders below the banner');
+  assert.ok(/Game Commission/i.test(escalateLine.textContent || ''),
+    '(c) escalate line references PA Game Commission');
+
+  console.log('PASS: Tier 2 no-qualified bold banner renders in all zero-qualified scenarios (pure-zero, backup, courier-only).');
 }
 
 // ── R2 (c+): when a fully-qualified helper IS in range, the recommendation
