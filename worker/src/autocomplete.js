@@ -78,15 +78,51 @@ function normalizeForPhoton(query) {
 }
 
 /**
+ * Heuristic: does this query look like a street INTERSECTION (two named
+ * segments joined by "&" or "and"), as opposed to a house-number address or
+ * a typed partial? Requires a recognised USPS street-type suffix on EACH side
+ * of the connector to avoid false-positives on college/place names like
+ * "Washington and Jefferson" (no suffix on either side) or "Oak and Elm"
+ * (no suffix). Conservative: returns false when unsure.
+ *
+ * @param {string} query
+ * @returns {boolean}
+ */
+function looksLikeIntersection(query) {
+  var s = String(query || '');
+  // Quick bail: must contain "&" or " and ".
+  if (!/(?:&|\band\b)/i.test(s)) return false;
+  // Split on the first " & " or " and " (word-bounded).
+  var parts = s.split(/\s+(?:&|and)\s+/i);
+  if (parts.length < 2) return false;
+  // Both sides must carry at least one USPS street-type suffix.
+  var suffixRe = /\b(?:St|Ave?|Rd|Blvd|Dr|Ln|Ct|Pl|Way|Ter|Pkwy|Hwy|Street|Avenue|Road|Boulevard|Drive|Lane|Court|Place|Terrace|Parkway|Highway)\.?\b/i;
+  return suffixRe.test(parts[0]) && suffixRe.test(parts[1]);
+}
+
+/**
  * Heuristic: does this query LOOK like a full street address (worth a single
- * exact-match Census call) rather than a typed partial? True when it contains a
- * house-number digit AND (a 5-digit ZIP OR a 2-letter state token). This gates
- * the Census fallback so it never fires per-keystroke — only on a complete,
- * pasted-style address.
+ * exact-match Census call) rather than a typed partial? True when:
+ *   (a) INTERSECTION pattern: two street-suffix segments joined by "&" or
+ *       "and", with a city/state context (comma + trailing 2-letter state or
+ *       5-digit ZIP) so the Census call doesn't fire on a mid-type fragment
+ *       like "Elliott St & Verona Rd" (no city yet).
+ *   (b) HOUSE-NUMBER pattern (existing): contains a digit AND (a 5-digit ZIP
+ *       OR a 2-letter state token).
+ * This gates the Census fallback so it never fires per-keystroke — only on a
+ * complete, pasted-style address or intersection.
  */
 function looksLikeFullAddress(query) {
   var s = String(query || '');
-  // House-number digit anywhere.
+  // (a) Intersection branch: require city/state context (comma + trailing
+  //     2-letter abbrev OR a 5-digit ZIP) so partial "St & Rd" doesn't fire.
+  if (looksLikeIntersection(s)) {
+    var hasZipI = /\b\d{5}(?:-\d{4})?\b/.test(s);
+    // Comma followed (possibly after a city token) by a 2-letter word at end.
+    var hasStateAfterComma = /,[^&]*\b[A-Za-z]{2}\b\s*$/.test(s);
+    return hasZipI || hasStateAfterComma;
+  }
+  // (b) House-number digit anywhere.
   if (!/\d/.test(s)) return false;
   // A 5-digit ZIP, OR a US state token (2-letter, word-boundary, e.g. " PA").
   var hasZip = /\b\d{5}(?:-\d{4})?\b/.test(s);
@@ -134,7 +170,10 @@ function hasHouseNumberMatch(query, suggestions) {
   var s = String(query || '');
   var m = s.match(/^\s*(\d+)\b/);
   if (!m) {
-    // No leading house number to match -> nothing to require.
+    // Intersection pattern: no leading house number, but Census should still be
+    // attempted so the exact corner coordinates can be resolved.
+    if (looksLikeIntersection(s)) return false;
+    // No leading house number and not an intersection -> nothing to require.
     return true;
   }
   var house = m[1];
@@ -402,6 +441,7 @@ module.exports = {
   clampLimit,
   labelFromProps,
   normalizeForPhoton,
+  looksLikeIntersection,
   looksLikeFullAddress,
   hasHouseNumberMatch,
   autocompleteAddress,

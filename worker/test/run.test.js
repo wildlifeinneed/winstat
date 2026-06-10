@@ -43,7 +43,7 @@ const {
   DEFAULT_MARGINAL_THRESHOLD,
 } = require('../src/aggregate');
 const { geocodeAddress } = require('../src/census');
-const { autocompleteAddress, photonGeocode, looksLikeFullAddress, hasHouseNumberMatch, censusAutocompleteFallback } = require('../src/autocomplete');
+const { autocompleteAddress, photonGeocode, looksLikeFullAddress, looksLikeIntersection, hasHouseNumberMatch, censusAutocompleteFallback } = require('../src/autocomplete');
 const { rehabberDistances, drivingDistancesMiles, MAX_MATRIX_DESTINATIONS } = require('../src/distance');
 const { handleRequest } = require('../src/handler');
 
@@ -944,6 +944,102 @@ async function main() {
     assert.strictEqual(censusCalled, false, 'Census must NOT fire when Photon already has the house number');
     assert.strictEqual(body.suggestions.length, 1, 'only the Photon candidate is present');
     assert.ok(/\b564\b/.test(body.suggestions[0].label), 'Photon house-number candidate retained');
+  });
+
+  // (h-int1) INTERSECTION GATE: looksLikeIntersection + looksLikeFullAddress ---
+  await test('(h-int1) looksLikeIntersection detects suffix-bearing intersection queries', () => {
+    // True cases: street suffix on both sides.
+    assert.strictEqual(looksLikeIntersection('Elliott St & Verona Rd, Penn Hills Township, PA'), true, '& with St+Rd');
+    assert.strictEqual(looksLikeIntersection('Main Ave and Oak St, Pittsburgh, PA'), true, 'and with Ave+St');
+    assert.strictEqual(looksLikeIntersection('Route 30 Blvd & Forbes Dr'), true, 'Blvd+Dr');
+    // False cases: no street suffix, or only one side has a suffix, or no connector.
+    assert.strictEqual(looksLikeIntersection('Washington and Jefferson'), false, 'no street suffixes');
+    assert.strictEqual(looksLikeIntersection('Oak and Elm, Pittsburgh, PA'), false, 'no suffix on either side');
+    assert.strictEqual(looksLikeIntersection('Main St, Pittsburgh, PA'), false, 'no & or and connector');
+    assert.strictEqual(looksLikeIntersection('Washington'), false, 'single word');
+    assert.strictEqual(looksLikeIntersection(''), false, 'empty string');
+  });
+
+  await test('(h-int2) looksLikeFullAddress: intersection gate (requires city/state context)', () => {
+    // (a) from task: must return true.
+    assert.strictEqual(looksLikeFullAddress('Elliott St & Verona Rd, Penn Hills Township, PA'), true,
+      '(a) Elliott St & Verona Rd -> true');
+    // (b) from task: must return true.
+    assert.strictEqual(looksLikeFullAddress('Main Ave and Oak St, Pittsburgh, PA'), true,
+      '(b) Main Ave and Oak St -> true');
+    // (c) from task: single word -> false (existing behavior).
+    assert.strictEqual(looksLikeFullAddress('Washington'), false,
+      '(c) "Washington" -> false');
+    // (d) from task: existing digit-gate still works.
+    assert.strictEqual(looksLikeFullAddress('564 E Maiden St, Washington, PA'), true,
+      '(d) house-number address -> true');
+    // Intersection WITHOUT city/state context -> false (no-fire mid-type).
+    assert.strictEqual(looksLikeFullAddress('Elliott St & Verona Rd'), false,
+      'intersection missing city/state -> false (conservative)');
+    // Existing negative cases preserved.
+    assert.strictEqual(looksLikeFullAddress('738 Neo'), false, 'partial no zip/state -> false');
+    assert.strictEqual(looksLikeFullAddress('Neola Road'), false, 'no digit, no intersection -> false');
+    // College name with state -> no suffix on both sides -> looksLikeIntersection=false
+    // -> falls to digit check -> no digit -> false.
+    assert.strictEqual(looksLikeFullAddress('Washington and Jefferson, PA'), false,
+      'college name: no street suffixes -> false');
+  });
+
+  await test('(h-int3) hasHouseNumberMatch returns false for intersections (forces Census)', () => {
+    // Intersection query -> hasHouseNumberMatch must return false so Census fires.
+    assert.strictEqual(
+      hasHouseNumberMatch('Elliott St & Verona Rd, Penn Hills Township, PA', []),
+      false,
+      'intersection with empty Photon list -> false (Census should fire)'
+    );
+    assert.strictEqual(
+      hasHouseNumberMatch('Main Ave and Oak St, Pittsburgh, PA', [
+        { label: 'Main Avenue, Pittsburgh, Pennsylvania' },
+      ]),
+      false,
+      'intersection with street-level Photon list -> false'
+    );
+    // Non-intersection, no leading digit -> true (existing behavior unchanged).
+    assert.strictEqual(
+      hasHouseNumberMatch('Maiden St, Washington, PA', [{ label: 'E Maiden St, Washington, Pennsylvania' }]),
+      true,
+      'plain street query (no digit, no intersection) -> true'
+    );
+  });
+
+  // (h17) INTEGRATION: intersection query -> Census is called and returns corner coords.
+  await test('(h17) "Elliott St & Verona Rd, Penn Hills Township, PA" -> Census fires, corner coords returned', async () => {
+    let censusCalled = false;
+    const routed = async (url) => {
+      const u = String(url);
+      if (u.indexOf('census.gov') !== -1) {
+        censusCalled = true;
+        return {
+          status: 200,
+          json: async () => ({
+            result: {
+              addressMatches: [{
+                matchedAddress: 'ELLIOTT ST & VERONA RD, PENN HILLS, PA, 15235',
+                coordinates: { x: -79.837476, y: 40.498948 },
+              }],
+            },
+          }),
+        };
+      }
+      // Photon: returns empty for an intersection (as expected in the real world).
+      return { status: 200, json: async () => ({ features: [] }) };
+    };
+    const res = await handleRequest(
+      mockRequest('GET', { autocomplete: 'Elliott St & Verona Rd, Penn Hills Township, PA', limit: 5 }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS), fetchFn: routed, allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.strictEqual(censusCalled, true, 'Census fired for intersection query');
+    assert.strictEqual(body.suggestions.length, 1, 'Census corner candidate returned');
+    assert.strictEqual(body.suggestions[0].label, 'ELLIOTT ST & VERONA RD, PENN HILLS, PA, 15235');
+    assert.ok(Math.abs(body.suggestions[0].lat - 40.498948) < 1e-9, 'lat from Census y');
+    assert.ok(Math.abs(body.suggestions[0].lon - (-79.837476)) < 1e-9, 'lon from Census x');
   });
 
   // (i) TIER 2 -- out-of-county context list (PII-safe) ----------------
