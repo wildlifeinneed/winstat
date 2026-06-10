@@ -615,22 +615,36 @@
       font-style: italic;
       padding: 6px 2px;
     }
+    .agg-county-breakdown {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      margin: 0 2px 8px;
+    }
     .ctx-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
     .ctx-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
+      display: block;
       padding: 9px 12px;
       border: 1px solid var(--border);
       border-radius: 8px;
       background: var(--surface);
       font-size: 14px;
-      /* Allow this flex row + its children to shrink below content size so a
-         long unbreakable token (e.g. an unusually long county/area string from
-         the geocoder) wraps INSIDE the viewport instead of forcing the page
-         wider than the screen. */
+      /* min-width:0 constrains this as a flex child of .ctx-list so a long
+         unbreakable token wraps INSIDE the viewport instead of overflowing. */
       min-width: 0;
+    }
+    .ctx-row.unavail { opacity: 0.55; }
+    .ctx-row-top {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+    .ctx-avail-note {
+      margin-top: 4px;
+      font-size: 12px;
+      color: var(--text-muted);
+      font-style: italic;
     }
     .ctx-row .role-badges { display: inline-flex; gap: 5px; flex-wrap: wrap; min-width: 0; }
     .role-badge {
@@ -1160,6 +1174,8 @@
           <div class="sub">in range</div>
         </div>
       </div>
+
+      <div id="agg-county-breakdown" class="agg-county-breakdown" style="display:none;"></div>
 
       <div id="ctx-block" style="display:none;">
         <div class="ctx-header" id="ctx-header">Out-of-county helpers</div>

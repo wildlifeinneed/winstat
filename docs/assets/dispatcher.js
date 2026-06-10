@@ -126,6 +126,9 @@
   var PGC_PHONE = MSG.pgcPhone;
   // Roles that count as "qualified to respond" for the call-PGC decision.
   var QUALIFYING_ROLES = ['C&T', 'RVS C&T', 'COURIER'];
+  // Mirrors Python is_available() deny-list: any of these substrings in
+  // availability_note means the volunteer is currently unavailable.
+  var DENY_WORDS = ['unavail', 'vacation', 'out', 'inactive', 'leave', 'away', 'on hold', 'extended', 'hiatus'];
 
   function $(sel, root) { return (root || document).querySelector(sel); }
   function $$(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
@@ -889,6 +892,14 @@
     return ''; // C&T (default green)
   }
 
+  // Returns true when `note` contains any DENY_WORDS substring (case-insensitive),
+  // meaning this volunteer is currently unavailable. Mirrors Python is_available().
+  function isUnavailNote(note) {
+    if (!note) return false;
+    var lower = String(note).toLowerCase();
+    return DENY_WORDS.some(function (w) { return lower.indexOf(w) !== -1; });
+  }
+
   // Tier 2: render the PII-safe out-of-county context list. Each row = role
   // badges + distance (mi) + coarse area/county context. Rows are already
   // sorted nearest-first by the Worker; preserve that order. Renders the
@@ -1004,10 +1015,21 @@
                   dist >= 0.85 * radiusNum)
         ? '<span class="ctx-edge">' + T2.ctxEdge + '</span>' : '';
 
-      return '<li class="ctx-row">' +
+      // Availability note: show as small italic subtitle; dim row if unavailable.
+      var vNote = row.availability_note ? String(row.availability_note).trim() : '';
+      var unavail = isUnavailNote(vNote);
+      var rowClass = 'ctx-row' + (unavail ? ' unavail' : '');
+      var noteHtml = vNote
+        ? '<div class="ctx-avail-note">' + escapeHtml(vNote) + '</div>'
+        : '';
+
+      return '<li class="' + rowClass + '">' +
+             '<div class="ctx-row-top">' +
              '<span class="role-badges">' + badges + '</span>' +
              '<span class="ctx-dist">' + distTxt + '</span>' +
              ctxTxt + edge +
+             '</div>' +
+             noteHtml +
              '</li>';
     }).join('');
 
@@ -1344,6 +1366,30 @@
     renderAggCard('C&T', ct, avail ? (avail['C&T'] || 0) : undefined, marginalThreshold);
     renderAggCard('RVS C&T', rvs, avail ? (avail['RVS C&T'] || 0) : undefined, marginalThreshold);
     renderAggCard('COURIER', courier, avail ? (avail['COURIER'] || 0) : undefined, marginalThreshold);
+
+    // County breakdown: count volunteers per county from the ooc array and show
+    // a compact "Blair 2, Centre 2, Clearfield 1" line under the role boxes.
+    var countyBreakdownEl = $('#agg-county-breakdown');
+    if (countyBreakdownEl) {
+      var oocForCounty = (agg && Array.isArray(agg.out_of_county)) ? agg.out_of_county : [];
+      var countyCounts = {};
+      oocForCounty.forEach(function (row) {
+        if (row && row.county) {
+          var c = String(row.county).trim();
+          if (c) countyCounts[c] = (countyCounts[c] || 0) + 1;
+        }
+      });
+      var countyKeys = Object.keys(countyCounts).sort();
+      if (countyKeys.length > 0) {
+        countyBreakdownEl.textContent = countyKeys.map(function (c) {
+          return c + ' ' + countyCounts[c];
+        }).join(', ');
+        countyBreakdownEl.style.display = '';
+      } else {
+        countyBreakdownEl.textContent = '';
+        countyBreakdownEl.style.display = 'none';
+      }
+    }
 
     var T2 = MSG.tier2Aggregate;
     var areasEl = $('#agg-areas');

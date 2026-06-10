@@ -3021,6 +3021,146 @@ async function runPremiseLineNonRvsTransport() {
   console.log('PASS: Tier 2 premise line renders "Transport of non-RVS Animal".');
 }
 
+// ── AVAILABILITY INDICATOR: ctx-row shows avail note + unavail dimming. ─────
+//    When availability_note is empty/null -> no note shown.
+//    When note contains a deny keyword -> row gets .unavail + note text.
+//    When note is non-empty but no deny keyword -> note shown, no dimming.
+async function runTier2AvailNote() {
+  const agg = {
+    total_in_range: 4,
+    role_counts: { 'C&T': 2, 'RVS C&T': 1, 'COURIER': 1 },
+    win_areas: ['11'],
+    out_of_county: [
+      // Available (empty note) — no note, no dimming.
+      { roles: ['C&T'], distance_mi: 5.0, win_area: '11', county: 'Beaver', availability_note: '' },
+      // Unavailable keyword 'unavail' — dimmed + note shown.
+      { roles: ['RVS C&T'], distance_mi: 8.0, win_area: '11', county: 'Beaver', availability_note: 'Unavail weekends' },
+      // Non-deny note — note shown, no dimming.
+      { roles: ['C&T'], distance_mi: 11.0, win_area: '12', county: 'Butler', availability_note: 'Avail evenings' },
+      // No availability_note field at all — treated as available (backward compat).
+      { roles: ['COURIER'], distance_mi: 14.0, win_area: '5', county: 'Westmoreland' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc } = await driveTier2(agg, 'Allegheny', { rvs: false, issue: 'transport' });
+
+  const rows = Array.prototype.slice.call(doc.querySelectorAll('#ctx-list .ctx-row'));
+  assert.strictEqual(rows.length, 4, 'all 4 transport-qualified rows render (got ' + rows.length + ')');
+
+  // Row 0: empty note — no .ctx-avail-note, no .unavail class.
+  assert.ok(!rows[0].classList.contains('unavail'),
+    'row 0 (empty note) has no .unavail class');
+  assert.strictEqual(rows[0].querySelectorAll('.ctx-avail-note').length, 0,
+    'row 0 (empty note) has no .ctx-avail-note element');
+
+  // Row 1: 'Unavail weekends' — .unavail class + note text.
+  assert.ok(rows[1].classList.contains('unavail'),
+    'row 1 ("Unavail weekends") has .unavail class');
+  const note1 = rows[1].querySelector('.ctx-avail-note');
+  assert.ok(note1, 'row 1 has .ctx-avail-note element');
+  assert.strictEqual(note1.textContent.trim(), 'Unavail weekends',
+    'row 1 note text is "Unavail weekends" (got: "' + note1.textContent + '")');
+
+  // Row 2: 'Avail evenings' — note shown, NO .unavail dimming.
+  assert.ok(!rows[2].classList.contains('unavail'),
+    'row 2 ("Avail evenings") must NOT be dimmed — non-deny note');
+  const note2 = rows[2].querySelector('.ctx-avail-note');
+  assert.ok(note2, 'row 2 has .ctx-avail-note element');
+  assert.strictEqual(note2.textContent.trim(), 'Avail evenings',
+    'row 2 note text is "Avail evenings" (got: "' + note2.textContent + '")');
+
+  // Row 3: no availability_note field — treated as available, no note.
+  assert.ok(!rows[3].classList.contains('unavail'),
+    'row 3 (no field) has no .unavail class (backward compat)');
+  assert.strictEqual(rows[3].querySelectorAll('.ctx-avail-note').length, 0,
+    'row 3 (no field) has no .ctx-avail-note element');
+
+  // All existing row internals intact: role badges + distance still present.
+  rows.forEach(function (r, i) {
+    assert.ok(r.querySelector('.ctx-row-top'), 'row ' + i + ' has .ctx-row-top inner div');
+    assert.ok(r.querySelector('.role-badge'), 'row ' + i + ' still has a role-badge');
+    assert.ok(r.querySelector('.ctx-dist'), 'row ' + i + ' still has .ctx-dist');
+  });
+
+  // Additional deny-keyword coverage: 'vacation', 'on hold'.
+  const aggExtra = {
+    total_in_range: 2,
+    role_counts: { 'C&T': 2, 'RVS C&T': 0, 'COURIER': 0 },
+    win_areas: ['11'],
+    out_of_county: [
+      { roles: ['C&T'], distance_mi: 4.0, win_area: '11', county: 'Beaver', availability_note: 'On vacation thru July' },
+      { roles: ['C&T'], distance_mi: 7.0, win_area: '11', county: 'Beaver', availability_note: 'On hold' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc: doc2 } = await driveTier2(aggExtra, 'Allegheny', { rvs: false, issue: 'capture' });
+  const rows2 = Array.prototype.slice.call(doc2.querySelectorAll('#ctx-list .ctx-row'));
+  assert.strictEqual(rows2.length, 2, '2 capture-qualified rows for extra keywords test');
+  assert.ok(rows2[0].classList.contains('unavail'),
+    '"On vacation thru July" triggers .unavail');
+  assert.ok(rows2[1].classList.contains('unavail'),
+    '"On hold" triggers .unavail');
+
+  console.log('PASS: Tier 2 avail note — empty note no indicator; deny keyword dims + shows note; non-deny note shown without dimming; no-field backward compat.');
+}
+
+// ── COUNTY BREAKDOWN: compact "Blair 2, Centre 2, Clearfield 1" line under ──
+//    the three role boxes. Counts volunteers per county from ooc array.
+async function runTier2CountyBreakdown() {
+  const agg = {
+    total_in_range: 5,
+    role_counts: { 'C&T': 3, 'RVS C&T': 1, 'COURIER': 1 },
+    win_areas: ['11', '12'],
+    out_of_county: [
+      { roles: ['C&T'], distance_mi: 5.0, win_area: '11', county: 'Blair' },
+      { roles: ['C&T'], distance_mi: 7.0, win_area: '11', county: 'Blair' },
+      { roles: ['RVS C&T'], distance_mi: 9.0, win_area: '12', county: 'Centre' },
+      { roles: ['C&T'], distance_mi: 11.0, win_area: '12', county: 'Centre' },
+      { roles: ['COURIER'], distance_mi: 14.0, win_area: '11', county: 'Clearfield' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc } = await driveTier2(agg, 'Allegheny', { rvs: false, issue: 'capture' });
+
+  const breakdown = doc.getElementById('agg-county-breakdown');
+  assert.ok(breakdown, '#agg-county-breakdown element exists');
+  // The transport/capture filter keeps C&T + RVS C&T (3 rows); COURIER dropped.
+  // County counts come from ALL ooc rows, so Blair 2, Centre 2, Clearfield 1.
+  const txt = (breakdown.textContent || '').trim();
+  assert.ok(txt.indexOf('Blair 2') !== -1,
+    'breakdown contains "Blair 2" (got: "' + txt + '")');
+  assert.ok(txt.indexOf('Centre 2') !== -1,
+    'breakdown contains "Centre 2" (got: "' + txt + '")');
+  assert.ok(txt.indexOf('Clearfield 1') !== -1,
+    'breakdown contains "Clearfield 1" (got: "' + txt + '")');
+  // Alphabetically sorted: Blair < Centre < Clearfield.
+  const blairIdx = txt.indexOf('Blair');
+  const centreIdx = txt.indexOf('Centre');
+  const clearIdx = txt.indexOf('Clearfield');
+  assert.ok(blairIdx < centreIdx && centreIdx < clearIdx,
+    'counties are sorted alphabetically in the breakdown (got: "' + txt + '")');
+
+  // When ooc is empty, the element is hidden (no spurious empty line).
+  const aggEmpty = {
+    total_in_range: 0,
+    role_counts: { 'C&T': 0, 'RVS C&T': 0, 'COURIER': 0 },
+    win_areas: [],
+    out_of_county: [],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc: doc2 } = await driveTier2(aggEmpty, 'Allegheny', { rvs: false, issue: 'capture' });
+  const bd2 = doc2.getElementById('agg-county-breakdown');
+  assert.ok(bd2, '#agg-county-breakdown element exists even when empty');
+  assert.strictEqual(bd2.style.display, 'none',
+    '#agg-county-breakdown is hidden when ooc is empty');
+
+  console.log('PASS: county breakdown — "Blair 2, Centre 2, Clearfield 1" sorted alphabetically; hidden when ooc empty.');
+}
+
 async function run() {
   await runHelpLink();
   await runHelpViewerRenders();
@@ -3068,7 +3208,9 @@ async function run() {
   await runAddressNoHorizontalOverflowCss();
   await runTier2SingleAnimalAreaCoordinator();
   await runTier2NonConnecteamNotice();
-  console.log('\nALL DOM TESTS PASSED (44 scenarios).');
+  await runTier2AvailNote();
+  await runTier2CountyBreakdown();
+  console.log('\nALL DOM TESTS PASSED (46 scenarios).');
 }
 
 run().then(function () {
