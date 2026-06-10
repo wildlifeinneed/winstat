@@ -32,6 +32,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
+import county_pip
 import county_win
 
 logger = logging.getLogger("geocoder")
@@ -220,9 +221,28 @@ def batch_geocode_volunteers(
                 continue
 
         lat, lon = coord
-        home_county = (v.get("county") or "").strip()
-        info = county_win.lookup_county(home_county) if home_county else None
-        win_area = info.area if info is not None else None
+        # Derive home county from the volunteer's actual address coordinates
+        # via point-in-polygon lookup against the PA county GeoJSON. This
+        # ensures each volunteer is counted in exactly ONE county — the one
+        # they physically live in — regardless of which Monday WIN-area
+        # notification columns they have set.
+        pip_result = county_pip.lookup_latlon(lat, lon)
+        if pip_result and pip_result.get("county"):
+            home_county = pip_result["county"]
+            win_area = pip_result.get("win_area") or None
+        else:
+            # Fallback: PIP returned no county (border/outside-PA edge case).
+            # Use the Monday county field and resolve win_area via county_win.
+            home_county = (v.get("county") or "").strip()
+            info = county_win.lookup_county(home_county) if home_county else None
+            win_area = info.area if info is not None else None
+            logger.warning(
+                "PIP returned no county for lat=%.5f lon=%.5f; "
+                "falling back to Monday county %r",
+                lat,
+                lon,
+                home_county,
+            )
 
         out.append(
             {
