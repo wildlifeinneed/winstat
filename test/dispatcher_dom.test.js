@@ -1111,6 +1111,55 @@ async function runTier2LenientBackup() {
   console.log('PASS: Tier 2 lenient recommendation surfaces BACKUP helpers + gap when no qualified helper in range.');
 }
 
+// ── R2 no-qualified banner: bold .no-qualified-banner renders when qualified=0.
+//    Covers two sub-cases:
+//      (a) pure-zero: no ooc context, !hasQualified && !leniencyHandled path.
+//      (b) backup: ooc context present but qualifiedCount=0 and backupCount>0.
+async function runTier2NoQualifiedBanner() {
+  // (a) Pure-zero path: no out_of_county context, all role counts 0.
+  const aggZero = {
+    total_in_range: 0,
+    role_counts: { 'C&T': 0, 'RVS C&T': 0, 'COURIER': 0 },
+    win_areas: [],
+    out_of_county: null, // no ooc -> leniencyHandled stays false
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc: docZero } = await driveTier2(aggZero, 'Allegheny');
+  const bannerZero = docZero.querySelector('#agg-actions .no-qualified-banner');
+  assert.ok(bannerZero, '(a) .no-qualified-banner element renders in pure-zero path');
+  assert.ok(/No qualified volunteers found/i.test(bannerZero.textContent || ''),
+    '(a) banner text contains "No qualified volunteers found" (got: "' + (bannerZero.textContent || '') + '")');
+
+  // (b) Backup path: ooc present, qualifiedCount=0, backupCount>0.
+  const aggBackup = {
+    total_in_range: 2,
+    role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 1 },
+    win_areas: ['11', '5'],
+    out_of_county: [
+      { roles: ['C&T'], distance_mi: 8.0, win_area: '11', county: 'Beaver' },
+      { roles: ['COURIER'], distance_mi: 15.0, win_area: '5', county: 'Westmoreland' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc: docBackup } = await driveTier2(aggBackup, 'Allegheny', { rvs: true, issue: 'capture' });
+  const aggActions = docBackup.getElementById('agg-actions');
+  const bannerBackup = aggActions.querySelector('.no-qualified-banner');
+  assert.ok(bannerBackup, '(b) .no-qualified-banner element renders in backup path');
+  assert.ok(/No qualified volunteers found/i.test(bannerBackup.textContent || ''),
+    '(b) banner text contains "No qualified volunteers found" (got: "' + (bannerBackup.textContent || '') + '")');
+  // Banner must appear BEFORE the backup action-line (first child wins).
+  const children = Array.from(aggActions.children);
+  const bannerIdx = children.indexOf(bannerBackup);
+  const backupLine = aggActions.querySelector('.action-line.escalate');
+  const backupIdx = backupLine ? children.indexOf(backupLine) : -1;
+  assert.ok(bannerIdx !== -1 && backupIdx !== -1 && bannerIdx < backupIdx,
+    '(b) banner appears before the backup escalate line (bannerIdx=' + bannerIdx + ', backupIdx=' + backupIdx + ')');
+
+  console.log('PASS: Tier 2 no-qualified bold banner renders in both zero-qualified scenarios.');
+}
+
 // ── R2 (c+): when a fully-qualified helper IS in range, the recommendation
 //    prefers it (a "go" qualified line, no spurious backup escalation). ──────
 async function runTier2LenientPrefersQualified() {
@@ -2862,6 +2911,7 @@ async function run() {
   await runTier2QualTagRvsCapture();
   await runTier2QualTagCaptureTransport();
   await runTier2LenientBackup();
+  await runTier2NoQualifiedBanner();
   await runTier2LowCapacityWarning();
   await runTier1FallbackFlag();
   await runPremiseLineRvsCapture();
@@ -2885,7 +2935,7 @@ async function run() {
   await runStaleCountyLeakSchuylkill();
   await runAddressNoHorizontalOverflowCss();
   await runTier2SingleAnimalAreaCoordinator();
-  console.log('\nALL DOM TESTS PASSED (42 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (43 scenarios).');
 }
 
 run().then(function () {

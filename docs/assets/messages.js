@@ -169,6 +169,9 @@
       needLabelRvs: 'RVS C&T',
       needLabelTransport: 'C&T / RVS C&T / Courier',
       needLabelCapture: 'C&T / RVS C&T',
+      // Bold banner shown whenever qualified=0 (both pure-zero and backup paths).
+      // {radius} = search radius in miles.
+      noQualifiedBanner: 'No qualified volunteers found within {radius} mi',
       // No-qualified escalation (no leniency handled). {radius}, {phone}.
       noQualifiedEscalate: 'No qualified volunteers within {radius} mi — ask the finder to call <strong>PA Game Commission</strong>: {phone}.',
       // Closest-rehabber suggestion. {name}, {dist}, {site} (computed link or '').

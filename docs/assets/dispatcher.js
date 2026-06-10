@@ -1452,7 +1452,10 @@
         }
         leniencyHandled = true;
       } else if (backupCount > 0) {
-        // No fully-qualified helper in range: surface the backups WITH the gap.
+        // No fully-qualified helper in range: lead with the bold no-qualified banner,
+        // then surface the backups WITH the gap below it.
+        actions.push('<div class="no-qualified-banner">' +
+          escapeHtml(fmt(T2.noQualifiedBanner, { radius: ctx.radius })) + '</div>');
         var bAreaTxt = bAreaList.length
           ? fmt(T2.areaClause, { areas: bAreaList.map(escapeHtml).join(', ') })
           : '';
@@ -1469,6 +1472,8 @@
     }
 
     if (!hasQualified && !leniencyHandled) {
+      actions.push('<div class="no-qualified-banner">' +
+        escapeHtml(fmt(T2.noQualifiedBanner, { radius: ctx.radius })) + '</div>');
       actions.push(actionLine('escalate', '!', fmt(T2.noQualifiedEscalate, {
         radius: ctx.radius, phone: escapeHtml(PGC_PHONE)
       })));
