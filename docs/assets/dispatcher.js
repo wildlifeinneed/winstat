@@ -1417,6 +1417,20 @@
         actions.push(actionLine('go', '→', fmt(T2.qualifiedHelpers, {
           count: qualifiedCount, areaClause: qAreaTxt, radius: ctx.radius
         })));
+        // LOW CAPACITY WARNING: qualified helpers exist but count is at or below
+        // the issue-specific minimum threshold. Nudge the dispatcher to consider
+        // calling PA Game Commission as a backup.
+        var t2ThreshKey = (ctx.issue === 'transport')
+          ? 'courier_transport_min_available'
+          : (ctx.rvs ? 'ct_rvs_capture_min_available' : 'ct_any_capture_min_available');
+        var t2MinAvail = (state.config && typeof state.config[t2ThreshKey] === 'number')
+          ? state.config[t2ThreshKey]
+          : (MSG.thresholds[t2ThreshKey] || 1);
+        if (qualifiedCount <= t2MinAvail) {
+          actions.push(actionLine('escalate', '!', fmt(T2.lowCapacityWarning, {
+            count: qualifiedCount, phone: escapeHtml(PGC_PHONE)
+          })));
+        }
         leniencyHandled = true;
       } else if (backupCount > 0) {
         // No fully-qualified helper in range: surface the backups WITH the gap.

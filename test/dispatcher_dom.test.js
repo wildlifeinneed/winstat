@@ -1139,6 +1139,99 @@ async function runTier2LenientPrefersQualified() {
   console.log('PASS: Tier 2 lenient recommendation prefers a qualified helper when one is in range.');
 }
 
+// ── R2 (low-cap): LOW CAPACITY warning banner in Tier-2 RECOMMENDED ACTIONS.
+//    When qualifiedCount > 0 AND qualifiedCount <= threshold the banner appears
+//    BETWEEN the "Qualified helpers" line and the coordinator line.
+//    It must NOT appear when qualifiedCount = 0 (backup path) or > threshold.
+async function runTier2LowCapacityWarning() {
+  // ── Case 1: qualifiedCount = 1, RVS capture (threshold ct_rvs_capture_min_available = 1)
+  //    -> warning MUST appear.
+  const aggOne = {
+    total_in_range: 3,
+    role_counts: { 'C&T': 0, 'RVS C&T': 1, 'COURIER': 2 },
+    win_areas: ['11'],
+    animal_area: '11',
+    animal_county: 'Beaver',
+    out_of_county: [
+      { roles: ['RVS C&T'], distance_mi: 6.0, win_area: '11', county: 'Beaver' },
+      { roles: ['COURIER'], distance_mi: 9.0, win_area: '11', county: 'Beaver' },
+      { roles: ['COURIER'], distance_mi: 12.0, win_area: '5', county: 'Westmoreland' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc: doc1 } = await driveTier2(aggOne, 'Allegheny', { rvs: true, issue: 'capture' });
+  const actionLines1 = Array.prototype.slice
+    .call(doc1.querySelectorAll('#agg-actions .action-line'))
+    .map(function (el) { return (el.textContent || '').trim(); });
+  const warningLines1 = actionLines1.filter(function (t) {
+    return /Low capacity/i.test(t) && /only 1 qualified/i.test(t);
+  });
+  assert.strictEqual(warningLines1.length, 1,
+    'low-capacity banner appears exactly once when qualifiedCount=1 at threshold (got: ' +
+    JSON.stringify(actionLines1) + ')');
+  // Banner must use the escalate/warning tone (! icon).
+  const warningEls1 = Array.prototype.slice.call(
+    doc1.querySelectorAll('#agg-actions .action-line.escalate')
+  ).filter(function (el) { return /Low capacity/i.test(el.textContent || ''); });
+  assert.strictEqual(warningEls1.length, 1,
+    'low-capacity banner uses orange/escalate tone (! icon)');
+  // Banner must appear AFTER the qualifiedHelpers line and BEFORE the coordinator.
+  const qualIdx = actionLines1.findIndex(function (t) { return /Qualified helpers:/i.test(t); });
+  const lowCapIdx = actionLines1.findIndex(function (t) { return /Low capacity/i.test(t); });
+  const coordIdx = actionLines1.findIndex(function (t) { return /Coordinator:/i.test(t); });
+  assert.ok(qualIdx !== -1, 'qualifiedHelpers line present');
+  assert.ok(qualIdx < lowCapIdx,
+    'low-cap banner appears AFTER qualifiedHelpers line (qual=' + qualIdx + ', lowCap=' + lowCapIdx + ')');
+  if (coordIdx !== -1) {
+    assert.ok(lowCapIdx < coordIdx,
+      'low-cap banner appears BEFORE coordinator line (lowCap=' + lowCapIdx + ', coord=' + coordIdx + ')');
+  }
+  // Banner must include the PGC phone.
+  assert.ok(/833/.test(warningLines1[0]),
+    'low-cap banner includes PGC phone number (got: "' + warningLines1[0] + '")');
+
+  // ── Case 2: qualifiedCount = 2 (above threshold of 1) -> warning must NOT appear.
+  const aggTwo = {
+    total_in_range: 3,
+    role_counts: { 'C&T': 0, 'RVS C&T': 2, 'COURIER': 1 },
+    win_areas: ['11'],
+    out_of_county: [
+      { roles: ['RVS C&T'], distance_mi: 5.0, win_area: '11', county: 'Beaver' },
+      { roles: ['RVS C&T'], distance_mi: 8.0, win_area: '11', county: 'Beaver' },
+      { roles: ['COURIER'], distance_mi: 12.0, win_area: '5', county: 'Westmoreland' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc: doc2 } = await driveTier2(aggTwo, 'Allegheny', { rvs: true, issue: 'capture' });
+  const actions2 = doc2.getElementById('agg-actions').textContent || '';
+  assert.ok(!/Low capacity/i.test(actions2),
+    'no low-cap banner when qualifiedCount=2 (above threshold); got: "' + actions2 + '"');
+
+  // ── Case 3: qualifiedCount = 0 (backup path) -> warning must NOT appear.
+  const aggZero = {
+    total_in_range: 2,
+    role_counts: { 'C&T': 2, 'RVS C&T': 0, 'COURIER': 0 },
+    win_areas: ['11'],
+    out_of_county: [
+      { roles: ['C&T'], distance_mi: 7.0, win_area: '11', county: 'Beaver' },
+      { roles: ['C&T'], distance_mi: 10.0, win_area: '11', county: 'Beaver' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  // RVS capture: C&T-only volunteers do NOT qualify, so qualifiedCount = 0 -> backup path.
+  const { doc: doc3 } = await driveTier2(aggZero, 'Allegheny', { rvs: true, issue: 'capture' });
+  const actions3 = doc3.getElementById('agg-actions').textContent || '';
+  assert.ok(!/Low capacity/i.test(actions3),
+    'no low-cap banner when qualifiedCount=0 (backup path fires instead); got: "' + actions3 + '"');
+  assert.ok(/backup/i.test(actions3),
+    'backup path is active when qualifiedCount=0 (got: "' + actions3 + '")');
+
+  console.log('PASS: Tier 2 low-capacity banner — appears at threshold (q=1), absent above (q=2), absent on backup path (q=0).');
+}
+
 // ── R2 (d): a qualified row still renders its role badge + distance intact
 //    (the qualified-only filter is non-destructive to the row contract). ─────
 async function runTier2QualTagBackcompat() {
@@ -2747,6 +2840,7 @@ async function run() {
   await runTier2QualTagRvsCapture();
   await runTier2QualTagCaptureTransport();
   await runTier2LenientBackup();
+  await runTier2LowCapacityWarning();
   await runTier1FallbackFlag();
   await runPremiseLineRvsCapture();
   await runPremiseLineNonRvsTransport();
@@ -2769,7 +2863,7 @@ async function run() {
   await runStaleCountyLeakSchuylkill();
   await runAddressNoHorizontalOverflowCss();
   await runTier2SingleAnimalAreaCoordinator();
-  console.log('\nALL DOM TESTS PASSED (41 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (42 scenarios).');
 }
 
 run().then(function () {
