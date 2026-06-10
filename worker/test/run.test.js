@@ -1139,7 +1139,7 @@ async function main() {
     'phone', 'email', 'address', 'street', 'city', 'zip', 'home_county',
     'monday_item_id', 'coords', 'coordinates',
   ];
-  const TIER2_ROW_KEYS = ['availability_note', 'connecteam_user', 'county', 'distance_mi', 'name', 'roles', 'win_area'];
+  const TIER2_ROW_KEYS = ['availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'name', 'roles', 'win_area'];
 
   // Deep-walk every key in an object/array tree, collecting key names.
   function collectKeys(node, out) {
@@ -1198,11 +1198,13 @@ async function main() {
     assert.strictEqual(rows[0].county, 'Lebanon');
     assert.deepStrictEqual(rows[1].roles, ['COURIER']);
     assert.strictEqual(rows[1].county, 'Lancaster');
-    // name + availability_note are passed through from KV record.
+    // name + availability_note + available are passed through from KV record.
     assert.strictEqual(rows[0].name, 'Bob', 'Lebanon row carries name');
     assert.strictEqual(rows[0].availability_note, 'Evenings M-F', 'Lebanon row carries availability_note');
+    assert.strictEqual(rows[0].available, true, 'Lebanon row (no available field in KV) defaults to true');
     assert.strictEqual(rows[1].name, 'Carol', 'Lancaster row carries name');
     assert.strictEqual(rows[1].availability_note, '', 'Lancaster row carries empty availability_note when absent');
+    assert.strictEqual(rows[1].available, true, 'Lancaster row (no available field in KV) defaults to true');
     // Each row carries ONLY the whitelisted keys.
     for (const r of rows) {
       assert.deepStrictEqual(Object.keys(r).sort(), TIER2_ROW_KEYS,
@@ -1273,9 +1275,10 @@ async function main() {
     );
     assert.strictEqual(res.status, 200);
     const body = await res.json();
-    // Top-level whitelist (now includes availability fields + animal coords + distance_mode).
+    // Top-level whitelist (now includes availability fields + animal coords + distance_mode + county_by_role).
     assert.deepStrictEqual(Object.keys(body).sort(),
-      ['animal_area', 'animal_county', 'animal_geoid', 'animal_lat', 'animal_lon', 'distance_mode', 'marginal_threshold', 'out_of_county',
+      ['animal_area', 'animal_county', 'animal_geoid', 'animal_lat', 'animal_lon', 'county_by_role',
+       'distance_mode', 'marginal_threshold', 'out_of_county',
        'out_of_county_truncated', 'radius_too_broad', 'role_available',
        'role_counts', 'total_available', 'total_in_range', 'win_areas']);
     // No ORS key in deps -> straight_line fallback.
@@ -1614,6 +1617,83 @@ async function main() {
     assert.strictEqual(legacy.total_in_range, 4);
   });
 
+  // (jc) COUNTY_BY_ROLE -- per-role county breakdown for ALL in-radius vols -----
+  // county_by_role must count ALL volunteers in radius per role regardless of
+  // whether they are qualified (OOC-filtered). This is the fix for the DuBois
+  // bug where COURIER boxes showed "in range" because ooc was qualified-only.
+  await test('(jc1) findVolunteersInRadius emits county_by_role for all in-radius volunteers', () => {
+    const agg = findVolunteersInRadius(ANIMAL.lat, ANIMAL.lon, 20, COORDS);
+    // COORDS within 20mi: Dauphin (C&T+COURIER), Lebanon (RVS C&T), Lancaster (COURIER).
+    assert.ok(agg.county_by_role, 'county_by_role present in aggregate');
+    assert.deepStrictEqual(Object.keys(agg.county_by_role).sort(), ['C&T', 'COURIER', 'RVS C&T'],
+      'county_by_role has all 3 role keys');
+    assert.deepStrictEqual(agg.county_by_role['C&T'], { Dauphin: 1 }, 'C&T: Dauphin 1');
+    assert.deepStrictEqual(agg.county_by_role['RVS C&T'], { Lebanon: 1 }, 'RVS C&T: Lebanon 1');
+    assert.deepStrictEqual(agg.county_by_role['COURIER'], { Dauphin: 1, Lancaster: 1 }, 'COURIER: Dauphin 1 + Lancaster 1');
+  });
+
+  await test('(jc2) buildTier2Response whitelists county_by_role in the response', () => {
+    const agg = findVolunteersInRadius(ANIMAL.lat, ANIMAL.lon, 20, COORDS);
+    // Pass qualified-only rows (C&T+RVS C&T filter, dropping COURIER Lancaster).
+    const rows = findContextRows(ANIMAL.lat, ANIMAL.lon, 20, COORDS, 'Dauphin', null, 'C&T,RVS C&T');
+    const resp = buildTier2Response(agg, rows);
+    // Top-level key present.
+    assert.ok('county_by_role' in resp, 'county_by_role present in Tier 2 response');
+    assert.deepStrictEqual(Object.keys(resp.county_by_role).sort(), ['C&T', 'COURIER', 'RVS C&T']);
+    // county_by_role reflects ALL in-radius volunteers, not just the ooc/qualified set.
+    // COURIER has Dauphin+Lancaster even though Lancaster COURIER was dropped from ooc.
+    assert.deepStrictEqual(resp.county_by_role['COURIER'], { Dauphin: 1, Lancaster: 1 },
+      'COURIER county_by_role includes Lancaster even though its ooc row was filtered out');
+    // The ooc list itself has only the qualified rows.
+    assert.strictEqual(resp.out_of_county.length, 1, 'ooc has only the 1 qualified (Lebanon RVS C&T)');
+    assert.strictEqual(resp.out_of_county[0].county, 'Lebanon');
+  });
+
+  await test('(jc3) buildTier2Response: county_by_role absent in aggregate -> empty objects', () => {
+    const resp = buildTier2Response(
+      { total_in_range: 2, role_counts: { 'C&T': 2, 'RVS C&T': 0, 'COURIER': 0 }, win_areas: [] },
+      []
+    );
+    assert.ok('county_by_role' in resp, 'county_by_role key always present');
+    assert.deepStrictEqual(resp.county_by_role['C&T'], {}, 'absent county_by_role becomes empty object');
+    assert.deepStrictEqual(resp.county_by_role['COURIER'], {});
+  });
+
+  await test('(jc4) findContextRows rows carry available boolean', () => {
+    // Use COORDS_AVAIL which has explicit available: true/false fields.
+    // Lebanon (RVS C&T, available: false) and Lancaster (COURIER, available: true)
+    // are the two out-of-county rows at 20mi.
+    const rows = findContextRows(ANIMAL.lat, ANIMAL.lon, 20, COORDS_AVAIL, 'Dauphin');
+    // Lebanon (RVS C&T) has available: false.
+    const lebanon = rows.find((r) => r.county === 'Lebanon');
+    assert.ok(lebanon, 'Lebanon row present');
+    assert.strictEqual(lebanon.available, false, 'Lebanon available=false propagates to row');
+    // Lancaster (COURIER) has available: true.
+    const lancaster = rows.find((r) => r.county === 'Lancaster');
+    assert.ok(lancaster, 'Lancaster row present');
+    assert.strictEqual(lancaster.available, true, 'Lancaster available=true propagates to row');
+  });
+
+  await test('(jc5) buildTier2Response whitelists available boolean in ooc rows', () => {
+    const rows = findContextRows(ANIMAL.lat, ANIMAL.lon, 20, COORDS_AVAIL, 'Dauphin');
+    const resp = buildTier2Response(
+      findVolunteersInRadius(ANIMAL.lat, ANIMAL.lon, 20, COORDS_AVAIL),
+      rows
+    );
+    for (const r of resp.out_of_county) {
+      assert.ok('available' in r, 'available field present in ooc row');
+      assert.strictEqual(typeof r.available, 'boolean', 'available is boolean');
+    }
+    // Lebanon (available: false in KV) -> available: false in ooc row.
+    const lebanon = resp.out_of_county.find((r) => r.county === 'Lebanon');
+    assert.ok(lebanon, 'Lebanon in ooc');
+    assert.strictEqual(lebanon.available, false, 'Lebanon available=false in ooc row');
+    // Lancaster (available: true) -> available: true.
+    const lancaster = resp.out_of_county.find((r) => r.county === 'Lancaster');
+    assert.ok(lancaster, 'Lancaster in ooc');
+    assert.strictEqual(lancaster.available, true, 'Lancaster available=true in ooc row');
+  });
+
   // (k) REHABBER DRIVING-DISTANCE route (ORS Matrix + haversine fallback) ----
   // Rehabber coords are PUBLIC, so this route is PII-safe. ORS key from env;
   // when missing/empty or the call fails, it degrades to haversine (no time).
@@ -1906,7 +1986,7 @@ async function main() {
     // returns 600s = 10 min for every cell). Row whitelist now includes it.
     assert.strictEqual(ctx.rows[0].duration_min, 10, 'driving row carries duration_min (minutes)');
     assert.deepStrictEqual(Object.keys(ctx.rows[0]).sort(),
-      ['availability_note', 'connecteam_user', 'county', 'distance_mi', 'duration_min', 'name', 'roles', 'win_area']);
+      ['availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'duration_min', 'name', 'roles', 'win_area']);
 
     // Fallback path (no key) -> straight_line, both out-of-county rows present.
     const fb = await findContextRowsDriving(
@@ -1919,7 +1999,7 @@ async function main() {
       assert.ok(!('duration_min' in r), 'straight_line row has NO duration_min');
     });
     assert.deepStrictEqual(Object.keys(fb.rows[0]).sort(),
-      ['availability_note', 'connecteam_user', 'county', 'distance_mi', 'name', 'roles', 'win_area']);
+      ['availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'name', 'roles', 'win_area']);
   });
 
   await test('(l10) handler end-to-end: driving mode, ORS sees only coords, PII-safe', async () => {

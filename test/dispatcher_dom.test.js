@@ -3103,18 +3103,49 @@ async function runTier2AvailNote() {
   assert.ok(rows2[1].classList.contains('unavail'),
     '"On hold" triggers .unavail');
 
-  console.log('PASS: Tier 2 avail note — empty note no indicator; deny keyword dims + shows note; non-deny note shown without dimming; no-field backward compat.');
+  // Bug 2 fix: available: false with BLANK note must still dim the row.
+  // This is the DuBois scenario — Worker marks volunteer unavailable (available: false)
+  // but the availability_note text field is empty. The row must be dimmed.
+  const aggAvailFalse = {
+    total_in_range: 2,
+    role_counts: { 'C&T': 0, 'RVS C&T': 2, 'COURIER': 0 },
+    win_areas: ['6'],
+    out_of_county: [
+      // available: false with blank note -> row MUST be dimmed.
+      { roles: ['RVS C&T'], distance_mi: 15.0, win_area: '6', county: 'Blair', available: false, availability_note: '' },
+      // available: true with blank note -> row must NOT be dimmed.
+      { roles: ['RVS C&T'], distance_mi: 22.0, win_area: '6', county: 'Centre', available: true, availability_note: '' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc: docAF } = await driveTier2(aggAvailFalse, 'Clearfield', { rvs: true, issue: 'capture' });
+  const rowsAF = Array.prototype.slice.call(docAF.querySelectorAll('#ctx-list .ctx-row'));
+  assert.strictEqual(rowsAF.length, 2, '2 RVS C&T rows rendered for available=false test');
+  assert.ok(rowsAF[0].classList.contains('unavail'),
+    'row 0 (available=false, blank note) must have .unavail class (Bug 2 fix)');
+  assert.ok(!rowsAF[1].classList.contains('unavail'),
+    'row 1 (available=true, blank note) must NOT have .unavail class');
+
+  console.log('PASS: Tier 2 avail note — empty note no indicator; deny keyword dims + shows note; non-deny note shown without dimming; no-field backward compat; available=false blank-note dimming (Bug 2 fix).');
 }
 
 // ── COUNTY BREAKDOWN: per-role county list inside each role card's .sub. ────
 //    Each card shows only the counties relevant to THAT role (not aggregate).
-//    C&T box: Blair 2, Centre 1.  RVS C&T box: Centre 1.  COURIER: Clearfield 1.
+//    With county_by_role: C&T box: Blair 2, Centre 1.  RVS C&T box: Centre 1.  COURIER: Clearfield 1.
 //    The standalone #agg-county-breakdown div is always hidden (superseded).
+//    Also tests the DuBois bug: non-RVS Capture with qualify_roles filter returns
+//    only C&T/RVS C&T in ooc, but county_by_role still shows COURIER counties.
 async function runTier2CountyBreakdown() {
   const agg = {
     total_in_range: 5,
     role_counts: { 'C&T': 3, 'RVS C&T': 1, 'COURIER': 1 },
     win_areas: ['11', '12'],
+    county_by_role: {
+      'C&T':     { Blair: 2, Centre: 1 },
+      'RVS C&T': { Centre: 1 },
+      'COURIER': { Clearfield: 1 },
+    },
     out_of_county: [
       { roles: ['C&T'], distance_mi: 5.0, win_area: '11', county: 'Blair' },
       { roles: ['C&T'], distance_mi: 7.0, win_area: '11', county: 'Blair' },
@@ -3127,7 +3158,7 @@ async function runTier2CountyBreakdown() {
   };
   const { doc } = await driveTier2(agg, 'Allegheny', { rvs: false, issue: 'capture' });
 
-  // ── C&T card: 2 C&T rows in Blair + 1 C&T row in Centre → "Blair 2, Centre 1"
+  // ── C&T card: county_by_role says Blair 2 + Centre 1
   const ctCard = doc.querySelector('.cap-card[data-bucket="C&T"]');
   assert.ok(ctCard, 'C&T cap-card exists');
   const ctSub = ctCard && ctCard.querySelector('.sub');
@@ -3138,12 +3169,12 @@ async function runTier2CountyBreakdown() {
   assert.ok(/Centre.1/.test(ctTxt),
     'C&T sub has "Centre 1" (got: "' + ctTxt + '")');
   assert.ok(!/Clearfield/.test(ctTxt),
-    'C&T sub must NOT show Clearfield (no C&T rows there; got: "' + ctTxt + '")');
+    'C&T sub must NOT show Clearfield (got: "' + ctTxt + '")');
   // Alphabetically sorted: Blair before Centre.
   assert.ok(ctTxt.indexOf('Blair') < ctTxt.indexOf('Centre'),
     'C&T sub is sorted alpha: Blair before Centre (got: "' + ctTxt + '")');
 
-  // ── RVS C&T card: 1 RVS C&T row in Centre → "Centre 1"
+  // ── RVS C&T card: county_by_role says Centre 1
   const rvsCard = doc.querySelector('.cap-card[data-bucket="RVS C&T"]');
   assert.ok(rvsCard, 'RVS C&T cap-card exists');
   const rvsSub = rvsCard && rvsCard.querySelector('.sub');
@@ -3154,7 +3185,7 @@ async function runTier2CountyBreakdown() {
   assert.ok(!/Blair/.test(rvsTxt),
     'RVS C&T sub must NOT show Blair (got: "' + rvsTxt + '")');
 
-  // ── COURIER card: 1 COURIER row in Clearfield → "Clearfield 1"
+  // ── COURIER card: county_by_role says Clearfield 1
   const courierCard = doc.querySelector('.cap-card[data-bucket="COURIER"]');
   assert.ok(courierCard, 'COURIER cap-card exists');
   const courierSub = courierCard && courierCard.querySelector('.sub');
@@ -3171,7 +3202,52 @@ async function runTier2CountyBreakdown() {
   assert.strictEqual(breakdown.style.display, 'none',
     '#agg-county-breakdown is always hidden (superseded by per-role subs)');
 
-  // ── When ooc is empty each card falls back to "in range"; div stays hidden.
+  // ── DuBois bug scenario: qualify_roles filtered COURIER from ooc but
+  //    county_by_role still has COURIER county data. The box must show it.
+  const aggDuBois = {
+    total_in_range: 7,
+    role_counts: { 'C&T': 0, 'RVS C&T': 2, 'COURIER': 5 },
+    win_areas: ['6'],
+    county_by_role: {
+      'C&T':     {},
+      'RVS C&T': { Blair: 1, Centre: 1 },
+      'COURIER': { Clearfield: 2, Blair: 1, Centre: 1, Huntingdon: 1 },
+    },
+    // Only qualified rows (RVS C&T) — COURIER rows were filtered by qualify_roles.
+    out_of_county: [
+      { roles: ['RVS C&T'], distance_mi: 15.0, win_area: '6', county: 'Blair' },
+      { roles: ['RVS C&T'], distance_mi: 22.0, win_area: '6', county: 'Centre' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc: docDB } = await driveTier2(aggDuBois, 'Clearfield', { rvs: false, issue: 'capture' });
+
+  // C&T box: county_by_role['C&T'] is empty -> "in range" fallback.
+  const ctSubDB = docDB.querySelector('.cap-card[data-bucket="C&T"] .sub');
+  assert.ok(ctSubDB && ctSubDB.textContent === 'in range',
+    'C&T sub falls back to "in range" when county_by_role is empty (got: "' + (ctSubDB && ctSubDB.textContent) + '")');
+
+  // RVS C&T box: county_by_role says Blair 1, Centre 1 (from county_by_role, not ooc).
+  const rvsSubDB = docDB.querySelector('.cap-card[data-bucket="RVS C&T"] .sub');
+  const rvsTxtDB = (rvsSubDB && rvsSubDB.textContent || '').trim();
+  assert.ok(/Blair.1/.test(rvsTxtDB),
+    'RVS C&T sub shows Blair 1 from county_by_role (got: "' + rvsTxtDB + '")');
+  assert.ok(/Centre.1/.test(rvsTxtDB),
+    'RVS C&T sub shows Centre 1 from county_by_role (got: "' + rvsTxtDB + '")');
+
+  // COURIER box: county_by_role has data even though no COURIER rows in ooc.
+  // This was the DuBois bug — used to show "in range" because ooc had 0 COURIER rows.
+  const courierSubDB = docDB.querySelector('.cap-card[data-bucket="COURIER"] .sub');
+  const courierTxtDB = (courierSubDB && courierSubDB.textContent || '').trim();
+  assert.ok(/Clearfield.2/.test(courierTxtDB),
+    'COURIER sub shows Clearfield 2 from county_by_role (DuBois fix; got: "' + courierTxtDB + '")');
+  assert.ok(/Blair.1/.test(courierTxtDB),
+    'COURIER sub shows Blair 1 from county_by_role (got: "' + courierTxtDB + '")');
+  assert.ok(courierTxtDB !== 'in range',
+    'COURIER sub must NOT show "in range" when county_by_role has data (DuBois fix)');
+
+  // ── When ooc is empty AND county_by_role absent -> each card falls back to "in range"; div stays hidden.
   const aggEmpty = {
     total_in_range: 0,
     role_counts: { 'C&T': 0, 'RVS C&T': 0, 'COURIER': 0 },
@@ -3183,13 +3259,13 @@ async function runTier2CountyBreakdown() {
   const { doc: doc2 } = await driveTier2(aggEmpty, 'Allegheny', { rvs: false, issue: 'capture' });
   const ctSub2 = doc2.querySelector('.cap-card[data-bucket="C&T"] .sub');
   assert.ok(ctSub2 && ctSub2.textContent === 'in range',
-    'C&T sub shows "in range" when ooc is empty (got: "' + (ctSub2 && ctSub2.textContent) + '")');
+    'C&T sub shows "in range" when ooc is empty and no county_by_role (got: "' + (ctSub2 && ctSub2.textContent) + '")');
   const bd2 = doc2.getElementById('agg-county-breakdown');
   assert.ok(bd2, '#agg-county-breakdown element exists even when ooc empty');
   assert.strictEqual(bd2.style.display, 'none',
     '#agg-county-breakdown is hidden when ooc is empty');
 
-  console.log('PASS: county breakdown per-role inside each card — C&T Blair\u00a02/Centre\u00a01, RVS C&T Centre\u00a01, COURIER Clearfield\u00a01; standalone div always hidden; "in range" fallback when empty.');
+  console.log('PASS: county breakdown per-role inside each card — uses county_by_role; DuBois COURIER fix; fallback to ooc; "in range" when empty.');
 }
 
 async function run() {

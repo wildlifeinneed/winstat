@@ -1016,8 +1016,11 @@
         ? '<span class="ctx-edge">' + T2.ctxEdge + '</span>' : '';
 
       // Availability note: show as small italic subtitle; dim row if unavailable.
+      // A row is unavailable when `available === false` (set by the Worker from
+      // the KV `available` field) OR when the note text contains a deny keyword.
+      // This handles the case where available=false but availability_note is blank.
       var vNote = row.availability_note ? String(row.availability_note).trim() : '';
-      var unavail = isUnavailNote(vNote);
+      var unavail = (row.available === false) || isUnavailNote(vNote);
       var rowClass = 'ctx-row' + (unavail ? ' unavail' : '');
       var noteHtml = vNote
         ? '<div class="ctx-avail-note">' + escapeHtml(vNote) + '</div>'
@@ -1377,21 +1380,30 @@
       countyBreakdownEl.style.display = 'none';
     }
     var oocArr = (agg && Array.isArray(agg.out_of_county)) ? agg.out_of_county : [];
+    var countyByRole = (agg && agg.county_by_role && typeof agg.county_by_role === 'object') ? agg.county_by_role : null;
     ['C&T', 'RVS C&T', 'COURIER'].forEach(function (bucket) {
       var card = document.querySelector('.cap-card[data-bucket="' + bucket + '"]');
       if (!card) return;
       var subEl = $('.sub', card);
       if (!subEl) return;
-      var roleCountyCounts = {};
-      oocArr.forEach(function (row) {
-        if (!row) return;
-        var roleList = Array.isArray(row.roles) ? row.roles : [];
-        if (roleList.indexOf(bucket) === -1) return;
-        if (row.county) {
-          var c = String(row.county).trim();
-          if (c) roleCountyCounts[c] = (roleCountyCounts[c] || 0) + 1;
-        }
-      });
+      var roleCountyCounts;
+      if (countyByRole && countyByRole[bucket] && typeof countyByRole[bucket] === 'object') {
+        // Use county_by_role from Worker — counts ALL in-radius volunteers per role,
+        // regardless of qualification. Fixes breakdown when ooc is qualified-only.
+        roleCountyCounts = countyByRole[bucket];
+      } else {
+        // Fallback: derive from ooc rows (backward compat with older Worker responses).
+        roleCountyCounts = {};
+        oocArr.forEach(function (row) {
+          if (!row) return;
+          var roleList = Array.isArray(row.roles) ? row.roles : [];
+          if (roleList.indexOf(bucket) === -1) return;
+          if (row.county) {
+            var c = String(row.county).trim();
+            if (c) roleCountyCounts[c] = (roleCountyCounts[c] || 0) + 1;
+          }
+        });
+      }
       var countyKeys = Object.keys(roleCountyCounts).sort();
       subEl.textContent = countyKeys.length > 0
         ? countyKeys.map(function (c) { return c + '\u00a0' + roleCountyCounts[c]; }).join(', ')

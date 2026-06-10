@@ -181,9 +181,11 @@ function findVolunteersInRadius(animalLat, animalLon, radiusMi, coordsDataset, d
 
   const roleCounts = {};
   const roleAvailable = {};
+  const countyByRole = {};
   for (const role of QUALIFYING_ROLES) {
     roleCounts[role] = 0;
     roleAvailable[role] = 0;
+    countyByRole[role] = {};
   }
   const winAreas = new Set();
   let total = 0;
@@ -214,10 +216,16 @@ function findVolunteersInRadius(animalLat, animalLon, radiusMi, coordsDataset, d
     if (available) {
       totalAvailable += 1;
     }
+    const recCounty =
+      rec.home_county !== null && rec.home_county !== undefined && String(rec.home_county).trim() !== ''
+        ? String(rec.home_county).trim() : '';
     for (const role of rolesOf(rec)) {
       roleCounts[role] += 1;
       if (available) {
         roleAvailable[role] += 1;
+      }
+      if (recCounty) {
+        countyByRole[role][recCounty] = (countyByRole[role][recCounty] || 0) + 1;
       }
     }
 
@@ -233,6 +241,7 @@ function findVolunteersInRadius(animalLat, animalLon, radiusMi, coordsDataset, d
     role_available: roleAvailable,
     total_available: totalAvailable,
     win_areas: Array.from(winAreas).sort(),
+    county_by_role: countyByRole,
   };
 }
 
@@ -295,9 +304,11 @@ function prescreenByHaversine(animalLat, animalLon, radiusMi, coordsDataset) {
 function aggregateRecords(records, keep) {
   const roleCounts = {};
   const roleAvailable = {};
+  const countyByRole = {};
   for (const role of QUALIFYING_ROLES) {
     roleCounts[role] = 0;
     roleAvailable[role] = 0;
+    countyByRole[role] = {};
   }
   const winAreas = new Set();
   let total = 0;
@@ -311,10 +322,16 @@ function aggregateRecords(records, keep) {
     if (available) {
       totalAvailable += 1;
     }
+    const recCounty =
+      rec.home_county !== null && rec.home_county !== undefined && String(rec.home_county).trim() !== ''
+        ? String(rec.home_county).trim() : '';
     for (const role of rolesOf(rec)) {
       roleCounts[role] += 1;
       if (available) {
         roleAvailable[role] += 1;
+      }
+      if (recCounty) {
+        countyByRole[role][recCounty] = (countyByRole[role][recCounty] || 0) + 1;
       }
     }
     const area = rec.win_area;
@@ -329,6 +346,7 @@ function aggregateRecords(records, keep) {
     role_available: roleAvailable,
     total_available: totalAvailable,
     win_areas: Array.from(winAreas).sort(),
+    county_by_role: countyByRole,
   };
 }
 
@@ -448,6 +466,7 @@ async function findContextRowsDriving(
       name: (rec.name !== null && rec.name !== undefined) ? String(rec.name) : null,
       availability_note: (rec.availability_note !== null && rec.availability_note !== undefined)
         ? String(rec.availability_note) : '',
+      available: isAvailableRecord(rec),
       connecteam_user: rec.connecteam_user === true,
     };
     // DRIVING TIME: surface the per-volunteer driving minutes ONLY in driving
@@ -622,6 +641,7 @@ function findContextRows(animalLat, animalLon, radiusMi, coordsDataset, excludeC
       name: (rec.name !== null && rec.name !== undefined) ? String(rec.name) : null,
       availability_note: (rec.availability_note !== null && rec.availability_note !== undefined)
         ? String(rec.availability_note) : '',
+      available: isAvailableRecord(rec),
       connecteam_user: rec.connecteam_user === true,
     });
   }
@@ -746,6 +766,7 @@ function buildTier2Response(aggregate, contextRows, distanceMode) {
       name: (r.name !== null && r.name !== undefined) ? r.name : null,
       availability_note: (r.availability_note !== null && r.availability_note !== undefined)
         ? r.availability_note : '',
+      available: r.available !== false,
       connecteam_user: r.connecteam_user === true,
     };
     if (Number.isFinite(r.duration_min)) {
@@ -754,6 +775,26 @@ function buildTier2Response(aggregate, contextRows, distanceMode) {
     return o;
   });
 
+  // county_by_role: whitelist each role's county-count map from the aggregate.
+  // This lets the frontend show a county breakdown for ALL volunteers per role,
+  // not just the qualified subset returned in out_of_county.
+  const countyByRole = {};
+  for (const role of QUALIFYING_ROLES) {
+    const src = agg.county_by_role && agg.county_by_role[role];
+    if (src && typeof src === 'object' && !Array.isArray(src)) {
+      const whitelisted = {};
+      for (const county of Object.keys(src)) {
+        const n = Number(src[county]);
+        if (Number.isFinite(n) && n > 0) {
+          whitelisted[county] = n;
+        }
+      }
+      countyByRole[role] = whitelisted;
+    } else {
+      countyByRole[role] = {};
+    }
+  }
+
   return {
     total_in_range: totalInRange,
     role_counts: roleCounts,
@@ -761,6 +802,7 @@ function buildTier2Response(aggregate, contextRows, distanceMode) {
     total_available: totalAvailable,
     marginal_threshold: DEFAULT_MARGINAL_THRESHOLD,
     win_areas: winAreas,
+    county_by_role: countyByRole,
     out_of_county: outOfCounty,
     out_of_county_truncated: overflow,
     radius_too_broad: overflow,
