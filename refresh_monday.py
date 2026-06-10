@@ -1596,71 +1596,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if rec is not None:
                 volunteers.append(rec)
 
-    # Phase B — geocode volunteer addresses into the PRIVATE coords dataset.
-    # This runs BEFORE build_snapshot so that the PIP-derived home county can
-    # be used for county_capacity.json aggregation. Each volunteer is counted
-    # in exactly ONE county — the county their address geocodes into — rather
-    # than whatever county (or multi-area list) the Monday board column shows.
-    #
-    # Built from the same raw items; the geocoder strips all PII and emits only
-    # {lat,lon,roles,home_county,win_area}. Written to a GITIGNORED path
-    # (COORDS_REL_PATH) and never committed. Idempotent: reuses cached coords
-    # from any existing output when the address signature is unchanged.
-    coords_path = Path(__file__).resolve().parent / COORDS_REL_PATH
-    # build_geocode_input always returns a non-None dict; the list is
-    # positionally aligned with all_raw_items (and therefore with volunteers).
-    geocode_inputs: List[Dict[str, Any]] = [
-        build_geocode_input(item, column_ids) for item in all_raw_items
-    ]
-
-    existing_coords = load_existing_snapshot(coords_path)
-    existing_coord_records = (
-        existing_coords if isinstance(existing_coords, list) else None
-    )
-    coords = geocoder.batch_geocode_volunteers(
-        geocode_inputs, existing=existing_coord_records, session=session
-    )
-
-    # Patch each volunteer record with the PIP-derived home county so that
-    # aggregate_by_county (called inside build_snapshot) counts each volunteer
-    # in exactly the county they physically live in.
-    _addr_sig_to_home: Dict[str, Dict[str, Any]] = {
-        rec["_addr_sig"]: {
-            "home_county": rec["home_county"],
-            "home_win_area": rec.get("win_area"),
-        }
-        for rec in coords
-        if rec.get("_addr_sig") and rec.get("home_county")
-    }
-    _pip_patched = 0
-    _pip_missing = 0
-    for v, gin in zip(volunteers, geocode_inputs):
-        sig = geocoder._address_signature(
-            gin.get("street", ""),
-            gin.get("city", ""),
-            gin.get("state", ""),
-            gin.get("zip", ""),
-        )
-        pip_info = _addr_sig_to_home.get(sig)
-        if pip_info:
-            v["county"] = pip_info["home_county"]
-            v["home_county"] = pip_info["home_county"]
-            v["home_win_area"] = pip_info["home_win_area"]
-            _pip_patched += 1
-        else:
-            # No geocode result — keep Monday county as fallback.
-            _pip_missing += 1
-            logger.debug(
-                "No PIP coord for volunteer county=%r; using Monday county",
-                v.get("county"),
-            )
-    logger.info(
-        "PIP home-county patched %d/%d volunteers (%d kept Monday county)",
-        _pip_patched,
-        len(volunteers),
-        _pip_missing,
-    )
-
     snapshot = build_snapshot(
         volunteers, group_id=",".join(group_ids.values()), config=config
     )
@@ -1684,6 +1619,26 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 sidecar_path,
                 _format_iso_z(remote_ts),
             )
+
+    # Phase B — geocode volunteer addresses into the PRIVATE coords dataset.
+    # Built from the same raw items; the geocoder strips all PII and emits only
+    # {lat,lon,roles,home_county,win_area}. Written to a GITIGNORED path
+    # (COORDS_REL_PATH) and never committed. Idempotent: reuses cached coords
+    # from any existing output when the address signature is unchanged.
+    coords_path = Path(__file__).resolve().parent / COORDS_REL_PATH
+    geocode_inputs: List[Dict[str, Any]] = []
+    for item in all_raw_items:
+        gin = build_geocode_input(item, column_ids)
+        if gin is not None:
+            geocode_inputs.append(gin)
+
+    existing_coords = load_existing_snapshot(coords_path)
+    existing_coord_records = (
+        existing_coords if isinstance(existing_coords, list) else None
+    )
+    coords = geocoder.batch_geocode_volunteers(
+        geocode_inputs, existing=existing_coord_records, session=session
+    )
 
     if args.dry_run:
         logger.info(
