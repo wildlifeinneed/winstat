@@ -3024,6 +3024,73 @@ async function runTier2NonConnecteamNotice() {
   console.log('PASS: non-Connecteam notice — count=1 shown in info tone after qualifiedHelpers; absent when all on app; absent when field missing.');
 }
 
+// ── REGRESSION-LOCK (2026-06-10): Connecteam banner is strict TRI-STATE ──────
+// Anti-regression for the false "7 of 7 not on Connecteam" banner. The banner
+// must count ONLY rows whose connecteam_user === false. true is NOT flagged
+// (the live DuBois board is all-true => banner count 0), and unknown — whether
+// the field is MISSING, null, or undefined — is NOT counted as non-Connecteam
+// (backward-compat). This locks the dispatcher.js `r.connecteam_user === false`
+// rule (see the worker's normalizeConnecteamUser tri-state).
+async function runRegressionConnecteamTriState() {
+  // (A) DuBois-style fixture: every qualified row is on Connecteam (=== true).
+  //     The banner MUST NOT appear (count 0) — the exact "7 of 7" regression.
+  const aggAllTrue = {
+    total_in_range: 3,
+    role_counts: { 'C&T': 3, 'RVS C&T': 0, 'COURIER': 0 },
+    win_areas: ['6'],
+    animal_area: '6',
+    animal_county: 'Clearfield',
+    out_of_county: [
+      { roles: ['C&T'], distance_mi: 6.0, win_area: '6', county: 'Jefferson',
+        name: 'V-True-1', availability_note: '', connecteam_user: true },
+      { roles: ['C&T'], distance_mi: 12.0, win_area: '6', county: 'Elk',
+        name: 'V-True-2', availability_note: '', connecteam_user: true },
+      { roles: ['C&T'], distance_mi: 16.0, win_area: '6', county: 'Cambria',
+        name: 'V-True-3', availability_note: '', connecteam_user: true },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc: docTrue } = await driveTier2(aggAllTrue, 'Clearfield', { rvs: false, issue: 'capture' });
+  const txtTrue = docTrue.getElementById('agg-actions').textContent || '';
+  assert.ok(!/not on Connecteam/i.test(txtTrue),
+    'all-true DuBois fixture => NO non-Connecteam banner (count 0); got: "' + txtTrue + '"');
+
+  // (B) Tri-state mix: one each of true / EXPLICIT false / null / MISSING.
+  //     ONLY the explicit-false row may be counted -> banner reads "1 volunteer".
+  //     null and missing (unknown) must be excluded.
+  const aggMixed = {
+    total_in_range: 4,
+    role_counts: { 'C&T': 4, 'RVS C&T': 0, 'COURIER': 0 },
+    win_areas: ['6'],
+    animal_area: '6',
+    animal_county: 'Clearfield',
+    out_of_county: [
+      { roles: ['C&T'], distance_mi: 5.0, win_area: '6', county: 'Jefferson',
+        name: 'On-App', availability_note: '', connecteam_user: true },
+      { roles: ['C&T'], distance_mi: 7.0, win_area: '6', county: 'Elk',
+        name: 'Explicit-False', availability_note: '', connecteam_user: false },
+      { roles: ['C&T'], distance_mi: 9.0, win_area: '6', county: 'Cambria',
+        name: 'Null-Unknown', availability_note: '', connecteam_user: null },
+      { roles: ['C&T'], distance_mi: 11.0, win_area: '6', county: 'Centre',
+        name: 'Missing-Unknown', availability_note: '' /* connecteam_user ABSENT */ },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc: docMixed } = await driveTier2(aggMixed, 'Clearfield', { rvs: false, issue: 'capture' });
+  const actionLines = Array.prototype.slice
+    .call(docMixed.querySelectorAll('#agg-actions .action-line'))
+    .map(function (el) { return (el.textContent || '').trim(); });
+  const noticeLines = actionLines.filter(function (t) { return /not on Connecteam/i.test(t); });
+  assert.strictEqual(noticeLines.length, 1,
+    'banner appears exactly once when one explicit-false row exists (got: ' + JSON.stringify(actionLines) + ')');
+  assert.ok(/1 volunteer/i.test(noticeLines[0]) && !/[02-9]\d* volunteer/i.test(noticeLines[0]),
+    'banner counts ONLY the explicit-false row (=1); null+missing excluded (got: "' + noticeLines[0] + '")');
+
+  console.log('PASS: REGRESSION connecteam tri-state — all-true => banner absent; only === false counted; null/missing (unknown) never flagged.');
+}
+
 // ── PREMISE LINE: Tier 2 — RVS capture must show "Capture of RVS Animal" ────
 async function runPremiseLineRvsCapture() {
   const agg = {
@@ -3357,9 +3424,10 @@ async function run() {
   await runAddressNoHorizontalOverflowCss();
   await runTier2SingleAnimalAreaCoordinator();
   await runTier2NonConnecteamNotice();
+  await runRegressionConnecteamTriState();
   await runTier2AvailNote();
   await runTier2CountyBreakdown();
-  console.log('\nALL DOM TESTS PASSED (48 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (49 scenarios).');
 }
 
 run().then(function () {

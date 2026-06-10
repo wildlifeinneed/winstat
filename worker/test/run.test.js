@@ -2321,6 +2321,181 @@ async function main() {
     assert.ok(allCovered, 'every county in COUNTY_WIN appears in its areaCounties result');
   });
 
+  // =========================================================================
+  // REGRESSION-LOCK (2026-06-10): permanent guards for today's verified-good
+  // behaviors. Any FUTURE change that breaks a settled behavior must FAIL one
+  // of these named tests rather than reaching the user. DETERMINISTIC ONLY --
+  // mocked ORS, fixed coords/fixtures, NO live network.
+  // =========================================================================
+
+  // DuBois center (the Area-6 coordinate from the "0 volunteers found" bug).
+  const DUBOIS = { lat: 41.1212, lon: -78.7677 };
+  // Representative fixture: EXACTLY 7 volunteers within 44mi straight-line of
+  // DuBois (varied Area-6 counties/roles) + 2 clearly beyond 44mi. All carry
+  // connecteam_user === true (matches the live DuBois board -> banner count 0).
+  const DUBOIS_FIXTURE = [
+    { lat: 41.1212, lon: -78.7677, roles: ['COURIER'], home_county: 'Clearfield', win_area: '6', connecteam_user: true, name: 'V1' }, // ~0mi
+    { lat: 41.20, lon: -78.70, roles: ['C&T', 'RVS'], home_county: 'Clearfield', win_area: '6', connecteam_user: true, name: 'V2' }, // ~6mi
+    { lat: 41.00, lon: -78.60, roles: ['COURIER'], home_county: 'Clearfield', win_area: '6', connecteam_user: true, name: 'V3' }, // ~12mi
+    { lat: 41.30, lon: -78.90, roles: ['COURIER'], home_county: 'Jefferson', win_area: '6', connecteam_user: true, name: 'V4' }, // ~16mi
+    { lat: 40.90, lon: -78.50, roles: ['COURIER'], home_county: 'Clearfield', win_area: '6', connecteam_user: true, name: 'V5' }, // ~22mi
+    { lat: 41.45, lon: -78.60, roles: ['C&T', 'RVS'], home_county: 'Elk', win_area: '6', connecteam_user: true, name: 'V6' }, // ~24mi
+    { lat: 40.80, lon: -78.40, roles: ['COURIER'], home_county: 'Cambria', win_area: '6', connecteam_user: true, name: 'V7' }, // ~30mi
+    { lat: 42.20, lon: -78.70, roles: ['COURIER'], home_county: 'McKean', win_area: '4', connecteam_user: true, name: 'OUT1' }, // ~74mi OUT
+    { lat: 40.10, lon: -78.20, roles: ['C&T'], home_county: 'Bedford', win_area: '8', connecteam_user: true, name: 'OUT2' }, // ~76mi OUT
+  ];
+
+  // (1) STRAIGHT-LINE MEMBERSHIP -- anti-regression for the DuBois 0 bug. -----
+  await test('REGRESSION: volunteer membership is straight-line, not driving (DuBois 7@44mi)', async () => {
+    // Pure-logic baseline: haversine membership = 7 at 44mi.
+    const agg = findVolunteersInRadius(DUBOIS.lat, DUBOIS.lon, 44, DUBOIS_FIXTURE);
+    assert.strictEqual(agg.total_in_range, 7, 'DuBois straight-line membership MUST be 7 at 44mi');
+
+    // A driving mock that inflates EVERY edge to 99 driving-mi would drop all 7
+    // if driving ever gated membership. The count path must NEVER consult it:
+    // findVolunteersInRadiusDriving is the DRIVING variant, yet the HANDLER's
+    // volunteer-count path deliberately stays straight-line (see (l10)). Prove
+    // membership is identical regardless of any driving metric.
+    const inflateDrive = mockOrsByCoord(() => 99 * 1609.344); // 99 driving-mi each
+    const driven = await findVolunteersInRadiusDriving(
+      DUBOIS.lat, DUBOIS.lon, 44, DUBOIS_FIXTURE, drivingDistancesMiles, 'secret-key', inflateDrive
+    );
+    // The DRIVING variant CAN shrink (that's its job), but the STRAIGHT-LINE
+    // membership the handler actually ships must remain 7 -- locked next test.
+    assert.ok(driven.aggregate.total_in_range <= 7, 'driving variant may only shrink, never invent members');
+  });
+
+  await test('REGRESSION: DuBois count path never sends volunteer coords to ORS (membership independent of ORS key)', async () => {
+    const captured = {};
+    // A capturing ORS mock with a REAL key present. If the count path ever
+    // routed volunteer coords through ORS, captured.lastBody would be set.
+    const driveFn = mockOrsByCoord(() => 5 * 1609.344, captured);
+    const res = await handleRequest(
+      mockRequest('GET', { animal_lat: DUBOIS.lat, animal_lon: DUBOIS.lon, radius_mi: 44 }),
+      {
+        ResponseCtor: MockResponse, kv: mockKV(DUBOIS_FIXTURE), fetchFn: driveFn,
+        allowedOrigin: 'https://pages.example', orsApiKey: 'env-key',
+      }
+    );
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.strictEqual(body.distance_mode, 'straight_line', 'count path stays straight_line even WITH an ORS key');
+    assert.strictEqual(body.total_in_range, 7, 'DuBois 7@44mi preserved end-to-end');
+    // The decisive PII/independence guard: ORS was never called with coords.
+    assert.strictEqual(captured.lastBody, undefined, 'NO volunteer coords sent to ORS on the count path');
+  });
+
+  // (2) DRIVING ANNOTATION IS DISPLAY-ONLY -- anti-regression for the gate bug.
+  await test('REGRESSION: Tier-2 driving annotation is display-only (driving_miles >= straight-line; ORS error never gates)', async () => {
+    // Driving mock: every edge is 1.3x its straight-line distance (so
+    // driving_miles >= distance_mi always) and 600s -> 10 min per cell.
+    const driveGEFn = mockOrsByCoord((c) => {
+      const sl = haversineMi(DUBOIS.lat, DUBOIS.lon, c.lat, c.lon);
+      return sl * 1.3 * 1609.344;
+    });
+    const ok = await findContextRowsDriving(
+      DUBOIS.lat, DUBOIS.lon, 44, DUBOIS_FIXTURE, 'Clearfield', drivingDistancesMiles, 'secret-key', driveGEFn
+    );
+    assert.strictEqual(ok.distance_mode, 'straight_line', 'membership metric stays straight_line');
+    assert.ok(ok.rows.length > 0, 'out-of-county survivors exist for the annotation');
+    ok.rows.forEach((r) => {
+      assert.ok(Number.isFinite(r.driving_miles), 'driving_miles attached when ORS available');
+      assert.ok(Number.isFinite(r.duration_min), 'duration_min attached when ORS available');
+      assert.ok(r.driving_miles >= r.distance_mi - 1e-9, 'driving_miles MUST be >= straight-line distance_mi');
+    });
+
+    // ORS THROWS: rows STILL render (membership unchanged), NO driving tags,
+    // and the aggregate counts (which never touch ORS) are byte-identical.
+    const err = await findContextRowsDriving(
+      DUBOIS.lat, DUBOIS.lon, 44, DUBOIS_FIXTURE, 'Clearfield', drivingDistancesMiles, 'secret-key',
+      async () => { throw new Error('ors down'); }
+    );
+    assert.strictEqual(err.distance_mode, 'straight_line', 'ORS failure never changes the metric');
+    assert.strictEqual(err.rows.length, ok.rows.length, 'ORS failure never adds/removes a context row');
+    err.rows.forEach((r) => {
+      assert.ok(!('driving_miles' in r), 'no driving distance when ORS fails');
+      assert.ok(!('duration_min' in r), 'no driving time when ORS fails');
+    });
+    // total_in_range / role_counts are computed by the straight-line aggregate
+    // and are therefore UNCHANGED whether ORS succeeds, fails, or is absent.
+    const aggBase = findVolunteersInRadius(DUBOIS.lat, DUBOIS.lon, 44, DUBOIS_FIXTURE);
+    assert.strictEqual(aggBase.total_in_range, 7, 'aggregate membership independent of ORS');
+    assert.deepStrictEqual(aggBase.role_counts, { 'C&T': 0, 'RVS C&T': 2, 'COURIER': 5 },
+      'DuBois role_counts (2 RVS C&T, 5 COURIER) independent of driving');
+  });
+
+  // (3) CONNECTEAM TRI-STATE -- anti-regression for the false "7 of 7" banner.
+  await test('REGRESSION: connecteam_user is tri-state (true/false/null); unknown is NOT coerced to non-Connecteam', () => {
+    // One out-of-county volunteer per Connecteam state. The banner counts ONLY
+    // rows whose connecteam_user === false; true / missing / null must NOT be
+    // flagged (the old bug coerced unknown -> false and flagged every row).
+    const TRI = [
+      { lat: 41.20, lon: -78.70, roles: ['C&T'], home_county: 'Centre', win_area: '6', connecteam_user: true },
+      { lat: 41.21, lon: -78.71, roles: ['C&T'], home_county: 'Blair', win_area: '6', connecteam_user: false },
+      { lat: 41.22, lon: -78.72, roles: ['C&T'], home_county: 'Elk', win_area: '6' /* connecteam_user ABSENT */ },
+      { lat: 41.23, lon: -78.73, roles: ['C&T'], home_county: 'Cambria', win_area: '6', connecteam_user: null },
+    ];
+    const rows = findContextRows(DUBOIS.lat, DUBOIS.lon, 44, TRI, 'Clearfield');
+    assert.strictEqual(rows.length, 4, 'all four out-of-county rows surface');
+    const byCounty = {};
+    rows.forEach((r) => { byCounty[r.county] = r; });
+    // EXPLICIT pass-through / normalization (this is what the banner reads).
+    assert.strictEqual(byCounty['Centre'].connecteam_user, true, 'true preserved');
+    assert.strictEqual(byCounty['Blair'].connecteam_user, false, 'explicit false preserved');
+    assert.strictEqual(byCounty['Elk'].connecteam_user, null, 'MISSING -> null (NOT false)');
+    assert.strictEqual(byCounty['Cambria'].connecteam_user, null, 'null -> null (NOT false)');
+    // Banner semantics: count of "not on Connecteam" == rows with === false.
+    const nonCt = rows.filter((r) => r.connecteam_user === false).length;
+    assert.strictEqual(nonCt, 1, 'ONLY the explicit-false row counts as non-Connecteam (unknown excluded)');
+  });
+
+  await test('REGRESSION: DuBois all-connecteam fixture => non-Connecteam banner count is 0', () => {
+    // The live DuBois board is all connecteam_user === true; the banner count
+    // (rows with === false) MUST be 0 -- the exact false "7 of 7" regression.
+    const rows = findContextRows(DUBOIS.lat, DUBOIS.lon, 44, DUBOIS_FIXTURE, 'Clearfield');
+    assert.ok(rows.length > 0, 'out-of-county DuBois rows exist');
+    rows.forEach((r) => { assert.strictEqual(r.connecteam_user, true, 'every DuBois row is on Connecteam'); });
+    const nonCt = rows.filter((r) => r.connecteam_user === false).length;
+    assert.strictEqual(nonCt, 0, 'all-true DuBois fixture => banner count 0 (no false "7 of 7")');
+  });
+
+  await test('REGRESSION: buildTier2Response preserves connecteam_user tri-state through serialization', () => {
+    const TRI = [
+      { lat: 41.20, lon: -78.70, roles: ['C&T'], home_county: 'Centre', win_area: '6', connecteam_user: true },
+      { lat: 41.21, lon: -78.71, roles: ['C&T'], home_county: 'Blair', win_area: '6', connecteam_user: false },
+      { lat: 41.22, lon: -78.72, roles: ['C&T'], home_county: 'Elk', win_area: '6' },
+    ];
+    const agg = findVolunteersInRadius(DUBOIS.lat, DUBOIS.lon, 44, TRI);
+    const rows = findContextRows(DUBOIS.lat, DUBOIS.lon, 44, TRI, 'Clearfield');
+    const body = buildTier2Response(agg, rows);
+    const seen = {};
+    body.out_of_county.forEach((r) => { seen[r.county] = r.connecteam_user; });
+    assert.strictEqual(seen['Centre'], true);
+    assert.strictEqual(seen['Blair'], false);
+    assert.strictEqual(seen['Elk'], null, 'serialized response keeps unknown as null, never false');
+  });
+
+  // (4) BOTH TIERS RENDER -- structural smoke (don't over-specify counts). ----
+  await test('REGRESSION: both tiers produce their expected top-level structures (DuBois fixture)', () => {
+    // Tier 1 (aggregate / By-County legacy shape): three canonical top keys.
+    const agg = findVolunteersInRadius(DUBOIS.lat, DUBOIS.lon, 44, DUBOIS_FIXTURE);
+    const tier1 = buildAggregateResponse(agg, 'straight_line');
+    ['total_in_range', 'role_counts', 'win_areas'].forEach((k) => {
+      assert.ok(Object.prototype.hasOwnProperty.call(tier1, k), 'Tier-1 response has ' + k);
+    });
+    assert.deepStrictEqual(Object.keys(tier1.role_counts).sort(), ['C&T', 'COURIER', 'RVS C&T']);
+
+    // Tier 2 (By-Address): the richer whitelist incl. out_of_county + availability.
+    const rows = findContextRows(DUBOIS.lat, DUBOIS.lon, 44, DUBOIS_FIXTURE, 'Clearfield');
+    const tier2 = buildTier2Response(agg, rows, 'straight_line');
+    ['total_in_range', 'role_counts', 'role_available', 'total_available',
+     'marginal_threshold', 'win_areas', 'county_by_role', 'out_of_county',
+     'out_of_county_truncated', 'radius_too_broad', 'distance_mode'].forEach((k) => {
+      assert.ok(Object.prototype.hasOwnProperty.call(tier2, k), 'Tier-2 response has ' + k);
+    });
+    assert.ok(Array.isArray(tier2.out_of_county), 'Tier-2 out_of_county is an array (rows rendered without error)');
+  });
+
   console.log('\n----------------------------------------');
   console.log('Total: ' + (passed + failed) + '  Passed: ' + passed + '  Failed: ' + failed);
   if (failed > 0) {

@@ -948,3 +948,35 @@ def test_multi_group_fetch_merges_and_tags_connecteam_user():
     # connecteam_user propagates to marginal_volunteers
     assert bucks["ct_no_rvs"]["marginal_volunteers"][0]["connecteam_user"] is True
     assert bucks["courier"]["marginal_volunteers"][0]["connecteam_user"] is False
+
+
+# ---------------------------------------------------------------------------
+# REGRESSION-LOCK (2026-06-10): the geocode-input pipeline MUST carry
+# connecteam_user through so the flag reaches volunteer_coords.json -> KV ->
+# the Worker's Tier-2 rows. Without it the Worker coerced every row to "not on
+# Connecteam" (the false DuBois "7 of 7" banner). Tri-state: True / False / None
+# (unknown) must each survive verbatim.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("flag", [True, False, None])
+def test_regression_build_geocode_input_carries_connecteam_user(flag):
+    out = rm.build_geocode_input(
+        _item("Geo Vol", "Bucks", "C&T", "Mon-Fri"),
+        COLUMN_IDS,
+        connecteam_user=flag,
+    )
+    assert out is not None, "geocode input is produced for an addressable volunteer"
+    assert "connecteam_user" in out, "connecteam_user key MUST be present in geocode input"
+    assert out["connecteam_user"] is flag, (
+        "connecteam_user must pass through verbatim (tri-state), got %r" % (out["connecteam_user"],)
+    )
+
+
+def test_regression_build_geocode_input_default_connecteam_user_is_none():
+    # When the caller omits the flag (unknown group), it defaults to None
+    # (unknown) -- NEVER False -- so the Worker never flags it as non-Connecteam.
+    out = rm.build_geocode_input(
+        _item("Geo Vol2", "Bucks", "C&T"),
+        COLUMN_IDS,
+    )
+    assert out["connecteam_user"] is None
