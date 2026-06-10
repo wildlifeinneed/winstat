@@ -46,6 +46,7 @@ const { geocodeAddress } = require('../src/census');
 const { autocompleteAddress, photonGeocode, looksLikeFullAddress, looksLikeIntersection, hasHouseNumberMatch, censusAutocompleteFallback } = require('../src/autocomplete');
 const { rehabberDistances, drivingDistancesMiles, MAX_MATRIX_DESTINATIONS } = require('../src/distance');
 const { handleRequest } = require('../src/handler');
+const { COUNTY_WIN, countyToArea, areaCounties } = require('../src/county_win');
 
 // --- tiny test framework ---------------------------------------------------
 let passed = 0;
@@ -2116,6 +2117,51 @@ async function main() {
     assert.strictEqual(body.animal_county, null, 'county is null when no fallback available');
     assert.strictEqual(body.animal_area, null, 'area is null when no fallback available');
     assert.ok(!Object.prototype.hasOwnProperty.call(body, 'county_source'), 'county_source absent when no fallback');
+  });
+
+  // --- areaCounties (county_win.js) ----------------------------------------
+  await test('(county_win1) areaCounties: Area 14 contains Berks, Lebanon, Schuylkill', async () => {
+    const counties = areaCounties('14');
+    assert.ok(Array.isArray(counties), 'returns array');
+    // All three known Area-14 counties must be present (sorted).
+    assert.ok(counties.includes('Berks'), 'Berks in Area 14');
+    assert.ok(counties.includes('Lebanon'), 'Lebanon in Area 14');
+    assert.ok(counties.includes('Schuylkill'), 'Schuylkill in Area 14');
+    // Every member must map back to area 14 via countyToArea.
+    for (const c of counties) {
+      assert.strictEqual(countyToArea(c), '14', c + ' maps back to area 14');
+    }
+  });
+
+  await test('(county_win2) areaCounties: Area 15N contains Lehigh, Northampton', async () => {
+    const counties = areaCounties('15N');
+    assert.ok(counties.includes('Lehigh'), 'Lehigh in Area 15N');
+    assert.ok(counties.includes('Northampton'), 'Northampton in Area 15N');
+    assert.strictEqual(counties.length, 2, 'exactly 2 counties in Area 15N');
+  });
+
+  await test('(county_win3) areaCounties: unknown area returns []', async () => {
+    assert.deepStrictEqual(areaCounties('99'), [], 'unknown area -> empty array');
+    assert.deepStrictEqual(areaCounties(null), [], 'null -> empty array');
+    assert.deepStrictEqual(areaCounties(''), [], 'empty string -> empty array');
+  });
+
+  await test('(county_win4) areaCounties: result sorted and non-empty for all 16+ areas', async () => {
+    // Spot-check a few more areas for correctness.
+    const a10 = areaCounties('10');
+    assert.ok(a10.includes('Allegheny'), 'Allegheny in Area 10');
+    assert.ok(a10.includes('Beaver'), 'Beaver in Area 10');
+    assert.ok(a10.includes('Greene'), 'Greene in Area 10');
+    assert.ok(a10.includes('Washington'), 'Washington in Area 10');
+    // Result should be sorted alphabetically.
+    const sorted = a10.slice().sort();
+    assert.deepStrictEqual(a10, sorted, 'Area 10 result is sorted');
+    // All 67 PA counties must be covered by some area (no orphans).
+    const allCovered = Object.keys(COUNTY_WIN).every(function (county) {
+      const area = countyToArea(county);
+      return area && areaCounties(area).includes(county);
+    });
+    assert.ok(allCovered, 'every county in COUNTY_WIN appears in its areaCounties result');
   });
 
   console.log('\n----------------------------------------');

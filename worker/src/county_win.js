@@ -49,4 +49,27 @@ function countyToArea(county) {
   return area === undefined ? null : area;
 }
 
-module.exports = { COUNTY_WIN, countyToArea };
+/**
+ * Returns all county names (title-cased, as in COUNTY_WIN) belonging to a
+ * given WIN area.  Comparison is case-insensitive so '14', '14 ', and '14'
+ * all match.  Returns an empty array for null / unknown areas.
+ *
+ * @param {string} area  WIN area string (e.g. "14", "15S")
+ * @returns {string[]}   Sorted array of county names in that area
+ */
+function areaCounties(area) {
+  if (area === null || area === undefined) return [];
+  const norm = String(area).trim().toLowerCase();
+  if (!norm) return [];
+  const result = [];
+  for (const k in COUNTY_WIN) {
+    if (Object.prototype.hasOwnProperty.call(COUNTY_WIN, k)) {
+      if (String(COUNTY_WIN[k]).trim().toLowerCase() === norm) {
+        result.push(k);
+      }
+    }
+  }
+  return result.sort();
+}
+
+module.exports = { COUNTY_WIN, countyToArea, areaCounties };

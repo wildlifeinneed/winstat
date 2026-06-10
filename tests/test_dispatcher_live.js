@@ -367,6 +367,121 @@ function testPhonePlaceholderDashes() {
   assertEqual(m && m[1], '----', 'rehabPhoneMissing placeholder is four hyphens');
 }
 
+// ── P6: WIN-area By-County expansion (Tier-1) ──────────────────────────────
+// Tests for getWinAreaCounties and mergeCapacity extracted from dispatcher.js,
+// plus structural verification that the new winAreaSub message key exists and
+// that renderCardsForCounty uses WIN-area aggregation.
+
+// Build a sandbox exposing getWinAreaCounties and mergeCapacity from the IIFE.
+function buildWinAreaSandbox(countyWinMap) {
+  const state = { countyWin: countyWinMap || {} };
+  const ROLES = [
+    { key: 'ct_no_rvs' },
+    { key: 'ct_rvs' },
+    { key: 'courier' }
+  ];
+  const sandbox = {
+    state: state,
+    ROLES: ROLES,
+    Object: Object,
+    Array: Array,
+    String: String,
+    console: console
+  };
+  vm.createContext(sandbox);
+  const code =
+    extractFunction('getWinAreaCounties') + '\n' +
+    extractFunction('mergeCapacity') + '\n' +
+    'this.__getWinAreaCounties = getWinAreaCounties;\n' +
+    'this.__mergeCapacity = mergeCapacity;\n';
+  vm.runInContext(code, sandbox);
+  return { sandbox: sandbox, state: state };
+}
+
+function testGetWinAreaCounties() {
+  console.log('\n[P6] getWinAreaCounties: Schuylkill (Area 14) returns Berks + Lebanon + Schuylkill');
+  // Minimal county_win map with Area-14 counties and one other area.
+  const winMap = {
+    Berks: '14', Lebanon: '14', Schuylkill: '14',
+    Allegheny: '10', Beaver: '10', Greene: '10', Washington: '10'
+  };
+  const { sandbox } = buildWinAreaSandbox(winMap);
+  const siblings = sandbox.__getWinAreaCounties('Schuylkill');
+  assert(Array.isArray(siblings), 'returns array for Schuylkill');
+  assert(siblings.length === 3, 'three Area-14 counties returned (got ' + siblings.length + ')');
+  assert(siblings.indexOf('Berks') >= 0, 'Berks included');
+  assert(siblings.indexOf('Lebanon') >= 0, 'Lebanon included');
+  assert(siblings.indexOf('Schuylkill') >= 0, 'Schuylkill included (selected county always present)');
+  // No Area-10 bleed-over.
+  assert(siblings.indexOf('Allegheny') < 0, 'no bleed from Area 10');
+}
+
+function testGetWinAreaCountiesFallback() {
+  console.log('\n[P6] getWinAreaCounties: unknown county falls back to [countyName]');
+  const winMap = { Berks: '14' };
+  const { sandbox } = buildWinAreaSandbox(winMap);
+  const r = sandbox.__getWinAreaCounties('Nonexistent');
+  assert(Array.isArray(r) && r.length === 1 && r[0] === 'Nonexistent',
+    'unknown county returns [countyName] singleton');
+  // Empty countyWin state also falls back gracefully.
+  const { sandbox: s2 } = buildWinAreaSandbox({});
+  const r2 = s2.__getWinAreaCounties('Carbon');
+  assert(Array.isArray(r2) && r2.length === 1 && r2[0] === 'Carbon',
+    'empty countyWin map falls back to [countyName]');
+}
+
+function testMergeCapacity() {
+  console.log('\n[P6] mergeCapacity: sums available/total, concatenates marginal_volunteers');
+  const winMap = {};
+  const { sandbox } = buildWinAreaSandbox(winMap);
+  const cap1 = {
+    ct_no_rvs: { available: 2, total: 3, marginal_volunteers: [{ availability_note: 'note-A' }] },
+    ct_rvs:    { available: 1, total: 1, marginal_volunteers: [] },
+    courier:   { available: 0, total: 0, marginal_volunteers: [] }
+  };
+  const cap2 = {
+    ct_no_rvs: { available: 1, total: 2, marginal_volunteers: [{ availability_note: 'note-B' }] },
+    ct_rvs:    { available: 0, total: 0, marginal_volunteers: [] },
+    courier:   { available: 3, total: 3, marginal_volunteers: [] }
+  };
+  const merged = sandbox.__mergeCapacity([cap1, cap2]);
+  assertEqual(merged.ct_no_rvs.available, 3, 'ct_no_rvs available summed (2+1)');
+  assertEqual(merged.ct_no_rvs.total, 5, 'ct_no_rvs total summed (3+2)');
+  assertEqual(merged.ct_no_rvs.marginal_volunteers.length, 2, 'marginal_volunteers concatenated');
+  assertEqual(merged.ct_rvs.available, 1, 'ct_rvs available summed (1+0)');
+  assertEqual(merged.courier.available, 3, 'courier available summed (0+3)');
+  // null capacities are skipped gracefully.
+  const mergedWithNull = sandbox.__mergeCapacity([cap1, null]);
+  assertEqual(mergedWithNull.ct_no_rvs.available, 2, 'null capacity entry is skipped');
+}
+
+function testWinAreaSubMessageKey() {
+  console.log('\n[P6] messages.js defines winAreaSub key with {area} and {breakdown} tokens');
+  const msgs = fs.readFileSync(
+    path.join(__dirname, '..', 'docs', 'assets', 'messages.js'), 'utf8');
+  assert(/winAreaSub\s*:/.test(msgs), 'messages.js defines winAreaSub');
+  const m = msgs.match(/winAreaSub\s*:\s*'([^']*)'/);
+  assert(!!m, 'winAreaSub is a string literal');
+  const template = m && m[1];
+  assert(/\{area\}/.test(template), 'winAreaSub contains {area} token');
+  assert(/\{breakdown\}/.test(template), 'winAreaSub contains {breakdown} token');
+}
+
+function testRenderCardsUsesWinArea() {
+  console.log('\n[P6] renderCardsForCounty uses getWinAreaCounties and winAreaSub (source-level)');
+  // Verify that the committed renderCardsForCounty calls getWinAreaCounties
+  // (WIN-area expansion) and uses winAreaSub for the sub-line.
+  const fn = extractFunction('renderCardsForCounty');
+  assert(/getWinAreaCounties/.test(fn), 'renderCardsForCounty calls getWinAreaCounties');
+  assert(/siblingCounties/.test(fn), 'renderCardsForCounty iterates siblingCounties');
+  assert(/winAreaSub/.test(fn), 'renderCardsForCounty renders winAreaSub breakdown');
+  assert(/byCounty/.test(fn), 'renderCardsForCounty tracks per-county breakdown');
+  // Verify onRecommendClick also uses WIN-area merged capacity for recommendation.
+  const recFn = extractFunction('onRecommendClick');
+  assert(/getWinAreaCounties/.test(recFn), 'onRecommendClick uses getWinAreaCounties for merged capacity');
+  assert(/mergeCapacity/.test(recFn), 'onRecommendClick merges capacity via mergeCapacity');
+}
+
 (async function main() {
   console.log('== Phase G live-Worker + coordinator-source harness ==');
   testCountyCount();
@@ -379,6 +494,12 @@ function testPhonePlaceholderDashes() {
   testClosestRehabberNoOpenClosed();
   testPhonePlaceholderDashes();
   testCountyCentroidFromGeojson();
+  // P6 WIN-area By-County expansion tests.
+  testGetWinAreaCounties();
+  testGetWinAreaCountiesFallback();
+  testMergeCapacity();
+  testWinAreaSubMessageKey();
+  testRenderCardsUsesWinArea();
   await testCoordPreferBoard();
   await testCoordFallbackEmpty();
   await testCoordFallbackMissing();

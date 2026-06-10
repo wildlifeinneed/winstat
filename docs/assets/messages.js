@@ -127,7 +127,11 @@
       // county, {area} = its WIN area. Updates live as the dropdown changes.
       countyAreaBadge: '{county} \u00b7 Area {area}',
       // Fallback badge when the selected county has no WIN area on file.
-      countyAreaBadgeUnknown: '{county} \u00b7 Area unknown'
+      countyAreaBadgeUnknown: '{county} \u00b7 Area unknown',
+      // Sub-line under each Tier-1 capacity card showing the WIN-area label and
+      // per-county volunteer breakdown. {area} = WIN area string (e.g. "14").
+      // {breakdown} = comma-separated county counts (e.g. "Schuylkill 3, Carbon 2").
+      winAreaSub: 'Area {area} \u2014 {breakdown}'
     },
 
     // ── Tier 2 aggregate / address-mode wording (dispatcher.js) ────────────

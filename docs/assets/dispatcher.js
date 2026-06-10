@@ -224,6 +224,49 @@
     }
   }
 
+  // ─── WIN-area helpers (Tier 1 By-County expansion) ─────────────────
+  // Return all county names sharing the same WIN area as `countyName`.  Uses
+  // state.countyWin (loaded from county_win.json) by inverting the map at call
+  // time — no extra fetch, no schema change.  Falls back to [countyName] when
+  // the area is unknown or state.countyWin is not yet loaded.
+  function getWinAreaCounties(countyName) {
+    if (!countyName || !state.countyWin) return [countyName];
+    var area = state.countyWin[countyName];
+    if (area === undefined || area === null) return [countyName];
+    var norm = String(area).trim().toLowerCase();
+    var result = [];
+    var cw = state.countyWin;
+    Object.keys(cw).forEach(function (c) {
+      if (String(cw[c]).trim().toLowerCase() === norm) {
+        result.push(c);
+      }
+    });
+    return result.length > 0 ? result : [countyName];
+  }
+
+  // Build a merged capacity object (same shape as a county_capacity.json county
+  // entry) by summing available / total across the given capacity objects and
+  // concatenating marginal_volunteers.  Used by onRecommendClick so the
+  // recommendation decision also covers the full WIN-area pool.
+  function mergeCapacity(capacities) {
+    var merged = {};
+    ROLES.forEach(function (role) {
+      var avail = 0, total = 0, marginals = [];
+      capacities.forEach(function (cap) {
+        if (!cap) return;
+        var bucket = cap[role.key] || {};
+        avail += (bucket.available || 0);
+        total += (bucket.total || 0);
+        var mv = bucket.marginal_volunteers;
+        if (Array.isArray(mv)) {
+          mv.forEach(function (v) { marginals.push(v); });
+        }
+      });
+      merged[role.key] = { available: avail, total: total, marginal_volunteers: marginals };
+    });
+    return merged;
+  }
+
   // County WIN-area badge beside the dropdown: "<County> · Area N". Uses the
   // SAME county -> area map (state.countyWin) that drives the coordinator line.
   // Hidden when no county is selected. Updates live on every dropdown change.
@@ -269,26 +312,56 @@
     }
 
     var counties = (state.snapshot && state.snapshot.counties) || {};
-    var data = counties[countyName];
     var hasAny = false;
     var resolved = resolveForCounty(state.config, countyName);
 
+    // WIN-area expansion: aggregate volunteers across all counties in the same
+    // WIN area (not just the exact selected county).
+    var winArea = (state.countyWin && state.countyWin[countyName] !== undefined)
+      ? String(state.countyWin[countyName]).trim() : null;
+    var siblingCounties = getWinAreaCounties(countyName);
+
     ROLES.forEach(function (role) {
       var card = document.querySelector('.cap-card[data-role="' + role.key + '"]');
-      var roleData = (data && data[role.key]) || { available: 0, total: 0, marginal_volunteers: [] };
-      var avail = roleData.available || 0;
-      var total = roleData.total || 0;
-      if (total > 0) hasAny = true;
+
+      // Sum available + total across all WIN-area counties; track per-county breakdown.
+      var areaAvail = 0, areaTotal = 0;
+      var byCounty = [];
+      siblingCounties.forEach(function (c) {
+        var cData = counties[c];
+        var cRole = (cData && cData[role.key]) || { available: 0, total: 0 };
+        var cTotal = cRole.total || 0;
+        var cAvail = cRole.available || 0;
+        areaAvail += cAvail;
+        areaTotal += cTotal;
+        if (cTotal > 0) {
+          byCounty.push({ name: c, total: cTotal });
+        }
+      });
+      if (areaTotal > 0) hasAny = true;
 
       card.classList.remove('empty');
-      $('.avail', card).textContent = String(avail);
-      $('.total', card).textContent = String(total);
-      $('.sub', card).textContent = '';
+      $('.avail', card).textContent = String(areaAvail);
+      $('.total', card).textContent = String(areaTotal);
+
+      // Sub-line: "Area 14 — Schuylkill 3, Carbon 2"
+      var subEl = $('.sub', card);
+      if (subEl) {
+        if (winArea && byCounty.length > 0) {
+          var parts = byCounty.map(function (e) { return e.name + '\u00a0' + e.total; });
+          subEl.textContent = fmt(MSG.coordinator.winAreaSub, {
+            area: winArea,
+            breakdown: parts.join(', ')
+          });
+        } else {
+          subEl.textContent = '';
+        }
+      }
 
       var existing = $('.badge', card);
       if (existing) existing.remove();
 
-      if (avail <= resolved.marginal_threshold && total > 0) {
+      if (areaAvail <= resolved.marginal_threshold && areaTotal > 0) {
         var badge = document.createElement('span');
         badge.className = 'badge';
         badge.textContent = MSG.coordinator.marginalBadge;
@@ -296,7 +369,7 @@
       }
     });
 
-    if (!data || !hasAny) {
+    if (!hasAny) {
       emptyMsg.style.display = 'block';
       emptyMsg.textContent = fmt(MSG.coordinator.noVolunteersInCounty, { county: countyName });
     } else {
@@ -476,7 +549,12 @@
     }
 
     var counties = (state.snapshot && state.snapshot.counties) || {};
-    var capacity = counties[county] || null;
+    // WIN-area expansion: build a merged capacity across all counties in the
+    // same WIN area so the recommendation reflects the full volunteer pool.
+    var siblingCounties = getWinAreaCounties(county);
+    var capacity = siblingCounties.length > 1
+      ? mergeCapacity(siblingCounties.map(function (c) { return counties[c] || null; }))
+      : (counties[county] || null);
     var base = readAnimalBaseInfo();
 
     var resolved = resolveForCounty(state.config, county);
