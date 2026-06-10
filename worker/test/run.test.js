@@ -380,6 +380,60 @@ async function main() {
     assert.strictEqual((await res.json()).error, 'address_not_found');
   });
 
+  // (c3e-f) INTERSECTION SUBMIT path: Census `geographies` returns HTTP 4xx
+  // for "&"-style intersection input. The old code short-circuited directly to
+  // geocoder_unavailable (502) without trying Photon. The fix tries Photon first
+  // and, when both fail, returns address_not_found (422) instead of 502 so the
+  // UI never shows "Address lookup service is temporarily unavailable" for a
+  // known-unsupported input format.
+  await test('(c3e) intersection submit: Census HTTP 4xx -> Photon fallback resolves -> 200', async () => {
+    const fetch4xx = async (url) => {
+      const u = String(url);
+      if (u.indexOf('census.gov') !== -1) {
+        return { status: 400, json: async () => ({}) };
+      }
+      // Photon returns a PA street-level candidate near the intersection.
+      return {
+        status: 200,
+        json: async () => ({
+          features: [{
+            geometry: { type: 'Point', coordinates: [-79.8375, 40.4989] },
+            properties: {
+              street: 'Elliott Street', city: 'Penn Hills', state: 'Pennsylvania',
+              countrycode: 'US', country: 'United States',
+            },
+          }],
+        }),
+      };
+    };
+    const res = await handleRequest(
+      mockRequest('GET', { address: 'Elliott St & Verona Rd, Penn Hills Township, PA' }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS), fetchFn: fetch4xx, allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.status, 200, 'Photon fallback yields usable location when Census 4xx');
+    const body = await res.json();
+    assert.ok(Math.abs(body.animal_lat - 40.4989) < 1e-6, 'animal_lat from Photon');
+    assert.ok(Math.abs(body.animal_lon - (-79.8375)) < 1e-6, 'animal_lon from Photon');
+  });
+
+  await test('(c3f) intersection submit: Census HTTP 4xx + Photon fails -> 422 not 502', async () => {
+    // Census returns HTTP 400 AND Photon returns empty. The fix must return
+    // address_not_found (422) NOT geocoder_unavailable (502) for intersections.
+    const bothFail4xx = async (url) => {
+      const u = String(url);
+      if (u.indexOf('census.gov') !== -1) {
+        return { status: 400, json: async () => ({}) };
+      }
+      return { status: 200, json: async () => ({ features: [] }) };
+    };
+    const res = await handleRequest(
+      mockRequest('GET', { address: 'Elliott St & Verona Rd, Penn Hills Township, PA' }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS), fetchFn: bothFail4xx, allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.status, 422, 'intersection with both failing -> address_not_found not geocoder_unavailable');
+    assert.strictEqual((await res.json()).error, 'address_not_found');
+  });
+
   await test('(c4) 400 on out-of-range lat/lon', async () => {
     const res = await handleRequest(
       mockRequest('GET', { animal_lat: 999, animal_lon: -76.88 }),

@@ -27,7 +27,7 @@ const {
   buildTier2Response,
 } = require('./aggregate');
 const { geocodeAddress } = require('./census');
-const { autocompleteAddress, photonGeocode, looksLikeFullAddress, hasHouseNumberMatch, censusAutocompleteFallback } = require('./autocomplete');
+const { autocompleteAddress, photonGeocode, looksLikeFullAddress, looksLikeIntersection, hasHouseNumberMatch, censusAutocompleteFallback } = require('./autocomplete');
 const { rehabberDistances, drivingDistancesMiles } = require('./distance');
 const { countyForPoint } = require('./pip');
 // Single source of truth for county polygons: the SAME committed GeoJSON the
@@ -189,6 +189,24 @@ async function resolveAnimalCoord(params, fetchFn) {
       return { status: 'ok', coord: geo.coord, county: geo.county || null };
     }
     if (geo && geo.status === 'unavailable') {
+      // Census HTTP/network error — attempt the Photon fallback before giving
+      // up. This matters most for INTERSECTION addresses (e.g. "Elliott St &
+      // Verona Rd, Penn Hills Township, PA") where the Census `geographies`
+      // endpoint returns HTTP 4xx (it does not handle the "&" format), causing
+      // the old code to short-circuit directly to geocoder_unavailable and show
+      // "temporarily unavailable" without ever trying Photon. With this change:
+      //   • Photon resolves an approximate coordinate → 200 ok (best case).
+      //   • Photon also fails AND the address is an intersection → 422
+      //     address_not_found (the format is unsupported, not the service down).
+      //   • Photon also fails AND non-intersection → 502 geocoder_unavailable
+      //     (service is genuinely unreachable — preserve the existing signal).
+      const photonOnUnavail = await photonGeocode(address, fetchFn);
+      if (photonOnUnavail && photonOnUnavail.status === 'ok') {
+        return { status: 'ok', coord: photonOnUnavail.coord, county: null };
+      }
+      if (looksLikeIntersection(address)) {
+        return { status: 'address_not_found' };
+      }
       return { status: 'geocoder_unavailable' };
     }
     // Census reached but found NO exact match (weak on rural PA). Rather than
