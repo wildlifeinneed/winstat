@@ -43,7 +43,7 @@ const {
   DEFAULT_MARGINAL_THRESHOLD,
 } = require('../src/aggregate');
 const { geocodeAddress } = require('../src/census');
-const { autocompleteAddress, photonGeocode } = require('../src/autocomplete');
+const { autocompleteAddress, photonGeocode, looksLikeFullAddress, censusAutocompleteFallback } = require('../src/autocomplete');
 const { rehabberDistances, drivingDistancesMiles, MAX_MATRIX_DESTINATIONS } = require('../src/distance');
 const { handleRequest } = require('../src/handler');
 
@@ -657,6 +657,102 @@ async function main() {
     assert.ok(/[?&]bbox=-80\.519891%2C39\.719799%2C-74\.689516%2C42\.26986/.test(seenUrl) ||
       seenUrl.indexOf('bbox=-80.519891,39.719799,-74.689516,42.26986') !== -1,
       'Photon query carries the PA bbox (url: ' + seenUrl + ')');
+  });
+
+  // (h9) CENSUS FALLBACK: Photon EMPTY + full pasted address -> Census match
+  // appears as a selectable candidate with correct lat/lon.
+  await test('(h9) autocomplete Census fallback surfaces Photon-missing house number', async () => {
+    // Shared fetchFn routed by host: Photon returns ZERO features for the Neola
+    // Rd house number; Census returns the exact 738 match (x=lon, y=lat).
+    let censusCalled = false;
+    const routed = async (url) => {
+      const u = String(url);
+      if (u.indexOf('census.gov') !== -1) {
+        censusCalled = true;
+        return {
+          status: 200,
+          json: async () => ({
+            result: {
+              addressMatches: [{
+                matchedAddress: '738 NEOLA RD, STROUDSBURG, PA, 18360',
+                coordinates: { x: -75.339752, y: 40.957690 },
+              }],
+            },
+          }),
+        };
+      }
+      // Photon host: empty.
+      return { status: 200, json: async () => ({ features: [] }) };
+    };
+    const res = await handleRequest(
+      mockRequest('GET', { autocomplete: '738 Neola Rd, Stroudsburg, PA 18360', limit: 5 }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS), fetchFn: routed, allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.strictEqual(censusCalled, true, 'Census fallback was invoked (Photon empty + full address)');
+    assert.strictEqual(body.suggestions.length, 1, 'one Census candidate appended');
+    assert.strictEqual(body.suggestions[0].label, '738 NEOLA RD, STROUDSBURG, PA, 18360');
+    assert.ok(Math.abs(body.suggestions[0].lat - 40.957690) < 1e-9, 'lat from Census y');
+    assert.ok(Math.abs(body.suggestions[0].lon - (-75.339752)) < 1e-9, 'lon from Census x');
+  });
+
+  // (h10) HEURISTIC GATE: a typed partial (no ZIP/state) must NOT trigger the
+  // Census call even when Photon is empty.
+  await test('(h10) autocomplete Census NOT called for typed partial (no zip/state)', async () => {
+    let censusCalled = false;
+    const routed = async (url) => {
+      const u = String(url);
+      if (u.indexOf('census.gov') !== -1) {
+        censusCalled = true;
+        return { status: 200, json: async () => ({ result: { addressMatches: [] } }) };
+      }
+      return { status: 200, json: async () => ({ features: [] }) };
+    };
+    const res = await handleRequest(
+      mockRequest('GET', { autocomplete: '738 Neo' }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS), fetchFn: routed, allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.status, 200);
+    assert.deepStrictEqual((await res.json()).suggestions, []);
+    assert.strictEqual(censusCalled, false, 'Census must NOT be called for a partial without ZIP/state');
+  });
+
+  // (h11) NORMALIZATION: the abbreviated "Rd" is expanded to "Road" in the
+  // Photon query string (helps Photon's form-sensitive index).
+  await test('(h11) autocompleteAddress expands Rd->Road in the Photon query', async () => {
+    let seenUrl = '';
+    const capture = async (url) => {
+      seenUrl = String(url);
+      return { status: 200, json: async () => ({ features: [] }) };
+    };
+    await autocompleteAddress('738 Neola Rd, Stroudsburg, PA', 5, capture);
+    // The q= param Photon receives carries "Road", not "Rd".
+    assert.ok(/[?&]q=[^&]*Road/.test(seenUrl), 'Photon q= contains expanded "Road" (url: ' + seenUrl + ')');
+    assert.ok(!/[?&]q=[^&]*Neola\+Rd(?:%2C|&|$)/.test(seenUrl) && seenUrl.indexOf('Neola+Rd%2C') === -1,
+      'Photon q= no longer carries the abbreviated "Rd," (url: ' + seenUrl + ')');
+  });
+
+  // (h12) Census fallback unit: heuristic helpers + PA-only drop.
+  await test('(h12) looksLikeFullAddress heuristic + Census PA-only fallback', async () => {
+    assert.strictEqual(looksLikeFullAddress('738 Neola Rd, Stroudsburg, PA 18360'), true, 'house# + zip + state');
+    assert.strictEqual(looksLikeFullAddress('738 Neola Rd, PA'), true, 'house# + state token');
+    assert.strictEqual(looksLikeFullAddress('738 Neo'), false, 'no zip/state token');
+    assert.strictEqual(looksLikeFullAddress('Neola Road'), false, 'no house-number digit');
+    // PA-by-bbox match kept.
+    const inPa = async () => ({
+      status: 200,
+      json: async () => ({ result: { addressMatches: [{ matchedAddress: 'X', coordinates: { x: -75.34, y: 40.96 } }] } }),
+    });
+    const kept = await censusAutocompleteFallback('738 Neola Rd, Stroudsburg, PA 18360', inPa);
+    assert.strictEqual(kept.length, 1, 'PA-bbox Census match is kept');
+    // Out-of-PA match dropped (Ohio-ish lon).
+    const outPa = async () => ({
+      status: 200,
+      json: async () => ({ result: { addressMatches: [{ matchedAddress: 'Y', coordinates: { x: -82.0, y: 40.0 } }] } }),
+    });
+    const dropped = await censusAutocompleteFallback('1 Main St, Columbus, OH 43004', outPa);
+    assert.deepStrictEqual(dropped, [], 'non-PA Census match is dropped');
   });
 
   // (i) TIER 2 -- out-of-county context list (PII-safe) ----------------

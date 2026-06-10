@@ -81,18 +81,19 @@ function makeFetch(workerHost, opts) {
   return function fetchMock(url) {
     const u = String(url);
     if (u.indexOf(workerHost) === 0 || u.indexOf('workers.dev') !== -1) {
-      // Autocomplete route: return a deterministic suggestion list.
+      // Autocomplete route: return a deterministic suggestion list. A scenario
+      // may override the list via opts.acSuggestions (e.g. a single Census-
+      // sourced candidate the picker must coord-capture identically to Photon).
       if (u.indexOf('autocomplete=') !== -1) {
+        const acSuggestions = opts.acSuggestions || [
+          { label: '4400 Forbes Avenue, Pittsburgh, Pennsylvania 15213', lat: 40.4443, lon: -79.9569 },
+          { label: '4400 Forbes Road, Murrysville, Pennsylvania', lat: 40.43, lon: -79.69 },
+        ];
         return Promise.resolve({
           ok: true,
           status: 200,
           json: function () {
-            return Promise.resolve({
-              suggestions: [
-                { label: '4400 Forbes Avenue, Pittsburgh, Pennsylvania 15213', lat: 40.4443, lon: -79.9569 },
-                { label: '4400 Forbes Road, Murrysville, Pennsylvania', lat: 40.43, lon: -79.69 },
-              ],
-            });
+            return Promise.resolve({ suggestions: acSuggestions });
           },
         });
       }
@@ -461,6 +462,67 @@ async function runPasteAndGo() {
 
   console.log('PASS: pasting a full address fires the picker immediately, candidates appear in ' +
     'the dropdown, and picking one submits via animal_lat/animal_lon (Census bypassed).');
+}
+
+// ── CENSUS FALLBACK (root-cause fix): a full pasted address Photon lacks (e.g.
+//    738 Neola Rd, Stroudsburg) still appears as a SELECTABLE candidate in the
+//    existing dropdown because the Worker appended a Census-sourced suggestion.
+//    Picking it must submit via animal_lat/animal_lon (the Census coords),
+//    identical to a Photon pick — no separate confirmation panel. ───────────
+async function runPasteCensusFallback() {
+  const NEOLA = { label: '738 NEOLA RD, STROUDSBURG, PA, 18360', lat: 40.957690, lon: -75.339752 };
+  const { window, opts: domOpts } = loadDom({
+    // The Worker returns ONLY the Census-sourced candidate for this address
+    // (Photon was empty server-side; the handler appended the Census match).
+    acSuggestions: [NEOLA],
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  const addrRadio = doc.querySelector('input[name="mode"][value="address"]');
+  addrRadio.checked = true;
+  addrRadio.dispatchEvent(new window.Event('change', { bubbles: true }));
+
+  const addrInput = doc.getElementById('animal-address');
+  const acList = doc.getElementById('address-suggestions');
+
+  // Paste the real Monroe County address Photon lacks.
+  addrInput.value = '738 Neola Rd, Stroudsburg, PA 18360';
+  addrInput.dispatchEvent(new window.Event('paste', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  const cands = Array.prototype.slice.call(acList.querySelectorAll('.ac-item'));
+  assert.strictEqual(acList.hidden, false, 'Census-sourced candidate shows in the dropdown after paste');
+  assert.strictEqual(cands.length, 1, 'exactly the one Census candidate is listed (got ' + cands.length + ')');
+  assert.strictEqual(cands[0].textContent.trim(), NEOLA.label,
+    'the dropdown shows the Census matched address');
+
+  // Pick it -> fills the input and captures the Census coords.
+  cands[0].dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+  await flush(window);
+  assert.strictEqual(addrInput.value, NEOLA.label, 'picking fills the input with the Census label');
+
+  // Submit -> must carry the Census coords as animal_lat/animal_lon (no Census
+  // address= round-trip; same path as a Photon pick).
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  const url = domOpts.aggCalls[domOpts.aggCalls.length - 1] || '';
+  assert.ok(/[?&]animal_lat=40\.95769(&|$)/.test(url),
+    'Census pick submits animal_lat (url: ' + url + ')');
+  assert.ok(/[?&]animal_lon=-75\.339752(&|$)/.test(url),
+    'Census pick submits animal_lon (url: ' + url + ')');
+  assert.ok(!/[?&]address=/.test(url),
+    'Census pick must NOT use the address= path (url: ' + url + ')');
+
+  console.log('PASS: a full pasted address Photon lacks (738 Neola Rd) appears as a Census-sourced ' +
+    'candidate in the dropdown; picking it submits via animal_lat/animal_lon.');
 }
 
 // ── Tier 1: selecting a county renders the COORDINATOR NAME (name only, no
@@ -2277,6 +2339,7 @@ async function run() {
   await runAddressMode();
   await runSuggestionCoordSubmit();
   await runPasteAndGo();
+  await runPasteCensusFallback();
   await runStandaloneAddressContextList();
   await runStandaloneNoRvsCaptureAllCtCapable();
   await runTier1Coordinator();
@@ -2307,7 +2370,7 @@ async function run() {
   await runAddressResolvedArea();
   await runDeconfliction();
   await runAddressNoHorizontalOverflowCss();
-  console.log('\nALL DOM TESTS PASSED (33 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (34 scenarios).');
 }
 
 run().then(function () {

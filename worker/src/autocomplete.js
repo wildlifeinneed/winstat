@@ -32,6 +32,68 @@ const MIN_QUERY_LEN = 3;
 const DEFAULT_LIMIT = 5;
 const MAX_LIMIT = 10;
 
+// US Census ONELINEADDRESS *locations* geocoder — the EXACT-match fallback used
+// only when Photon yields zero PA candidates for a query that LOOKS like a full
+// address. Photon (OSM) lacks many rural PA house numbers (e.g. 738 Neola Rd),
+// while Census finds them. This is the cheap `locations/...` endpoint (no
+// geography layer) since the autocomplete candidate only needs coordinates; the
+// county/area derivation stays on the handler's geographies path at submit time.
+const CENSUS_AC_URL =
+  'https://geocoding.geo.census.gov/geocoder/locations/onelineaddress';
+const CENSUS_AC_BENCHMARK = 'Public_AR_Current';
+
+// Common USPS street-suffix abbreviations -> the full word Photon indexes under.
+// Applied (word-boundary, case-insensitive, optional trailing period) only to a
+// COPY of the query sent to Photon — the user-visible input is never mutated.
+// Photon is query-form sensitive: "Neola Rd" returns EMPTY while "Neola Road"
+// surfaces the nearby street/POI, so expanding the suffix widens the hit rate.
+const SUFFIX_MAP = {
+  rd: 'Road',
+  st: 'Street',
+  ave: 'Avenue',
+  dr: 'Drive',
+  ln: 'Lane',
+  ct: 'Court',
+  blvd: 'Boulevard',
+  pkwy: 'Parkway',
+  hwy: 'Highway',
+  pl: 'Place',
+  ter: 'Terrace',
+};
+
+/**
+ * Expand common street-suffix abbreviations on a COPY of the query for Photon.
+ * Word-boundary + case-insensitive + optional trailing period (so "Rd" and
+ * "Rd." both expand). Returns the (possibly) rewritten string; the caller's
+ * user-visible input is untouched.
+ */
+function normalizeForPhoton(query) {
+  var s = String(query || '');
+  for (var abbr in SUFFIX_MAP) {
+    if (!Object.prototype.hasOwnProperty.call(SUFFIX_MAP, abbr)) continue;
+    var re = new RegExp('\\b' + abbr + '\\.?\\b', 'gi');
+    s = s.replace(re, SUFFIX_MAP[abbr]);
+  }
+  return s;
+}
+
+/**
+ * Heuristic: does this query LOOK like a full street address (worth a single
+ * exact-match Census call) rather than a typed partial? True when it contains a
+ * house-number digit AND (a 5-digit ZIP OR a 2-letter state token). This gates
+ * the Census fallback so it never fires per-keystroke — only on a complete,
+ * pasted-style address.
+ */
+function looksLikeFullAddress(query) {
+  var s = String(query || '');
+  // House-number digit anywhere.
+  if (!/\d/.test(s)) return false;
+  // A 5-digit ZIP, OR a US state token (2-letter, word-boundary, e.g. " PA").
+  var hasZip = /\b\d{5}(?:-\d{4})?\b/.test(s);
+  var hasState = /\b[A-Za-z]{2}\b/.test(s);
+  return hasZip || hasState;
+}
+
 // HARD filter: the dispatcher only ever needs PA addresses, so non-PA candidates
 // are dropped from the dropdown. A feature passes when its state explicitly reads
 // Pennsylvania/PA. When the provider returns NO state (some house/POI features),
@@ -112,7 +174,10 @@ async function autocompleteAddress(query, limit, fetchFn) {
   }
 
   var url = new URL(PHOTON_URL);
-  url.searchParams.set('q', q);
+  // Send a suffix-expanded COPY to Photon (e.g. "Rd"->"Road") so the provider's
+  // form-sensitive index still surfaces the nearby street/POI. The user-visible
+  // input (and the Census fallback string) keep the dispatcher's original text.
+  url.searchParams.set('q', normalizeForPhoton(q));
   url.searchParams.set('limit', String(lim));
   url.searchParams.set('lang', 'en');
   // Bias toward PA / US.
@@ -219,13 +284,86 @@ async function photonGeocode(address, fetchFn) {
   return { status: 'not_found' };
 }
 
+/**
+ * EXACT-match Census fallback for the typeahead. Called by the handler ONLY
+ * when Photon returned 0 PA candidates AND the query looksLikeFullAddress() —
+ * so it never fires per-keystroke, only on a complete pasted address. Hits the
+ * Census `locations/onelineaddress` geocoder for the SAME (un-normalized) string
+ * and, on a match, returns ONE dropdown candidate identical in shape to a Photon
+ * suggestion ({label, lat, lon}) so the existing acSelect coord-capture path
+ * treats it the same. Non-PA matches are dropped via isPennsylvania(). Never
+ * throws; any error / no match -> [].
+ *
+ * @param {string} query     the full address the dispatcher pasted
+ * @param {Function} fetchFn fetch-compatible (url, init) -> Promise<Response>
+ * @returns {Promise<Array<{label:string,lat:number,lon:number}>>}
+ */
+async function censusAutocompleteFallback(query, fetchFn) {
+  var addr = String(query || '').trim();
+  if (addr.length < MIN_QUERY_LEN) {
+    return [];
+  }
+  var doFetch = fetchFn || (typeof fetch !== 'undefined' ? fetch : null);
+  if (!doFetch) {
+    return [];
+  }
+
+  var url = new URL(CENSUS_AC_URL);
+  url.searchParams.set('address', addr);
+  url.searchParams.set('benchmark', CENSUS_AC_BENCHMARK);
+  url.searchParams.set('format', 'json');
+
+  var resp;
+  try {
+    resp = await doFetch(url.toString(), { method: 'GET' });
+  } catch (e) {
+    return [];
+  }
+  if (!resp || (typeof resp.status === 'number' && resp.status >= 400)) {
+    return [];
+  }
+
+  var body;
+  try {
+    body = await resp.json();
+  } catch (e) {
+    return [];
+  }
+
+  var result = (body && body.result) || {};
+  var matches = Array.isArray(result.addressMatches) ? result.addressMatches : [];
+  if (matches.length === 0) {
+    return [];
+  }
+  var m = matches[0] || {};
+  var coords = m.coordinates || {};
+  var lat = Number(coords.y);
+  var lon = Number(coords.x);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return [];
+  }
+  // PA-only: the Census match has no provider state field here, so isPennsylvania
+  // falls back to the PA bbox on its coordinate (consistent with the Photon path).
+  if (!isPennsylvania({}, lat, lon)) {
+    return [];
+  }
+  var label = m.matchedAddress ? String(m.matchedAddress).trim() : addr;
+  return [{ label: label, lat: lat, lon: lon }];
+}
+
 module.exports = {
   PHOTON_URL,
   MIN_QUERY_LEN,
   DEFAULT_LIMIT,
   MAX_LIMIT,
+  CENSUS_AC_URL,
+  CENSUS_AC_BENCHMARK,
+  SUFFIX_MAP,
   clampLimit,
   labelFromProps,
+  normalizeForPhoton,
+  looksLikeFullAddress,
   autocompleteAddress,
   photonGeocode,
+  censusAutocompleteFallback,
 };

@@ -28,7 +28,7 @@ const {
 } = require('./aggregate');
 const { geocodeAddress } = require('./census');
 const { countyToArea } = require('./county_win');
-const { autocompleteAddress, photonGeocode } = require('./autocomplete');
+const { autocompleteAddress, photonGeocode, looksLikeFullAddress, censusAutocompleteFallback } = require('./autocomplete');
 const { rehabberDistances, drivingDistancesMiles } = require('./distance');
 
 // KV key under which the Phase F refresh job stores the coords array (JSON).
@@ -304,6 +304,26 @@ async function handleRequest(request, deps) {
       suggestions = [];
     }
     if (!Array.isArray(suggestions)) suggestions = [];
+    // CENSUS FALLBACK: Photon (OSM) lacks many rural PA house numbers (e.g.
+    // 738 Neola Rd). When it yields 0 PA candidates AND the query looks like a
+    // COMPLETE pasted address (house-number digit + ZIP/state token), make ONE
+    // exact-match Census call for the SAME string and append the match as a
+    // selectable dropdown candidate ({label, lat, lon}) — same shape the picker
+    // already coord-captures. Gated so it never fires on short/typed partials.
+    if (suggestions.length === 0 && looksLikeFullAddress(String(params.autocomplete))) {
+      let censusCands;
+      try {
+        censusCands = await censusAutocompleteFallback(
+          String(params.autocomplete),
+          deps.fetchFn
+        );
+      } catch (e) {
+        censusCands = [];
+      }
+      if (Array.isArray(censusCands) && censusCands.length) {
+        suggestions = suggestions.concat(censusCands);
+      }
+    }
     return jsonResponse(ResponseCtor, 200, { suggestions: suggestions }, allowedOrigin);
   }
 
