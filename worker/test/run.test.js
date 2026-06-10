@@ -1106,12 +1106,14 @@ async function main() {
 
   // (i) TIER 2 -- out-of-county context list (PII-safe) ----------------
   // Forbidden keys that must NEVER appear at any depth of a Tier 2 response.
+  // NOTE: 'name' is intentionally ALLOWED in the Tier 2 response so the
+  // dispatcher can show volunteer names in the low-capacity roster.
   const TIER2_FORBIDDEN_KEYS = [
-    'lat', 'lon', 'latitude', 'longitude', '_addr_sig', 'name', 'rehab_name',
+    'lat', 'lon', 'latitude', 'longitude', '_addr_sig', 'rehab_name',
     'phone', 'email', 'address', 'street', 'city', 'zip', 'home_county',
     'monday_item_id', 'coords', 'coordinates',
   ];
-  const TIER2_ROW_KEYS = ['county', 'distance_mi', 'roles', 'win_area'];
+  const TIER2_ROW_KEYS = ['availability_note', 'county', 'distance_mi', 'name', 'roles', 'win_area'];
 
   // Deep-walk every key in an object/array tree, collecting key names.
   function collectKeys(node, out) {
@@ -1134,12 +1136,14 @@ async function main() {
       lat: 40.2732, lon: -76.8867, roles: ['C&T', 'COURIER'], home_county: 'Dauphin',
       win_area: 'WIN-1', _addr_sig: 'sig-aaa', name: 'Alice', phone: '717-000-0001',
       email: 'a@x.org', address: '1 Main St', monday_item_id: 111,
+      availability_note: 'Weekdays only',
     },
     // ~8 mi, OUT-of-county (Lebanon), RVS C&T.
     {
       lat: 40.36, lon: -76.78, roles: ['rvs c&t'], home_county: 'Lebanon',
       win_area: 'WIN-2', _addr_sig: 'sig-bbb', name: 'Bob', phone: '717-000-0002',
       email: 'b@x.org', address: '2 Oak Ave', monday_item_id: 222,
+      availability_note: 'Evenings M-F',
     },
     // ~12 mi, OUT-of-county (Lancaster), COURIER.
     {
@@ -1168,6 +1172,11 @@ async function main() {
     assert.strictEqual(rows[0].county, 'Lebanon');
     assert.deepStrictEqual(rows[1].roles, ['COURIER']);
     assert.strictEqual(rows[1].county, 'Lancaster');
+    // name + availability_note are passed through from KV record.
+    assert.strictEqual(rows[0].name, 'Bob', 'Lebanon row carries name');
+    assert.strictEqual(rows[0].availability_note, 'Evenings M-F', 'Lebanon row carries availability_note');
+    assert.strictEqual(rows[1].name, 'Carol', 'Lancaster row carries name');
+    assert.strictEqual(rows[1].availability_note, '', 'Lancaster row carries empty availability_note when absent');
     // Each row carries ONLY the whitelisted keys.
     for (const r of rows) {
       assert.deepStrictEqual(Object.keys(r).sort(), TIER2_ROW_KEYS,
@@ -1871,7 +1880,7 @@ async function main() {
     // returns 600s = 10 min for every cell). Row whitelist now includes it.
     assert.strictEqual(ctx.rows[0].duration_min, 10, 'driving row carries duration_min (minutes)');
     assert.deepStrictEqual(Object.keys(ctx.rows[0]).sort(),
-      ['county', 'distance_mi', 'duration_min', 'roles', 'win_area']);
+      ['availability_note', 'county', 'distance_mi', 'duration_min', 'name', 'roles', 'win_area']);
 
     // Fallback path (no key) -> straight_line, both out-of-county rows present.
     const fb = await findContextRowsDriving(
@@ -1884,7 +1893,7 @@ async function main() {
       assert.ok(!('duration_min' in r), 'straight_line row has NO duration_min');
     });
     assert.deepStrictEqual(Object.keys(fb.rows[0]).sort(),
-      ['county', 'distance_mi', 'roles', 'win_area']);
+      ['availability_note', 'county', 'distance_mi', 'name', 'roles', 'win_area']);
   });
 
   await test('(l10) handler end-to-end: driving mode, ORS sees only coords, PII-safe', async () => {

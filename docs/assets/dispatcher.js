@@ -1388,12 +1388,14 @@
       var backupAreas = {};
       var qualifiedCount = 0;
       var backupCount = 0;
+      var qualifiedRows = [];
       ooc.forEach(function (row) {
         var roleList = Array.isArray(row.roles) ? row.roles : [];
         var area = (row.win_area !== null && row.win_area !== undefined &&
                     String(row.win_area).trim() !== '') ? String(row.win_area).trim() : null;
         if (qualifyFn(roleList, !!ctx.rvs, ctx.issue)) {
           qualifiedCount += 1;
+          qualifiedRows.push(row);
           if (area) qualifiedAreas[area] = true;
         } else {
           // Close-but-not-qualified: in range with a qualifying role, just not
@@ -1427,9 +1429,26 @@
           ? state.config[t2ThreshKey]
           : (MSG.thresholds[t2ThreshKey] || 1);
         if (qualifiedCount <= t2MinAvail) {
-          actions.push(actionLine('escalate', '!', fmt(T2.lowCapacityWarning, {
+          var lowCapHtml = fmt(T2.lowCapacityWarning, {
             count: qualifiedCount, phone: escapeHtml(PGC_PHONE)
-          })));
+          });
+          // Volunteer roster: show name + availability note for each qualified row,
+          // matching Tier-1's .rec-marginal visual pattern.
+          if (qualifiedRows.length > 0) {
+            lowCapHtml += '<div class="rec-marginal t2-marginal-roster">';
+            lowCapHtml += '<div class="rec-marginal-header">' + MSG.recommendation.lowCapacityHeader + '</div>';
+            lowCapHtml += '<ul>';
+            qualifiedRows.forEach(function (qRow) {
+              var vName = (qRow && qRow.name) ? escapeHtml(String(qRow.name)) : '';
+              var vNote = (qRow && qRow.availability_note) ? escapeHtml(String(qRow.availability_note)) : '';
+              var entry = vName ? '<strong>' + vName + '</strong>' : '';
+              if (vNote) { entry += (entry ? ' \u2014 ' : '') + '<em>' + vNote + '</em>'; }
+              if (!entry) { entry = '<em>' + MSG.recommendation.noAvailabilityInfo + '</em>'; }
+              lowCapHtml += '<li>' + entry + '</li>';
+            });
+            lowCapHtml += '</ul></div>';
+          }
+          actions.push(actionLine('escalate', '!', lowCapHtml));
         }
         leniencyHandled = true;
       } else if (backupCount > 0) {

@@ -1145,7 +1145,7 @@ async function runTier2LenientPrefersQualified() {
 //    It must NOT appear when qualifiedCount = 0 (backup path) or > threshold.
 async function runTier2LowCapacityWarning() {
   // ── Case 1: qualifiedCount = 1, RVS capture (threshold ct_rvs_capture_min_available = 1)
-  //    -> warning MUST appear.
+  //    -> warning MUST appear, roster with name+note MUST appear.
   const aggOne = {
     total_in_range: 3,
     role_counts: { 'C&T': 0, 'RVS C&T': 1, 'COURIER': 2 },
@@ -1153,9 +1153,12 @@ async function runTier2LowCapacityWarning() {
     animal_area: '11',
     animal_county: 'Beaver',
     out_of_county: [
-      { roles: ['RVS C&T'], distance_mi: 6.0, win_area: '11', county: 'Beaver' },
-      { roles: ['COURIER'], distance_mi: 9.0, win_area: '11', county: 'Beaver' },
-      { roles: ['COURIER'], distance_mi: 12.0, win_area: '5', county: 'Westmoreland' },
+      { roles: ['RVS C&T'], distance_mi: 6.0, win_area: '11', county: 'Beaver',
+        name: 'Jane Smith', availability_note: 'Weekends only' },
+      { roles: ['COURIER'], distance_mi: 9.0, win_area: '11', county: 'Beaver',
+        name: 'Tom Jones', availability_note: '' },
+      { roles: ['COURIER'], distance_mi: 12.0, win_area: '5', county: 'Westmoreland',
+        name: 'Carol Kim', availability_note: 'Call first' },
     ],
     out_of_county_truncated: false,
     radius_too_broad: false,
@@ -1190,6 +1193,25 @@ async function runTier2LowCapacityWarning() {
   // Banner must include the PGC phone.
   assert.ok(/833/.test(warningLines1[0]),
     'low-cap banner includes PGC phone number (got: "' + warningLines1[0] + '")');
+
+  // ── Roster: the single qualified RVS C&T row (Jane Smith) must appear inside
+  //    the low-cap action-line as a .rec-marginal roster with name + note.
+  var warningEls1Full = Array.prototype.slice.call(
+    doc1.querySelectorAll('#agg-actions .action-line.escalate')
+  ).filter(function (el) { return /Low capacity/i.test(el.textContent || ''); });
+  assert.strictEqual(warningEls1Full.length, 1, 'exactly one escalate low-cap action-line');
+  var rosterEl = warningEls1Full[0].querySelector('.rec-marginal');
+  assert.ok(rosterEl, 'roster .rec-marginal div is present inside the low-cap banner');
+  var rosterHtml = rosterEl.innerHTML || '';
+  assert.ok(/Jane Smith/i.test(rosterHtml),
+    'roster shows qualified volunteer name "Jane Smith" (got: "' + rosterHtml + '")');
+  assert.ok(/Weekends only/i.test(rosterHtml),
+    'roster shows availability note "Weekends only" (got: "' + rosterHtml + '")');
+  // COURIER rows do NOT qualify for RVS capture, so Tom Jones and Carol Kim must NOT appear.
+  assert.ok(!/Tom Jones/i.test(rosterHtml),
+    'non-qualifying COURIER (Tom Jones) must NOT appear in roster (got: "' + rosterHtml + '")');
+  assert.ok(!/Carol Kim/i.test(rosterHtml),
+    'non-qualifying COURIER (Carol Kim) must NOT appear in roster (got: "' + rosterHtml + '")');
 
   // ── Case 2: qualifiedCount = 2 (above threshold of 1) -> warning must NOT appear.
   const aggTwo = {
@@ -1229,7 +1251,7 @@ async function runTier2LowCapacityWarning() {
   assert.ok(/backup/i.test(actions3),
     'backup path is active when qualifiedCount=0 (got: "' + actions3 + '")');
 
-  console.log('PASS: Tier 2 low-capacity banner — appears at threshold (q=1), absent above (q=2), absent on backup path (q=0).');
+  console.log('PASS: Tier 2 low-capacity banner — appears at threshold (q=1) with volunteer roster, absent above (q=2), absent on backup path (q=0).');
 }
 
 // ── R2 (d): a qualified row still renders its role badge + distance intact
