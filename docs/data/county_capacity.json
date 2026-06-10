@@ -123,7 +123,7 @@
     },
     "Blair": {
       "courier": {
-        "available": 4,
+        "available": 3,
         "marginal_volunteers": [],
         "total": 4
       },
@@ -221,8 +221,17 @@
     },
     "Carbon": {
       "courier": {
-        "available": 2,
-        "marginal_volunteers": [],
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Weekends; Possibly Weekdays after 6PM",
+            "connecteam_user": true
+          },
+          {
+            "availability_note": "Avail Weekdays & Weekends",
+            "connecteam_user": true
+          }
+        ],
         "total": 2
       },
       "ct_no_rvs": {
@@ -380,8 +389,17 @@
     },
     "Dauphin": {
       "courier": {
-        "available": 2,
-        "marginal_volunteers": [],
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Weekends, can vary",
+            "connecteam_user": true
+          },
+          {
+            "availability_note": "Contact for avail, Not on ConnecTeam",
+            "connecteam_user": false
+          }
+        ],
         "total": 2
       },
       "ct_no_rvs": {
@@ -644,8 +662,17 @@
     },
     "Luzerne": {
       "courier": {
-        "available": 2,
-        "marginal_volunteers": [],
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Weekdays after 5PM, Weekends",
+            "connecteam_user": true
+          },
+          {
+            "availability_note": "Avail Weekends",
+            "connecteam_user": true
+          }
+        ],
         "total": 2
       },
       "ct_no_rvs": {
@@ -737,8 +764,17 @@
     },
     "Monroe": {
       "courier": {
-        "available": 2,
-        "marginal_volunteers": [],
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Weekends, Work sched Flex, Unavail 10/3/26-10/18/26",
+            "connecteam_user": true
+          },
+          {
+            "availability_note": "Avail Weekends, varies",
+            "connecteam_user": true
+          }
+        ],
         "total": 2
       },
       "ct_no_rvs": {
@@ -752,17 +788,8 @@
         "total": 1
       },
       "ct_rvs": {
-        "available": 1,
-        "marginal_volunteers": [
-          {
-            "availability_note": "Avail before 6PM Mon, Thur, Fri, Sat & Sun ; 1PM-6PM Tue & Wed; Will drive up to 1 hour from Effort",
-            "connecteam_user": true
-          },
-          {
-            "availability_note": "Avail Mon, Tues, Thur, Weekends. Avail varies Wed & Fri , 5/1-9/30 Unavail Weekends",
-            "connecteam_user": true
-          }
-        ],
+        "available": 2,
+        "marginal_volunteers": [],
         "total": 2
       }
     },
@@ -785,7 +812,7 @@
     },
     "Northampton": {
       "courier": {
-        "available": 1,
+        "available": 0,
         "marginal_volunteers": [
           {
             "availability_note": "Avail Weekends, schedule varies but flexible",
@@ -1105,7 +1132,7 @@
       }
     }
   },
-  "generated_at": "2026-06-10T19:00:39Z",
+  "generated_at": "2026-06-10T19:38:38Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
