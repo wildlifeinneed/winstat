@@ -1968,8 +1968,9 @@ async function main() {
     assert.strictEqual(out.aggregate.total_in_range, 3, 'never fewer than prescreen on fallback');
   });
 
-  await test('(l9) findContextRowsDriving: driving distance_mi + gate + sorted; fallback', async () => {
-    // Driving: Lancaster (40.10) far (60mi) -> excluded; Lebanon stays (~5mi driving).
+  await test('(l9) findContextRowsDriving: straight-line membership + DISPLAY-ONLY driving annotation', async () => {
+    // Driving mock: Lancaster (40.10) is "far by road" (60 driving mi); the
+    // others are ~5 driving mi. mockOrsByCoord also returns 600s = 10 min/cell.
     const driveFn = mockOrsByCoord((c) => {
       if (Math.abs(c.lat - 40.10) < 1e-6) return 60 * 1609.344;
       return 5 * 1609.344;
@@ -1977,29 +1978,54 @@ async function main() {
     const ctx = await findContextRowsDriving(
       ANIMAL.lat, ANIMAL.lon, 20, VOL, 'Dauphin', drivingDistancesMiles, 'secret-key', driveFn
     );
-    assert.strictEqual(ctx.distance_mode, 'driving');
-    // Out-of-county within 20 DRIVING mi: Lebanon only (Lancaster dropped, Dauphin excluded).
-    assert.strictEqual(ctx.rows.length, 1, 'driving gate dropped Lancaster');
-    assert.strictEqual(ctx.rows[0].county, 'Lebanon');
-    assert.strictEqual(ctx.rows[0].distance_mi, 5.0, 'distance_mi is DRIVING miles');
-    // DRIVING mode also carries per-volunteer driving minutes (mockOrsByCoord
-    // returns 600s = 10 min for every cell). Row whitelist now includes it.
-    assert.strictEqual(ctx.rows[0].duration_min, 10, 'driving row carries duration_min (minutes)');
-    assert.deepStrictEqual(Object.keys(ctx.rows[0]).sort(),
-      ['availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'duration_min', 'name', 'roles', 'win_area']);
+    // MEMBERSHIP is STRAIGHT-LINE: a 60 driving-mi volunteer is NOT dropped --
+    // driving distance is display-only and can never change who is in range.
+    assert.strictEqual(ctx.distance_mode, 'straight_line', 'membership metric is straight-line');
+    assert.strictEqual(ctx.rows.length, 2, 'straight-line keeps Lebanon + Lancaster (driving never gates)');
+    const byCounty = {};
+    ctx.rows.forEach((r) => { byCounty[r.county] = r; });
+    assert.ok(byCounty['Lebanon'] && byCounty['Lancaster'], 'both out-of-county rows present');
+    // distance_mi stays the STRAIGHT-LINE metric (NOT the 60/5 driving values).
+    ctx.rows.forEach((r) => { assert.ok(Number.isFinite(r.distance_mi), 'straight-line distance_mi'); });
+    assert.notStrictEqual(byCounty['Lancaster'].distance_mi, 60.0, 'distance_mi is NOT the driving distance');
+    // DISPLAY-ONLY driving annotation attached to EVERY surviving row.
+    assert.strictEqual(byCounty['Lebanon'].driving_miles, 5.0, 'Lebanon driving distance annotation');
+    assert.strictEqual(byCounty['Lancaster'].driving_miles, 60.0, 'Lancaster driving distance annotation');
+    ctx.rows.forEach((r) => { assert.strictEqual(r.duration_min, 10, 'driving time annotation (min)'); });
+    assert.deepStrictEqual(Object.keys(byCounty['Lebanon']).sort(),
+      ['availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'driving_miles', 'duration_min', 'name', 'roles', 'win_area']);
+    // Sorted ascending by STRAIGHT-LINE distance_mi (not driving).
+    assert.ok(ctx.rows[0].distance_mi <= ctx.rows[1].distance_mi, 'sorted by straight-line distance');
 
-    // Fallback path (no key) -> straight_line, both out-of-county rows present.
+    // FALLBACK (no key) -> straight_line membership UNCHANGED, NO annotation.
     const fb = await findContextRowsDriving(
       ANIMAL.lat, ANIMAL.lon, 20, VOL, 'Dauphin', drivingDistancesMiles, '', driveFn
     );
     assert.strictEqual(fb.distance_mode, 'straight_line');
-    assert.strictEqual(fb.rows.length, 2, 'haversine keeps Lebanon + Lancaster');
-    // STRAIGHT-LINE fallback: NO driving time fabricated -> duration_min absent.
+    assert.strictEqual(fb.rows.length, 2, 'membership identical with/without ORS');
     fb.rows.forEach((r) => {
-      assert.ok(!('duration_min' in r), 'straight_line row has NO duration_min');
+      assert.ok(!('duration_min' in r), 'straight_line row has NO fabricated driving time');
+      assert.ok(!('driving_miles' in r), 'straight_line row has NO driving distance');
     });
     assert.deepStrictEqual(Object.keys(fb.rows[0]).sort(),
       ['availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'name', 'roles', 'win_area']);
+  });
+
+  await test('(l9b) findContextRowsDriving: ORS error => rows still render, membership unchanged, no driving tags', async () => {
+    // ORS throws on the annotation call. Membership (straight-line) must be
+    // identical to the success case and rows must still render -- just without
+    // driving_miles / duration_min. distance_mode stays straight_line.
+    const ctx = await findContextRowsDriving(
+      ANIMAL.lat, ANIMAL.lon, 20, VOL, 'Dauphin', drivingDistancesMiles, 'secret-key',
+      async () => { throw new Error('ors down'); }
+    );
+    assert.strictEqual(ctx.distance_mode, 'straight_line', 'ORS failure never changes the metric');
+    assert.strictEqual(ctx.rows.length, 2, 'ORS failure never drops a row');
+    ctx.rows.forEach((r) => {
+      assert.ok(Number.isFinite(r.distance_mi), 'straight-line distance still present');
+      assert.ok(!('driving_miles' in r), 'no driving distance when ORS fails');
+      assert.ok(!('duration_min' in r), 'no driving time when ORS fails');
+    });
   });
 
   await test('(l10) handler end-to-end: volunteer radius is straight-line; coords never sent to ORS even with a key', async () => {
@@ -2075,6 +2101,17 @@ async function main() {
       body.out_of_county.map((r) => r.county).sort(),
       ['Lancaster', 'Lebanon']
     );
+    // DISPLAY-ONLY driving annotation reaches the response for the surviving
+    // qualified rows (real ORS key on the annotation path). Membership above is
+    // unaffected: Lancaster (60 driving mi) is still present.
+    const byCounty = {};
+    body.out_of_county.forEach((r) => { byCounty[r.county] = r; });
+    assert.strictEqual(byCounty['Lebanon'].driving_miles, 5.0, 'Lebanon driving distance surfaced');
+    assert.strictEqual(byCounty['Lancaster'].driving_miles, 60.0, 'Lancaster driving distance surfaced');
+    assert.strictEqual(byCounty['Lebanon'].duration_min, 10, 'Lebanon driving time surfaced');
+    assert.strictEqual(byCounty['Lancaster'].duration_min, 10, 'Lancaster driving time surfaced');
+    // distance_mi stays the straight-line metric, distinct from driving_miles.
+    assert.notStrictEqual(byCounty['Lancaster'].distance_mi, 60.0, 'distance_mi is straight-line, not driving');
     // Deep-walk: no forbidden key.
     const allKeys = collectKeys(body, []);
     for (const k of TIER2_FORBIDDEN_KEYS) {

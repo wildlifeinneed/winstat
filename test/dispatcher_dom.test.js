@@ -826,6 +826,47 @@ async function runTier2ContextStraightLineNoTime() {
   console.log('PASS: Tier 2 straight_line fallback row renders distance only (no time).');
 }
 
+// ── Tier 2 DISPLAY-ONLY DRIVING ANNOTATION: the membership/edge metric is the
+//    straight-line distance_mi, but the visible "X.X mi driving / ~Y min" label
+//    uses the SEPARATE driving_miles + duration_min annotation (computed AFTER
+//    the straight-line gate). The "mi driving" number must be driving_miles
+//    (e.g. 47.1), NOT the straight-line distance_mi (e.g. 30.0). ──────────────
+async function runTier2ContextDrivingAnnotation() {
+  const agg = {
+    total_in_range: 2,
+    role_counts: { 'C&T': 0, 'RVS C&T': 0, 'COURIER': 0 },
+    win_areas: [],
+    // Membership stayed straight-line; driving is display-only annotation.
+    distance_mode: 'straight_line',
+    out_of_county: [
+      // Straight-line 30.0 mi but 47.1 driving mi / 61 min across a ridge.
+      { roles: ['C&T'], distance_mi: 30.0, driving_miles: 47.1, duration_min: 61, win_area: '6', county: 'Clearfield' },
+      // Annotation missing (ORS failed for this cell) -> distance-only label.
+      { roles: ['RVS C&T'], distance_mi: 22.5, win_area: '2', county: 'Centre' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc } = await driveTier2(agg, 'Cameron');
+
+  const rows = Array.prototype.slice.call(doc.querySelectorAll('#ctx-list .ctx-row'));
+  assert.strictEqual(rows.length, 2, 'both qualified rows render');
+
+  // Row 0: label uses the DRIVING distance (47.1), not the straight-line 30.0.
+  const d0 = (rows[0].querySelector('.ctx-dist').textContent || '').trim();
+  assert.strictEqual(d0, '47.1 mi driving / ~61 min',
+    'driving label uses driving_miles + duration_min (got "' + d0 + '")');
+  assert.ok(d0.indexOf('30.0') === -1, 'driving label must NOT show the straight-line distance');
+
+  // Row 1: no annotation -> plain straight-line distance, no time.
+  const d1 = (rows[1].querySelector('.ctx-dist').textContent || '').trim();
+  assert.strictEqual(d1, '22.5 mi', 'un-annotated row shows straight-line distance only (got "' + d1 + '")');
+  assert.ok(d1.indexOf('min') === -1 && d1.indexOf('driving') === -1,
+    'un-annotated row renders NO driving segment (got "' + d1 + '")');
+
+  console.log('PASS: Tier 2 driving annotation is display-only — label uses driving_miles, distance_mi stays straight-line.');
+}
+
 // ── Tier 2 overflow: radius_too_broad -> show notice above the (5) rows. ────
 async function runTier2Overflow() {
   const five = [];
@@ -3283,6 +3324,7 @@ async function run() {
   await runTier2ContextList();
   await runTier2ContextDrivingTime();
   await runTier2ContextStraightLineNoTime();
+  await runTier2ContextDrivingAnnotation();
   await runTier2Overflow();
   await runTier2Empty();
   await runTier2Availability();

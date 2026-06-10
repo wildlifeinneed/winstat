@@ -479,10 +479,12 @@ async function handleRequest(request, deps) {
   // Tier 2 "widen" branch (opt-in): when context is truthy, ADD a PII-safe
   // out-of-county context list alongside the unchanged aggregate. The aggregate
   // itself is still computed across ALL in-radius volunteers (in + out of
-  // county) above -- the context list is purely additive. It uses the SAME
-  // STRAIGHT-LINE radius gate as the aggregate (empty ORS key -> haversine
-  // fallback) so its distance_mi + radius gate match the aggregate's metric and
-  // volunteer PII coords are not sent to ORS.
+  // county) above -- the context list is purely additive. MEMBERSHIP (who is in
+  // range) is STRAIGHT-LINE haversine, identical to the aggregate. The REAL ORS
+  // key is passed here ONLY so findContextRowsDriving can attach a DISPLAY-ONLY
+  // driving distance/time annotation to the surviving qualified rows (computed
+  // AFTER membership); it never gates membership. Approved per the 2026-06-09
+  // PII amendment: only bare {lat,lon} of the small surviving set reach ORS.
   if (isContextOn(params.context)) {
     const ctx = await findContextRowsDriving(
       coord.lat,
@@ -491,7 +493,7 @@ async function handleRequest(request, deps) {
       coords,
       params.exclude_county,
       drivingDistancesMiles,
-      VOLUNTEER_RADIUS_ORS_KEY,
+      deps.orsApiKey,
       deps.fetchFn,
       undefined,
       params.qualify_roles

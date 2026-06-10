@@ -992,14 +992,19 @@
       }).join('');
 
       var dist = (typeof row.distance_mi === 'number') ? row.distance_mi : Number(row.distance_mi);
+      var driveMi = (typeof row.driving_miles === 'number') ? row.driving_miles : Number(row.driving_miles);
       var distTxt;
       // DRIVING label ("X.X mi driving / ~Y min") when the Worker supplied a
-      // per-volunteer driving duration (driving mode); otherwise the
-      // straight-line label ("X.X mi"). Never show a time on the straight_line
-      // fallback (duration_min absent) — mirrors the rehabber list wording.
+      // per-volunteer driving TIME (display-only annotation computed AFTER the
+      // straight-line membership gate). The "mi driving" number is the real ORS
+      // driving distance (row.driving_miles); it falls back to the straight-line
+      // distance only if driving_miles was not surfaced. When no driving time is
+      // present (ORS unavailable), show the plain straight-line label ("X.X mi")
+      // — never a fabricated time. Membership/edge always use straight-line dist.
       if (Number.isFinite(dist) && typeof row.duration_min === 'number') {
+        var shownMi = Number.isFinite(driveMi) ? driveMi : dist;
         distTxt = fmt(T2.ctxDistanceDriving, {
-          dist: dist.toFixed(1),
+          dist: shownMi.toFixed(1),
           mins: String(row.duration_min)
         });
       } else {

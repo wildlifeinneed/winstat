@@ -398,12 +398,15 @@ async function findVolunteersInRadiusDriving(
 }
 
 /**
- * DRIVING-distance variant of findContextRows. Same prescreen + ORS + fallback
- * flow, but produces the PII-safe out-of-county rows (one per volunteer) using
- * DRIVING miles for both the radius gate AND the surfaced distance_mi, sorted
- * ascending. On fallback it is byte-identical to findContextRows (haversine).
+ * Builds the PII-safe out-of-county Tier-2 rows. MEMBERSHIP (who is "in range")
+ * is decided by STRAIGHT-LINE (haversine) distance ONLY, and distance_mi is that
+ * straight-line metric. Driving distance/time is then fetched from ORS for ONLY
+ * the surviving (in-range + qualified) set and attached as a DISPLAY-ONLY
+ * annotation (driving_miles + duration_min). Driving values NEVER add/remove a
+ * row and NEVER change distance_mode (always 'straight_line'); an ORS failure
+ * simply omits the tags. PII: only bare {lat,lon} of survivors reach ORS.
  *
- * @returns {Promise<{rows:Array, distance_mode:'driving'|'straight_line'}>}
+ * @returns {Promise<{rows:Array, distance_mode:'straight_line'}>}
  */
 async function findContextRowsDriving(
   animalLat, animalLon, radiusMi, coordsDataset, excludeCounty, drivingFn, apiKey, fetchFn, opts, qualifyRoles
@@ -413,23 +416,15 @@ async function findContextRowsDriving(
   const excludeNorm = normalizeCounty(excludeCounty);
   const qualifyKeys = parseQualifyRoles(qualifyRoles);
 
-  let drive = { ok: false };
-  if (typeof drivingFn === 'function' && pre.coords.length > 0 &&
-      Number.isFinite(origin.lat) && Number.isFinite(origin.lon)) {
-    try {
-      drive = await drivingFn(origin, pre.coords, apiKey, fetchFn, opts);
-    } catch (e) {
-      drive = { ok: false };
-    }
-  }
-
-  const useDriving = !!(drive && drive.ok && Array.isArray(drive.milesByIndex));
-  const distanceMode = useDriving ? MODE_DRIVING : MODE_STRAIGHT_LINE;
-
+  // PHASE 1 -- MEMBERSHIP: STRAIGHT-LINE (haversine) ONLY. Who is "in range" is
+  // decided here and never depends on driving distance. distance_mi is the
+  // straight-line radius metric. `surviveCoords` stays parallel to `rows` so the
+  // phase-2 ORS matrix maps cell j -> rows[j].
   const rows = [];
+  const surviveCoords = [];
   for (let i = 0; i < pre.records.length; i += 1) {
     const rec = pre.records[i];
-    const miles = useDriving ? drive.milesByIndex[i] : pre.haversineMiles[i];
+    const miles = pre.haversineMiles[i];
     if (!Number.isFinite(miles) || miles > pre.radius) {
       continue;
     }
@@ -458,7 +453,7 @@ async function findContextRowsDriving(
       rec.home_county !== null && rec.home_county !== undefined && String(rec.home_county).trim() !== ''
         ? String(rec.home_county).trim()
         : null;
-    const row = {
+    rows.push({
       roles: matchedRoles,
       distance_mi: round1(miles),
       win_area: winArea,
@@ -468,22 +463,40 @@ async function findContextRowsDriving(
         ? String(rec.availability_note) : '',
       available: isAvailableRecord(rec),
       connecteam_user: rec.connecteam_user === true,
-    };
-    // DRIVING TIME: surface the per-volunteer driving minutes ONLY in driving
-    // mode and only when ORS supplied a real duration for this cell. On the
-    // straight_line fallback (or a null cell) the field is omitted so the
-    // frontend never renders a fabricated time.
-    if (useDriving) {
-      const mins = drive.minutesByIndex ? drive.minutesByIndex[i] : null;
-      if (Number.isFinite(mins)) {
-        row.duration_min = mins;
+    });
+    surviveCoords.push(pre.coords[i]);
+  }
+
+  // PHASE 2 -- DISPLAY-ONLY DRIVING ANNOTATION. For ONLY the surviving set,
+  // fetch real ORS driving distance + time and attach driving_miles +
+  // duration_min per row. Membership is already fixed above, so any ORS
+  // failure/timeout simply omits the tags -- it never changes who is in range
+  // and never changes distance_mode (stays straight_line). PII: only bare
+  // {lat,lon} of survivors are sent to ORS (per the 2026-06-09 amendment).
+  if (typeof drivingFn === 'function' && rows.length > 0 &&
+      Number.isFinite(origin.lat) && Number.isFinite(origin.lon)) {
+    let drive = { ok: false };
+    try {
+      drive = await drivingFn(origin, surviveCoords, apiKey, fetchFn, opts);
+    } catch (e) {
+      drive = { ok: false };
+    }
+    if (drive && drive.ok && Array.isArray(drive.milesByIndex)) {
+      for (let j = 0; j < rows.length; j += 1) {
+        const dMi = drive.milesByIndex[j];
+        if (Number.isFinite(dMi)) {
+          rows[j].driving_miles = round1(dMi);
+        }
+        const dMin = drive.minutesByIndex ? drive.minutesByIndex[j] : null;
+        if (Number.isFinite(dMin)) {
+          rows[j].duration_min = dMin;
+        }
       }
     }
-    rows.push(row);
   }
 
   rows.sort((a, b) => a.distance_mi - b.distance_mi);
-  return { rows: rows, distance_mode: distanceMode };
+  return { rows: rows, distance_mode: MODE_STRAIGHT_LINE };
 }
 
 // --- Tier 2 "widen" out-of-county context list -----------------------------
@@ -752,11 +765,12 @@ function buildTier2Response(aggregate, contextRows, distanceMode) {
   const overflow = allRows.length > OVERFLOW_THRESHOLD;
   const selected = overflow ? allRows.slice(0, OVERFLOW_NEAREST) : allRows;
 
-  // Per-row whitelist: copy ONLY {roles, distance_mi, win_area, county} plus
-  // the optional duration_min (driving minutes) when present on the row. The
-  // row carries duration_min only in driving mode (see findContextRowsDriving);
-  // it is omitted on the straight_line fallback so the frontend never shows a
-  // fabricated time.
+  // Per-row whitelist: copy ONLY {roles, distance_mi, win_area, county} plus the
+  // optional DISPLAY-ONLY driving annotation (driving_miles + duration_min) when
+  // present. distance_mi is always the STRAIGHT-LINE membership metric;
+  // driving_miles/duration_min are surfaced only when ORS succeeded for the
+  // surviving set (see findContextRowsDriving) and omitted otherwise so the
+  // frontend never shows a fabricated value.
   const outOfCounty = selected.map((r) => {
     const o = {
       roles: Array.isArray(r.roles) ? r.roles.slice() : [],
@@ -769,6 +783,9 @@ function buildTier2Response(aggregate, contextRows, distanceMode) {
       available: r.available !== false,
       connecteam_user: r.connecteam_user === true,
     };
+    if (Number.isFinite(r.driving_miles)) {
+      o.driving_miles = r.driving_miles;
+    }
     if (Number.isFinite(r.duration_min)) {
       o.duration_min = r.duration_min;
     }
