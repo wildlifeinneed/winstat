@@ -647,8 +647,12 @@ def build_volunteer_record(
 ) -> Optional[Dict[str, Any]]:
     """Convert a raw Monday item to a normalized volunteer dict.
 
-    Returns None if the volunteer doesn't qualify for dispatch (no
-    C&T / RVS / Courier role).
+    Returns a record for ANY volunteer regardless of role so that
+    aggregate_by_county (which gates on volunteer_buckets) remains the
+    single source of truth for Tier-1 capacity filtering.  Volunteers
+    without C&T / RVS / Courier roles will have has_ct/has_rvs/has_courier
+    all False, so volunteer_buckets returns [] and they are skipped by
+    aggregate_by_county — county_capacity.json is unaffected.
     """
     name = (item.get("name") or "").strip()
     county = _column_text(item, column_ids[COL_TITLE_COUNTY])
@@ -657,8 +661,6 @@ def build_volunteer_record(
 
     roles = parse_roles(roles_text)
     role_set = set(roles)
-    if not (role_set & QUALIFYING_ROLES):
-        return None
 
     return {
         "name": name,
@@ -678,18 +680,21 @@ def build_geocode_input(
 ) -> Optional[Dict[str, Any]]:
     """Build a geocoder-input dict (with address fields) from a raw item.
 
-    Returns None for non-qualifying volunteers (same role filter as
-    build_volunteer_record). The returned dict carries the raw address columns
-    (street/city/state/zip) plus county + roles so geocoder.batch_geocode_
-    volunteers can derive {lat,lon,roles,home_county,win_area}. The address
-    fields are PII and are consumed only in-memory by the geocoder; they are
-    NEVER written to the output dataset.
+    Returns a dict for ANY volunteer with a non-blank street+city so the
+    full board population (all 163 users/non-users) is geocoded and uploaded
+    to the VOLUNTEER_COORDS KV namespace.  QUALIFYING_ROLES is intentionally
+    NOT checked here — role filtering at geocode time was the root cause of
+    the DuBois/Area-44 "0 volunteers found" bug (non-C&T volunteers were
+    invisible to Tier-2 radius search).  The 'roles' field is still
+    propagated on each record so the Worker can apply role-based filtering
+    (role_counts, findContextRows qualify-only gate) at query time.
+
+    The address fields are PII and are consumed only in-memory by the
+    geocoder; they are NEVER written to the output dataset.
     """
     county = _column_text(item, column_ids[COL_TITLE_COUNTY])
     roles_text = _column_text(item, column_ids[COL_TITLE_ROLES])
     roles = parse_roles(roles_text)
-    if not (set(roles) & QUALIFYING_ROLES):
-        return None
 
     availability_text = _column_text(item, column_ids[COL_TITLE_AVAILABILITY])
     return {
@@ -1669,10 +1674,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             coordinators_path,
         )
 
-    matched = len(volunteers)
+    n_all = len(all_raw_items)
     n_counties = len(snapshot["counties"])
+    # Qualifying count: volunteers that map to at least one capacity bucket.
+    n_qualifying = sum(1 for v in volunteers if volunteer_buckets(v))
     print(
-        f"{len(all_raw_items)} volunteers fetched, {matched} matched roles, "
+        f"{n_all} volunteers fetched, {n_qualifying} qualifying roles "
+        f"(C&T/RVS/Courier), {len(geocode_inputs)} geocode-eligible, "
         f"{n_counties} counties with capacity",
         file=sys.stderr,
     )

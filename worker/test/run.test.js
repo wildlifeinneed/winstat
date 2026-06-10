@@ -262,6 +262,32 @@ async function main() {
     assert.deepStrictEqual(agg.win_areas, ['WIN-1', 'WIN-2', 'WIN-9']);
   });
 
+  // (a3) Non-qualifying volunteers (Dispatch/Board/IT) count in total_in_range
+  // but do NOT increment any role_counts bucket. This is the fix for the
+  // DuBois/Area-44 "0 volunteers found" bug: the pipeline was gating KV upload
+  // on QUALIFYING_ROLES, so non-C&T volunteers were invisible to Tier-2 radius
+  // search. After the fix, all volunteers are geocoded into KV, and the Worker
+  // already correctly handles them here: total_in_range++ but role_counts stays 0.
+  await test('(a3) non-qualifying volunteers (Dispatch-only) appear in total_in_range but not role_counts', () => {
+    const COORDS_WITH_NON_QUAL = COORDS.concat([
+      // ~5 mi NE, Dispatch-only (no C&T / RVS / Courier) — was filtered from KV before fix
+      { lat: 40.32, lon: -76.83, roles: ['Dispatch'], home_county: 'Dauphin', win_area: 'WIN-1' },
+      // ~7 mi, Board + IT roles only
+      { lat: 40.34, lon: -76.82, roles: ['Board', 'IT'], home_county: 'Dauphin', win_area: 'WIN-1' },
+    ]);
+    const agg = findVolunteersInRadius(ANIMAL.lat, ANIMAL.lon, 20, COORDS_WITH_NON_QUAL);
+    // 3 original qualifying + 2 non-qualifying = 5 in range
+    assert.strictEqual(agg.total_in_range, 5, 'non-qualifying volunteers count in total_in_range');
+    // role_counts are unchanged — non-qualifying roles do not increment any bucket
+    assert.strictEqual(agg.role_counts['C&T'], 1, 'C&T unaffected');
+    assert.strictEqual(agg.role_counts['RVS C&T'], 1, 'RVS C&T unaffected');
+    assert.strictEqual(agg.role_counts['COURIER'], 2, 'COURIER unaffected');
+    // Non-qualifying volunteers are also default-available so total_available increases
+    assert.strictEqual(agg.total_available, 5, 'non-qualifying default-available counted');
+    // Win areas include the non-qualifying volunteers' areas
+    assert.deepStrictEqual(agg.win_areas, ['WIN-1', 'WIN-2'], 'WIN-1 already present, no new area added');
+  });
+
   // (b) radius clamp -----------------------------------------------------
   await test('(b) clampRadius: >max -> 100, missing -> default 20, neg -> 0', () => {
     assert.strictEqual(clampRadius(500), MAX_RADIUS_MI);
