@@ -237,6 +237,12 @@ def batch_geocode_volunteers(
                 # defaults to True when absent (mirrors DEFAULT_AVAILABLE_WHEN_BLANK).
                 "available": bool(v.get("available", True)),
                 "availability_note": v.get("availability_text", ""),
+                # PII-free Connecteam-membership flag (group_title == 'users'),
+                # carried through from build_geocode_input so the Worker can
+                # tell genuine non-Connecteam volunteers apart from "unknown".
+                # Pass through as-is (True/False/None) — None means unknown and
+                # the Worker treats it as such (never flagged in the banner).
+                "connecteam_user": v.get("connecteam_user"),
                 "_addr_sig": sig,
             }
         )

@@ -701,7 +701,8 @@ def build_volunteer_record(
 
 
 def build_geocode_input(
-    item: Dict[str, Any], column_ids: Dict[str, str]
+    item: Dict[str, Any], column_ids: Dict[str, str],
+    connecteam_user: Optional[bool] = None,
 ) -> Optional[Dict[str, Any]]:
     """Build a geocoder-input dict (with address fields) from a raw item.
 
@@ -731,6 +732,13 @@ def build_geocode_input(
         # availability the same way Tier 1 does.
         "available": is_available(availability_text),
         "availability_text": availability_text,
+        # Carry the Connecteam-membership flag (same derivation as Tier 1 /
+        # build_volunteer_record: group_title == 'users') through to the
+        # geocoder so it lands on each coords record -> volunteer_coords.json
+        # -> KV. PII-free boolean (or None when unknown). Without this the
+        # Tier-2 KV dataset omitted the flag and the Worker coerced every row
+        # to "not on Connecteam" (the DuBois 7-of-7 banner bug).
+        "connecteam_user": connecteam_user,
         "street": _column_text(item, ADDRESS_COL_IDS["street"]),
         "city": _column_text(item, ADDRESS_COL_IDS["city"]),
         "state": _column_text(item, ADDRESS_COL_IDS["state"]),
@@ -1581,7 +1589,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
 
     # Fetch volunteers from each group, tagging with connecteam_user
-    all_raw_items: List[Dict[str, Any]] = []
+    all_raw_items: List[Tuple[Dict[str, Any], bool]] = []
     volunteers: List[Dict[str, Any]] = []
     for group_title, gid in group_ids.items():
         is_connecteam = (group_title == "users")
@@ -1591,7 +1599,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print(f"ERROR: fetch failed for group {group_title!r}: {exc}", file=sys.stderr)
             return 4
         logger.info("Group %r: %d raw items fetched", group_title, len(raw_items))
-        all_raw_items.extend(raw_items)
+        # Pair each raw item with its group-derived Connecteam flag so the
+        # geocode pass (Phase B) can carry it onto the coords records.
+        all_raw_items.extend((item, is_connecteam) for item in raw_items)
         for item in raw_items:
             rec = build_volunteer_record(item, column_ids, connecteam_user=is_connecteam)
             if rec is not None:
@@ -1628,8 +1638,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # from any existing output when the address signature is unchanged.
     coords_path = Path(__file__).resolve().parent / COORDS_REL_PATH
     geocode_inputs: List[Dict[str, Any]] = []
-    for item in all_raw_items:
-        gin = build_geocode_input(item, column_ids)
+    for item, is_connecteam in all_raw_items:
+        gin = build_geocode_input(item, column_ids, connecteam_user=is_connecteam)
         if gin is not None:
             geocode_inputs.append(gin)
 

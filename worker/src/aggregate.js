@@ -158,6 +158,22 @@ function isAvailableRecord(rec) {
 }
 
 /**
+ * Normalize a Connecteam-membership flag into a TRI-STATE value so the
+ * frontend can distinguish "explicitly not on Connecteam" (false) from
+ * "unknown / field not carried through the pipeline" (null). Returns:
+ *   true  -> volunteer is a Connecteam app user
+ *   false -> volunteer is EXPLICITLY not a Connecteam user (flag in banner)
+ *   null  -> unknown (missing/undefined/null) -> never flagged in the banner
+ * This prevents the old bug where a missing flag was coerced to `false` and
+ * every qualified row was counted as "not on Connecteam".
+ */
+function normalizeConnecteamUser(v) {
+  if (v === true) return true;
+  if (v === false) return false;
+  return null;
+}
+
+/**
  * Aggregate the volunteers within radiusMi straight-line of the animal.
  *
  * coordsDataset is the PRIVATE in-memory volunteer-coords dataset (records
@@ -462,7 +478,7 @@ async function findContextRowsDriving(
       availability_note: (rec.availability_note !== null && rec.availability_note !== undefined)
         ? String(rec.availability_note) : '',
       available: isAvailableRecord(rec),
-      connecteam_user: rec.connecteam_user === true,
+      connecteam_user: normalizeConnecteamUser(rec.connecteam_user),
     });
     surviveCoords.push(pre.coords[i]);
   }
@@ -655,7 +671,7 @@ function findContextRows(animalLat, animalLon, radiusMi, coordsDataset, excludeC
       availability_note: (rec.availability_note !== null && rec.availability_note !== undefined)
         ? String(rec.availability_note) : '',
       available: isAvailableRecord(rec),
-      connecteam_user: rec.connecteam_user === true,
+      connecteam_user: normalizeConnecteamUser(rec.connecteam_user),
     });
   }
 
@@ -781,7 +797,7 @@ function buildTier2Response(aggregate, contextRows, distanceMode) {
       availability_note: (r.availability_note !== null && r.availability_note !== undefined)
         ? r.availability_note : '',
       available: r.available !== false,
-      connecteam_user: r.connecteam_user === true,
+      connecteam_user: normalizeConnecteamUser(r.connecteam_user),
     };
     if (Number.isFinite(r.driving_miles)) {
       o.driving_miles = r.driving_miles;
