@@ -156,6 +156,9 @@
       // Low-capacity warning shown when qualifiedCount > 0 but <= threshold.
       // {count} = qualified count, {phone} = PGC phone.
       lowCapacityWarning: 'Low capacity: only {count} qualified \u2014 consider calling PA Game Commission: {phone}.',
+      // Informational notice when some qualified volunteers are not on Connecteam.
+      // {count} = number of non-Connecteam qualified volunteers.
+      nonConnecteamNotice: '{count} volunteer(s) not on Connecteam \u2014 contact by text/phone.',
       // The "; WIN areas: ..." clause appended to the qualified/backup lines.
       // {areas} = sorted area list.
       areaClause: '; WIN areas: <strong>{areas}</strong>',

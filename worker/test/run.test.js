@@ -1113,7 +1113,7 @@ async function main() {
     'phone', 'email', 'address', 'street', 'city', 'zip', 'home_county',
     'monday_item_id', 'coords', 'coordinates',
   ];
-  const TIER2_ROW_KEYS = ['availability_note', 'county', 'distance_mi', 'name', 'roles', 'win_area'];
+  const TIER2_ROW_KEYS = ['availability_note', 'connecteam_user', 'county', 'distance_mi', 'name', 'roles', 'win_area'];
 
   // Deep-walk every key in an object/array tree, collecting key names.
   function collectKeys(node, out) {
@@ -1880,7 +1880,7 @@ async function main() {
     // returns 600s = 10 min for every cell). Row whitelist now includes it.
     assert.strictEqual(ctx.rows[0].duration_min, 10, 'driving row carries duration_min (minutes)');
     assert.deepStrictEqual(Object.keys(ctx.rows[0]).sort(),
-      ['availability_note', 'county', 'distance_mi', 'duration_min', 'name', 'roles', 'win_area']);
+      ['availability_note', 'connecteam_user', 'county', 'distance_mi', 'duration_min', 'name', 'roles', 'win_area']);
 
     // Fallback path (no key) -> straight_line, both out-of-county rows present.
     const fb = await findContextRowsDriving(
@@ -1893,7 +1893,7 @@ async function main() {
       assert.ok(!('duration_min' in r), 'straight_line row has NO duration_min');
     });
     assert.deepStrictEqual(Object.keys(fb.rows[0]).sort(),
-      ['availability_note', 'county', 'distance_mi', 'name', 'roles', 'win_area']);
+      ['availability_note', 'connecteam_user', 'county', 'distance_mi', 'name', 'roles', 'win_area']);
   });
 
   await test('(l10) handler end-to-end: driving mode, ORS sees only coords, PII-safe', async () => {

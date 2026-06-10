@@ -1425,6 +1425,15 @@
         actions.push(actionLine('go', '→', fmt(T2.qualifiedHelpers, {
           count: qualifiedCount, areaClause: qAreaTxt, radius: ctx.radius
         })));
+        // NON-CONNECTEAM NOTICE: inform the dispatcher that some qualified
+        // volunteers are not on the Connecteam app and must be reached by
+        // text/phone instead. Blue/teal 'info' tone — NOT a warning.
+        var nonCtCount = qualifiedRows.filter(function (r) {
+          return r.connecteam_user === false;
+        }).length;
+        if (nonCtCount > 0) {
+          actions.push(actionLine('info', 'i', escapeHtml(fmt(T2.nonConnecteamNotice, { count: nonCtCount }))));
+        }
         // LOW CAPACITY WARNING: qualified helpers exist but count is at or below
         // the issue-specific minimum threshold. Nudge the dispatcher to consider
         // calling PA Game Commission as a backup.

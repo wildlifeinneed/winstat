@@ -448,6 +448,7 @@ async function findContextRowsDriving(
       name: (rec.name !== null && rec.name !== undefined) ? String(rec.name) : null,
       availability_note: (rec.availability_note !== null && rec.availability_note !== undefined)
         ? String(rec.availability_note) : '',
+      connecteam_user: rec.connecteam_user === true,
     };
     // DRIVING TIME: surface the per-volunteer driving minutes ONLY in driving
     // mode and only when ORS supplied a real duration for this cell. On the
@@ -621,6 +622,7 @@ function findContextRows(animalLat, animalLon, radiusMi, coordsDataset, excludeC
       name: (rec.name !== null && rec.name !== undefined) ? String(rec.name) : null,
       availability_note: (rec.availability_note !== null && rec.availability_note !== undefined)
         ? String(rec.availability_note) : '',
+      connecteam_user: rec.connecteam_user === true,
     });
   }
 
@@ -744,6 +746,7 @@ function buildTier2Response(aggregate, contextRows, distanceMode) {
       name: (r.name !== null && r.name !== undefined) ? r.name : null,
       availability_note: (r.availability_note !== null && r.availability_note !== undefined)
         ? r.availability_note : '',
+      connecteam_user: r.connecteam_user === true,
     };
     if (Number.isFinite(r.duration_min)) {
       o.duration_min = r.duration_min;

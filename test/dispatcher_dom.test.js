@@ -2877,6 +2877,112 @@ async function runTier2SingleAnimalAreaCoordinator() {
   console.log('PASS: P5 single animal-area coordinator — volunteers span areas [9, 10, 15N], animal_area=10 -> only "Area 10 Coordinator: Julia Meredith" shown.');
 }
 
+// ── NON-CONNECTEAM NOTICE: when qualified ooc rows include a mix of
+//    connecteam_user true/false, an info banner appears after the qualified-
+//    helpers line with the correct count of non-Connecteam volunteers.
+async function runTier2NonConnecteamNotice() {
+  // 3 qualified C&T rows (non-RVS capture): 2 on Connecteam, 1 not.
+  const agg = {
+    total_in_range: 5,
+    role_counts: { 'C&T': 3, 'RVS C&T': 0, 'COURIER': 2 },
+    win_areas: ['11'],
+    animal_area: '11',
+    animal_county: 'Beaver',
+    out_of_county: [
+      { roles: ['C&T'], distance_mi: 5.0, win_area: '11', county: 'Beaver',
+        name: 'Alice A', availability_note: '', connecteam_user: true },
+      { roles: ['C&T'], distance_mi: 8.0, win_area: '11', county: 'Beaver',
+        name: 'Bob B', availability_note: '', connecteam_user: false },
+      { roles: ['C&T'], distance_mi: 11.0, win_area: '11', county: 'Beaver',
+        name: 'Carol C', availability_note: '', connecteam_user: true },
+      { roles: ['COURIER'], distance_mi: 7.0, win_area: '11', county: 'Beaver',
+        name: 'Dave D', availability_note: '', connecteam_user: false },
+      { roles: ['COURIER'], distance_mi: 9.0, win_area: '5', county: 'Westmoreland',
+        name: 'Eve E', availability_note: '', connecteam_user: false },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  // non-RVS capture -> qualifyFn selects C&T rows only (3 qualified, 2 COURIER backup).
+  // Of the 3 C&T qualified rows: 1 has connecteam_user=false (Bob B).
+  const { doc } = await driveTier2(agg, 'Allegheny', { rvs: false, issue: 'capture' });
+
+  const actionLines = Array.prototype.slice
+    .call(doc.querySelectorAll('#agg-actions .action-line'))
+    .map(function (el) { return (el.textContent || '').trim(); });
+
+  // The notice must appear at all.
+  const noticeLines = actionLines.filter(function (t) {
+    return /not on Connecteam/i.test(t);
+  });
+  assert.strictEqual(noticeLines.length, 1,
+    'non-Connecteam notice appears exactly once (got: ' + JSON.stringify(actionLines) + ')');
+  // The count must be 1 (only Bob B is non-Connecteam AND qualified).
+  assert.ok(/1 volunteer/i.test(noticeLines[0]),
+    'notice shows count=1 (got: "' + noticeLines[0] + '")');
+  // The notice must use the info tone (blue class), not escalate/warn.
+  const noticeEls = Array.prototype.slice.call(
+    doc.querySelectorAll('#agg-actions .action-line.info')
+  ).filter(function (el) { return /not on Connecteam/i.test(el.textContent || ''); });
+  assert.strictEqual(noticeEls.length, 1,
+    'non-Connecteam notice uses .info (blue) tone');
+
+  // Placement: notice AFTER qualifiedHelpers and BEFORE any low-cap / coordinator.
+  const qualIdx = actionLines.findIndex(function (t) { return /Qualified helpers:/i.test(t); });
+  const noticeIdx = actionLines.findIndex(function (t) { return /not on Connecteam/i.test(t); });
+  const lowCapIdx = actionLines.findIndex(function (t) { return /Low capacity/i.test(t); });
+  const coordIdx = actionLines.findIndex(function (t) { return /Coordinator:/i.test(t); });
+  assert.ok(qualIdx !== -1, 'qualifiedHelpers line present');
+  assert.ok(qualIdx < noticeIdx,
+    'non-Connecteam notice appears AFTER qualifiedHelpers (qual=' + qualIdx + ', notice=' + noticeIdx + ')');
+  if (lowCapIdx !== -1) {
+    assert.ok(noticeIdx < lowCapIdx,
+      'non-Connecteam notice appears BEFORE low-cap banner (notice=' + noticeIdx + ', lowCap=' + lowCapIdx + ')');
+  }
+  if (coordIdx !== -1) {
+    assert.ok(noticeIdx < coordIdx,
+      'non-Connecteam notice appears BEFORE coordinator (notice=' + noticeIdx + ', coord=' + coordIdx + ')');
+  }
+
+  // When ALL qualified volunteers are on Connecteam, the notice must NOT appear.
+  const aggAllCt = {
+    total_in_range: 2,
+    role_counts: { 'C&T': 2, 'RVS C&T': 0, 'COURIER': 0 },
+    win_areas: ['11'],
+    out_of_county: [
+      { roles: ['C&T'], distance_mi: 5.0, win_area: '11', county: 'Beaver',
+        name: 'Alice A', availability_note: '', connecteam_user: true },
+      { roles: ['C&T'], distance_mi: 8.0, win_area: '11', county: 'Beaver',
+        name: 'Bob B', availability_note: '', connecteam_user: true },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc: doc2 } = await driveTier2(aggAllCt, 'Allegheny', { rvs: false, issue: 'capture' });
+  const actions2 = doc2.getElementById('agg-actions').textContent || '';
+  assert.ok(!/not on Connecteam/i.test(actions2),
+    'no non-Connecteam notice when all qualified rows have connecteam_user=true; got: "' + actions2 + '"');
+
+  // When the field is absent (older Worker response), the notice must NOT appear.
+  const aggNoField = {
+    total_in_range: 2,
+    role_counts: { 'C&T': 2, 'RVS C&T': 0, 'COURIER': 0 },
+    win_areas: ['11'],
+    out_of_county: [
+      { roles: ['C&T'], distance_mi: 5.0, win_area: '11', county: 'Beaver' },
+      { roles: ['C&T'], distance_mi: 8.0, win_area: '11', county: 'Beaver' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc: doc3 } = await driveTier2(aggNoField, 'Allegheny', { rvs: false, issue: 'capture' });
+  const actions3 = doc3.getElementById('agg-actions').textContent || '';
+  assert.ok(!/not on Connecteam/i.test(actions3),
+    'no non-Connecteam notice when connecteam_user field is absent (backward compat); got: "' + actions3 + '"');
+
+  console.log('PASS: non-Connecteam notice — count=1 shown in info tone after qualifiedHelpers; absent when all on app; absent when field missing.');
+}
+
 // ── PREMISE LINE: Tier 2 — RVS capture must show "Capture of RVS Animal" ────
 async function runPremiseLineRvsCapture() {
   const agg = {
@@ -2961,7 +3067,8 @@ async function run() {
   await runStaleCountyLeakSchuylkill();
   await runAddressNoHorizontalOverflowCss();
   await runTier2SingleAnimalAreaCoordinator();
-  console.log('\nALL DOM TESTS PASSED (43 scenarios).');
+  await runTier2NonConnecteamNotice();
+  console.log('\nALL DOM TESTS PASSED (44 scenarios).');
 }
 
 run().then(function () {
