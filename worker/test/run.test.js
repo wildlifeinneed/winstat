@@ -2002,7 +2002,7 @@ async function main() {
       ['availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'name', 'roles', 'win_area']);
   });
 
-  await test('(l10) handler end-to-end: driving mode, ORS sees only coords, PII-safe', async () => {
+  await test('(l10) handler end-to-end: volunteer radius is straight-line; coords never sent to ORS even with a key', async () => {
     const captured = {};
     const driveFn = mockOrsByCoord((c) => {
       if (Math.abs(c.lat - 40.10) < 1e-6) return 60 * 1609.344;
@@ -2017,8 +2017,12 @@ async function main() {
     );
     assert.strictEqual(res.status, 200);
     const body = await res.json();
-    assert.strictEqual(body.distance_mode, 'driving', 'driving mode end-to-end');
-    assert.strictEqual(body.total_in_range, 2, 'driving filter shrank the set');
+    // The VOLUNTEER radius gate is straight-line (haversine) regardless of the
+    // env ORS key -- driving distance would change "who's in range" and would
+    // require sending volunteer PII coords to a 3rd-party router. See handler.js
+    // (VOLUNTEER_RADIUS_ORS_KEY) + docs/DISTANCE_PROVIDER_SCOPING.md.
+    assert.strictEqual(body.distance_mode, 'straight_line', 'volunteer radius is straight-line');
+    assert.strictEqual(body.total_in_range, 3, 'full haversine in-range set preserved');
     // Top-level key set still PII-free + animal coords + distance_mode.
     assert.deepStrictEqual(Object.keys(body).sort(),
       ['animal_area', 'animal_county', 'animal_geoid', 'animal_lat', 'animal_lon', 'distance_mode', 'role_counts', 'total_in_range', 'win_areas']);
@@ -2026,11 +2030,9 @@ async function main() {
     for (const k of PII_FORBIDDEN_KEYS) {
       assert.strictEqual(ser.indexOf('"' + k + '"'), -1, 'PII key leaked: ' + k);
     }
-    // What the Worker sent to ORS carried ONLY [lon,lat] coords (no PII).
-    const sentSer = JSON.stringify(captured.lastBody);
-    ['name', 'address', 'home_county', 'roles'].forEach((k) => {
-      assert.strictEqual(sentSer.indexOf('"' + k + '"'), -1, 'no PII sent to ORS: ' + k);
-    });
+    // STRONGER PII guarantee: the volunteer path never calls ORS at all, so NO
+    // volunteer coordinate (not even a bare [lon,lat]) is sent to the router.
+    assert.strictEqual(captured.lastBody, undefined, 'no volunteer coords sent to ORS');
     assert.strictEqual(res.header('Access-Control-Allow-Origin'), 'https://pages.example');
   });
 
@@ -2050,7 +2052,7 @@ async function main() {
     assert.strictEqual(called, false, 'no ORS call without a key');
   });
 
-  await test('(l12) handler context=1 driving end-to-end carries distance_mode (PII-safe)', async () => {
+  await test('(l12) handler context=1 end-to-end: straight-line gate, distance_mode carried (PII-safe)', async () => {
     const driveFn = mockOrsByCoord((c) => {
       if (Math.abs(c.lat - 40.10) < 1e-6) return 60 * 1609.344;
       return 5 * 1609.344;
@@ -2066,10 +2068,13 @@ async function main() {
       }
     );
     const body = await res.json();
-    assert.strictEqual(body.distance_mode, 'driving');
-    // Out-of-county within DRIVING radius: Lebanon only.
-    assert.strictEqual(body.out_of_county.length, 1);
-    assert.strictEqual(body.out_of_county[0].county, 'Lebanon');
+    assert.strictEqual(body.distance_mode, 'straight_line');
+    // Out-of-county within the STRAIGHT-LINE radius: Lebanon + Lancaster.
+    assert.strictEqual(body.out_of_county.length, 2);
+    assert.deepStrictEqual(
+      body.out_of_county.map((r) => r.county).sort(),
+      ['Lancaster', 'Lebanon']
+    );
     // Deep-walk: no forbidden key.
     const allKeys = collectKeys(body, []);
     for (const k of TIER2_FORBIDDEN_KEYS) {

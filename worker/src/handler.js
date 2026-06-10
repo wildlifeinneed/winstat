@@ -450,22 +450,27 @@ async function handleRequest(request, deps) {
 
   const coords = await readCoordsFromKV(deps.kv);
 
-  // VOLUNTEER radius filter now uses DRIVING distance (ORS Matrix driving-car)
-  // with the standard haversine PRESCREEN + graceful straight-line fallback.
-  //   1. prescreen volunteers by haversine <= radius (guaranteed superset)
-  //   2. ORS Matrix (animal -> prescreened coords, CHUNKED) for driving miles
-  //   3. final filter on driving miles <= radius
-  //   4. fallback to the prescreen (pure haversine) if the key is empty or any
-  //      ORS call errors/times out -> distance_mode reflects which metric ran.
-  // PII: only BARE [lon,lat] coords ever reach ORS (no names/addresses); the
-  // response stays AGGREGATE-only. distance_mode is a single non-PII string.
+  // VOLUNTEER radius membership uses STRAIGHT-LINE (haversine) distance.
+  //
+  // We intentionally DO NOT gate the in-range set on ORS driving distance here.
+  // Driving distance is always >= straight-line, so gating on it SHRINKS the
+  // in-range set and changes "who's in range" -- e.g. DuBois @ 44 mi collapsed
+  // from the correct 7 straight-line volunteers to ~0 because the nearest
+  // clusters sit ~45-55 driving miles out. Per docs/DISTANCE_PROVIDER_SCOPING.md
+  // (PII rule B2/B3 + "don't change who's-in-range; only annotate driving
+  // time"), the volunteer radius gate stays straight-line and volunteer PII
+  // coords are NOT sent to the 3rd-party ORS router. Passing an empty key makes
+  // findVolunteersInRadiusDriving fall back to the pure-haversine prescreen set
+  // (distance_mode = 'straight_line'). The PUBLIC rehabber route above still
+  // uses deps.orsApiKey for driving distances on non-PII rehabber coords.
+  const VOLUNTEER_RADIUS_ORS_KEY = '';
   const volDriving = await findVolunteersInRadiusDriving(
     coord.lat,
     coord.lon,
     params.radius_mi,
     coords,
     drivingDistancesMiles,
-    deps.orsApiKey,
+    VOLUNTEER_RADIUS_ORS_KEY,
     deps.fetchFn
   );
   const aggregate = volDriving.aggregate;
@@ -475,8 +480,9 @@ async function handleRequest(request, deps) {
   // out-of-county context list alongside the unchanged aggregate. The aggregate
   // itself is still computed across ALL in-radius volunteers (in + out of
   // county) above -- the context list is purely additive. It uses the SAME
-  // driving prescreen + ORS + fallback flow so its distance_mi + radius gate
-  // match the aggregate's metric.
+  // STRAIGHT-LINE radius gate as the aggregate (empty ORS key -> haversine
+  // fallback) so its distance_mi + radius gate match the aggregate's metric and
+  // volunteer PII coords are not sent to ORS.
   if (isContextOn(params.context)) {
     const ctx = await findContextRowsDriving(
       coord.lat,
@@ -485,7 +491,7 @@ async function handleRequest(request, deps) {
       coords,
       params.exclude_county,
       drivingDistancesMiles,
-      deps.orsApiKey,
+      VOLUNTEER_RADIUS_ORS_KEY,
       deps.fetchFn,
       undefined,
       params.qualify_roles
