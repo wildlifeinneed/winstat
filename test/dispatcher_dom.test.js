@@ -1129,8 +1129,8 @@ async function runTier2LenientPrefersQualified() {
   const actions = doc.getElementById('agg-actions').textContent || '';
   assert.ok(/qualified helper/i.test(actions),
     'recommendation prefers the qualified helper (got: "' + actions + '")');
-  assert.ok(/Out-of-county qualified helpers:\s*1/.test(actions),
-    'qualified line uses the heading pattern "Out-of-county qualified helpers: N" (got: "' + actions + '")');
+  assert.ok(/Qualified helpers:\s*1/.test(actions),
+    'qualified line uses the heading pattern "Qualified helpers: N" (got: "' + actions + '")');
   assert.ok(!/\(s\)/.test(actions),
     'no "(s)" pluralization in the qualified recommendation (got: "' + actions + '")');
   assert.ok(!/backup/i.test(actions),

@@ -1369,21 +1369,6 @@
       })));
     }
 
-    // INFORMATIONAL: show the coordinator for the ANIMAL's OWN resolved WIN area
-    // only. The animal's area owns the incident — exactly ONE coordinator line,
-    // never one per volunteer area. agg.animal_area (PIP-resolved by the Worker,
-    // surfaced via renderResolvedLocation → animalArea) drives this. If null
-    // (outside PA or unresolved), omit the coordinator line entirely.
-    if (animalArea) {
-      var animalAreaCoordName = state.coordinators[String(animalArea)];
-      if (animalAreaCoordName && String(animalAreaCoordName).trim()) {
-        actions.push(actionLine('go', '→', fmt(T2.areaCoordinatorListed, {
-          area: escapeHtml(animalArea),
-          name: escapeHtml(String(animalAreaCoordName).trim())
-        })));
-      }
-    }
-
     // ── R2 LENIENT recommendation (Tier 2 widen / out-of-county) ─────────
     // When the shared animal base info (rvs/issue) is present AND the response
     // carries the out-of-county context list, recommend using the SAME strict
@@ -1454,6 +1439,21 @@
       actions.push(actionLine('escalate', '!', fmt(T2.noQualifiedEscalate, {
         radius: ctx.radius, phone: escapeHtml(PGC_PHONE)
       })));
+    }
+
+    // INFORMATIONAL: show the coordinator for the ANIMAL's OWN resolved WIN area
+    // only. The animal's area owns the incident — exactly ONE coordinator line,
+    // never one per volunteer area. agg.animal_area (PIP-resolved by the Worker,
+    // surfaced via renderResolvedLocation → animalArea) drives this. If null
+    // (outside PA or unresolved), omit the coordinator line entirely.
+    if (animalArea) {
+      var animalAreaCoordName = state.coordinators[String(animalArea)];
+      if (animalAreaCoordName && String(animalAreaCoordName).trim()) {
+        actions.push(actionLine('go', '→', fmt(T2.areaCoordinatorListed, {
+          area: escapeHtml(animalArea),
+          name: escapeHtml(String(animalAreaCoordName).trim())
+        })));
+      }
     }
 
     // Closest-rehabber suggestion needs the animal coordinate. The Worker
