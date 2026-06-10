@@ -258,6 +258,13 @@
       networkError: 'Could not reach the dispatcher service. Check your connection and try again.'
     },
 
+    // ── Address autocomplete wording (dispatcher.js) ──────────────────────
+    autocomplete: {
+      // {lat},{lon} = the detected pin-drop coordinate. Shown as a synthetic
+      // candidate in #address-suggestions when a coordinate pair is pasted.
+      pinDrop: 'Pin drop: {lat}, {lon}'
+    },
+
     // ── Static UI strings injected into dispatcher.html (dispatcher.js) ────
     // These mirror text the markup used to hardcode; injected on init so the
     // wording (and the PGC phone) live in ONE place.

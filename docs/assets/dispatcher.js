@@ -1481,6 +1481,45 @@
     lastQuery: ''     // query that produced the open list (suppress re-open)
   };
 
+  // ─── Pin-drop coordinate detection (P2) ────────────────────────────
+  // A caller sometimes reads a Google-Maps pin-drop ("40.4612, -79.8553")
+  // instead of a street address. We detect that CLIENT-SIDE and surface it as
+  // a synthetic suggestion (same {label,lat,lon} shape Photon/Census produce)
+  // so acSelect submits animal_lat/animal_lon DIRECTLY — no geocoding. County +
+  // WIN area are derived SERVER-SIDE by the Worker's PIP engine on that submit.
+  //
+  // PA_BBOX MUST match worker/src/autocomplete.js so a coordinate is accepted
+  // only when it lands inside Pennsylvania.
+  var PA_BBOX = { minLon: -80.519891, minLat: 39.719799, maxLon: -74.689516, maxLat: 42.269860 };
+  var COORD_RE = /^\s*([-+]?\d{1,3}(?:\.\d+)?)\s*[,\s]\s*([-+]?\d{1,3}(?:\.\d+)?)\s*$/;
+
+  function inPaBounds(lat, lon) {
+    return lat >= PA_BBOX.minLat && lat <= PA_BBOX.maxLat &&
+           lon >= PA_BBOX.minLon && lon <= PA_BBOX.maxLon;
+  }
+
+  // Returns { lat, lon } inside PA when `raw` is a coordinate pair, else null
+  // (caller then falls through to the normal Photon address path).
+  function detectPinDrop(raw) {
+    if (typeof raw !== 'string') return null;
+    // Strip Google-Maps-style labels/parens (e.g. "(40.46, -79.85)",
+    // "lat 40.46, lon -79.85") down to digits/signs/dot/comma/space.
+    var s = raw.replace(/[^0-9.,+\-\s]/g, ' ').trim();
+    var m = COORD_RE.exec(s);
+    if (!m) return null;
+    var a = parseFloat(m[1]);
+    var b = parseFloat(m[2]);
+    if (!isFinite(a) || !isFinite(b)) return null;
+    // Parse as (lat, lon).
+    if (inPaBounds(a, b)) return { lat: a, lon: b };
+    // Swapped (lon, lat) order.
+    if (inPaBounds(b, a)) return { lat: b, lon: a };
+    // Positive-lon sign-typo: negate the lon if that lands in PA.
+    if (b > 0 && inPaBounds(a, -b)) return { lat: a, lon: -b };
+    if (a > 0 && inPaBounds(b, -a)) return { lat: b, lon: -a };
+    return null;
+  }
+
   function acEls() {
     return { input: $('#animal-address'), list: $('#address-suggestions') };
   }
@@ -1575,6 +1614,22 @@
     // then reverts to the address-string path until a new suggestion is picked.
     state.selectedAnimalCoord = null;
     if (q.length < AC_MIN_CHARS) { acClose(); return; }
+    // PIN-DROP: a pasted/typed coordinate pair short-circuits geocoding. Surface
+    // it as a synthetic suggestion (same {label,lat,lon} shape) so the existing
+    // acSelect path captures the coord and the submit sends animal_lat/animal_lon.
+    var pin = detectPinDrop(q);
+    if (pin) {
+      ac.seq++; // invalidate any in-flight Photon fetch
+      if (ac.timer) { clearTimeout(ac.timer); ac.timer = null; }
+      ac.items = [{
+        label: fmt(MSG.autocomplete.pinDrop, { lat: pin.lat, lon: pin.lon }),
+        lat: pin.lat,
+        lon: pin.lon
+      }];
+      ac.active = -1;
+      acRender();
+      return;
+    }
     // PASTE-AND-GO: a paste delivers a full address in one shot, so query Photon
     // IMMEDIATELY (no debounce) — the matched candidate then appears in the same
     // dropdown for the dispatcher to eyeball and pick (which reuses its Photon

@@ -2475,12 +2475,93 @@ async function runStandaloneNoRvsCaptureAllCtCapable() {
     'list NOT truncated; role_counts unchanged (1 C&T / 3 RVS C&T / 16 COURIER).');
 }
 
+// PIN-DROP PASTE (P2): pasting a Google-Maps pin-drop coordinate into the
+// address field must be DETECTED client-side (no geocoding), surfaced as a
+// "Pin drop: <lat>, <lon>" candidate in the SAME dropdown, and picking it
+// submits via animal_lat/animal_lon. Covers: (a) valid PA, (b) swapped order,
+// (c) positive-lon sign-typo, (d) a real address that must NOT be detected.
+async function runPinDropPaste() {
+  // Shared helper: paste `text`, return the rendered candidate labels.
+  async function pasteAndList(text) {
+    const { window, opts: domOpts } = loadDom();
+    const doc = window.document;
+    await flush(window);
+    await flush(window);
+    const addrRadio = doc.querySelector('input[name="mode"][value="address"]');
+    addrRadio.checked = true;
+    addrRadio.dispatchEvent(new window.Event('change', { bubbles: true }));
+    const addrInput = doc.getElementById('animal-address');
+    const acList = doc.getElementById('address-suggestions');
+    addrInput.value = text;
+    addrInput.dispatchEvent(new window.Event('paste', { bubbles: true }));
+    await flush(window);
+    await flush(window);
+    await flush(window);
+    const cands = Array.prototype.slice.call(acList.querySelectorAll('.ac-item'));
+    return { window, doc, domOpts, addrInput, acList, cands };
+  }
+
+  // Submit helper after a candidate is picked.
+  async function pickAndSubmit(ctx, idx) {
+    ctx.cands[idx].dispatchEvent(new ctx.window.MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    await flush(ctx.window);
+    ctx.doc.getElementById('radius-mi').value = '50';
+    ctx.doc.getElementById('address-btn').dispatchEvent(new ctx.window.Event('click', { bubbles: true }));
+    await flush(ctx.window);
+    await flush(ctx.window);
+    await flush(ctx.window);
+    return ctx.domOpts.aggCalls[ctx.domOpts.aggCalls.length - 1] || '';
+  }
+
+  // (a) valid PA pin drop.
+  let ctx = await pasteAndList('40.4612, -79.8553');
+  assert.strictEqual(ctx.acList.hidden, false, '(a) pin-drop paste opens the dropdown');
+  assert.strictEqual(ctx.cands.length, 1, '(a) exactly one synthetic candidate (got ' + ctx.cands.length + ')');
+  assert.strictEqual(ctx.cands[0].textContent.trim(), 'Pin drop: 40.4612, -79.8553',
+    '(a) candidate is labeled "Pin drop: <lat>, <lon>"');
+  let url = await pickAndSubmit(ctx, 0);
+  assert.ok(/[?&]animal_lat=40\.4612(&|$)/.test(url), '(a) submit sends animal_lat=40.4612 (url: ' + url + ')');
+  assert.ok(/[?&]animal_lon=-79\.8553(&|$)/.test(url), '(a) submit sends animal_lon=-79.8553 (url: ' + url + ')');
+  assert.ok(!/[?&]address=/.test(url), '(a) pin-drop submit must NOT use the address= path');
+
+  // (b) swapped (lon, lat) order -> detected + swapped to the same coord.
+  ctx = await pasteAndList('-79.8553, 40.4612');
+  assert.strictEqual(ctx.cands.length, 1, '(b) swapped paste yields one candidate');
+  assert.strictEqual(ctx.cands[0].textContent.trim(), 'Pin drop: 40.4612, -79.8553',
+    '(b) swapped order normalized to lat,lon');
+  url = await pickAndSubmit(ctx, 0);
+  assert.ok(/[?&]animal_lat=40\.4612(&|$)/.test(url), '(b) submit sends animal_lat=40.4612 (url: ' + url + ')');
+  assert.ok(/[?&]animal_lon=-79\.8553(&|$)/.test(url), '(b) submit sends animal_lon=-79.8553 (url: ' + url + ')');
+
+  // (c) positive-lon sign-typo -> lon negated.
+  ctx = await pasteAndList('40.4612, 79.8553');
+  assert.strictEqual(ctx.cands.length, 1, '(c) sign-typo paste yields one candidate');
+  assert.strictEqual(ctx.cands[0].textContent.trim(), 'Pin drop: 40.4612, -79.8553',
+    '(c) positive-lon sign-typo corrected to negative lon');
+  url = await pickAndSubmit(ctx, 0);
+  assert.ok(/[?&]animal_lat=40\.4612(&|$)/.test(url), '(c) submit sends animal_lat=40.4612 (url: ' + url + ')');
+  assert.ok(/[?&]animal_lon=-79\.8553(&|$)/.test(url), '(c) submit sends animal_lon=-79.8553 (url: ' + url + ')');
+
+  // (d) a real address must NOT be detected as a pin drop -> normal Photon path
+  // (the mocked Worker returns the default Photon candidates, none "Pin drop:").
+  ctx = await pasteAndList('564 E Maiden St, Washington, PA');
+  assert.ok(ctx.cands.length >= 1, '(d) address paste still yields Photon candidates');
+  ctx.cands.forEach(function (c) {
+    assert.ok(!/^Pin drop:/.test(c.textContent.trim()),
+      '(d) a real address must NOT surface a pin-drop candidate (got: ' + c.textContent.trim() + ')');
+  });
+
+  console.log('PASS: pin-drop paste — valid PA, swapped, and sign-typo coords are detected and ' +
+    'submit via animal_lat/animal_lon; a real address falls through to the Photon path.');
+}
+
 async function run() {
   await runHelpLink();
   await runHelpViewerRenders();
   await runAddressMode();
   await runSuggestionCoordSubmit();
   await runPasteAndGo();
+  await runPinDropPaste();
   await runPasteCensusFallback();
   await runPasteCensusStreetLevelTop();
   await runStandaloneAddressContextList();
@@ -2514,7 +2595,7 @@ async function run() {
   await runDeconfliction();
   await runStaleCountyLeakSchuylkill();
   await runAddressNoHorizontalOverflowCss();
-  console.log('\nALL DOM TESTS PASSED (36 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (37 scenarios).');
 }
 
 run().then(function () {
