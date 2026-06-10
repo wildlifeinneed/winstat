@@ -1407,7 +1407,7 @@
       var countyKeys = Object.keys(roleCountyCounts).sort();
       subEl.textContent = countyKeys.length > 0
         ? countyKeys.map(function (c) { return c + '\u00a0' + roleCountyCounts[c]; }).join(', ')
-        : 'in range';
+        : '';
     });
 
     var T2 = MSG.tier2Aggregate;

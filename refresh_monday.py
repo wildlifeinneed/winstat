@@ -730,6 +730,7 @@ def build_geocode_input(
         # boolean onto each coords record. This lets the Worker tally Tier 2
         # availability the same way Tier 1 does.
         "available": is_available(availability_text),
+        "availability_text": availability_text,
         "street": _column_text(item, ADDRESS_COL_IDS["street"]),
         "city": _column_text(item, ADDRESS_COL_IDS["city"]),
         "state": _column_text(item, ADDRESS_COL_IDS["state"]),

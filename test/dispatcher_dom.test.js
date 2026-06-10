@@ -3223,10 +3223,10 @@ async function runTier2CountyBreakdown() {
   };
   const { doc: docDB } = await driveTier2(aggDuBois, 'Clearfield', { rvs: false, issue: 'capture' });
 
-  // C&T box: county_by_role['C&T'] is empty -> "in range" fallback.
+  // C&T box: county_by_role['C&T'] is empty -> blank.
   const ctSubDB = docDB.querySelector('.cap-card[data-bucket="C&T"] .sub');
-  assert.ok(ctSubDB && ctSubDB.textContent === 'in range',
-    'C&T sub falls back to "in range" when county_by_role is empty (got: "' + (ctSubDB && ctSubDB.textContent) + '")');
+  assert.ok(ctSubDB && ctSubDB.textContent === '',
+    'C&T sub is blank when county_by_role is empty (got: "' + (ctSubDB && ctSubDB.textContent) + '")');
 
   // RVS C&T box: county_by_role says Blair 1, Centre 1 (from county_by_role, not ooc).
   const rvsSubDB = docDB.querySelector('.cap-card[data-bucket="RVS C&T"] .sub');
@@ -3258,8 +3258,8 @@ async function runTier2CountyBreakdown() {
   };
   const { doc: doc2 } = await driveTier2(aggEmpty, 'Allegheny', { rvs: false, issue: 'capture' });
   const ctSub2 = doc2.querySelector('.cap-card[data-bucket="C&T"] .sub');
-  assert.ok(ctSub2 && ctSub2.textContent === 'in range',
-    'C&T sub shows "in range" when ooc is empty and no county_by_role (got: "' + (ctSub2 && ctSub2.textContent) + '")');
+  assert.ok(ctSub2 && ctSub2.textContent === '',
+    'C&T sub is blank when ooc is empty and no county_by_role (got: "' + (ctSub2 && ctSub2.textContent) + '")');
   const bd2 = doc2.getElementById('agg-county-breakdown');
   assert.ok(bd2, '#agg-county-breakdown element exists even when ooc empty');
   assert.strictEqual(bd2.style.display, 'none',
