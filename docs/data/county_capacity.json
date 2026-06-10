@@ -13,7 +13,7 @@
   "counties": {
     "Allegheny": {
       "courier": {
-        "available": 11,
+        "available": 10,
         "marginal_volunteers": [],
         "total": 11
       },
@@ -1105,7 +1105,7 @@
       }
     }
   },
-  "generated_at": "2026-06-10T13:37:37Z",
+  "generated_at": "2026-06-10T19:00:39Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
