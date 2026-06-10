@@ -236,6 +236,7 @@ def batch_geocode_volunteers(
                 # by build_geocode_input via the shared is_available() rule;
                 # defaults to True when absent (mirrors DEFAULT_AVAILABLE_WHEN_BLANK).
                 "available": bool(v.get("available", True)),
+                "availability_note": v.get("availability_note", ""),
                 "_addr_sig": sig,
             }
         )

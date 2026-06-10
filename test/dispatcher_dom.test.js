@@ -3106,8 +3106,10 @@ async function runTier2AvailNote() {
   console.log('PASS: Tier 2 avail note — empty note no indicator; deny keyword dims + shows note; non-deny note shown without dimming; no-field backward compat.');
 }
 
-// ── COUNTY BREAKDOWN: compact "Blair 2, Centre 2, Clearfield 1" line under ──
-//    the three role boxes. Counts volunteers per county from ooc array.
+// ── COUNTY BREAKDOWN: per-role county list inside each role card's .sub. ────
+//    Each card shows only the counties relevant to THAT role (not aggregate).
+//    C&T box: Blair 2, Centre 1.  RVS C&T box: Centre 1.  COURIER: Clearfield 1.
+//    The standalone #agg-county-breakdown div is always hidden (superseded).
 async function runTier2CountyBreakdown() {
   const agg = {
     total_in_range: 5,
@@ -3125,25 +3127,51 @@ async function runTier2CountyBreakdown() {
   };
   const { doc } = await driveTier2(agg, 'Allegheny', { rvs: false, issue: 'capture' });
 
-  const breakdown = doc.getElementById('agg-county-breakdown');
-  assert.ok(breakdown, '#agg-county-breakdown element exists');
-  // The transport/capture filter keeps C&T + RVS C&T (3 rows); COURIER dropped.
-  // County counts come from ALL ooc rows, so Blair 2, Centre 2, Clearfield 1.
-  const txt = (breakdown.textContent || '').trim();
-  assert.ok(txt.indexOf('Blair 2') !== -1,
-    'breakdown contains "Blair 2" (got: "' + txt + '")');
-  assert.ok(txt.indexOf('Centre 2') !== -1,
-    'breakdown contains "Centre 2" (got: "' + txt + '")');
-  assert.ok(txt.indexOf('Clearfield 1') !== -1,
-    'breakdown contains "Clearfield 1" (got: "' + txt + '")');
-  // Alphabetically sorted: Blair < Centre < Clearfield.
-  const blairIdx = txt.indexOf('Blair');
-  const centreIdx = txt.indexOf('Centre');
-  const clearIdx = txt.indexOf('Clearfield');
-  assert.ok(blairIdx < centreIdx && centreIdx < clearIdx,
-    'counties are sorted alphabetically in the breakdown (got: "' + txt + '")');
+  // ── C&T card: 2 C&T rows in Blair + 1 C&T row in Centre → "Blair 2, Centre 1"
+  const ctCard = doc.querySelector('.cap-card[data-bucket="C&T"]');
+  assert.ok(ctCard, 'C&T cap-card exists');
+  const ctSub = ctCard && ctCard.querySelector('.sub');
+  assert.ok(ctSub, 'C&T cap-card has .sub element');
+  const ctTxt = (ctSub.textContent || '').trim();
+  assert.ok(/Blair.2/.test(ctTxt),
+    'C&T sub has "Blair 2" (got: "' + ctTxt + '")');
+  assert.ok(/Centre.1/.test(ctTxt),
+    'C&T sub has "Centre 1" (got: "' + ctTxt + '")');
+  assert.ok(!/Clearfield/.test(ctTxt),
+    'C&T sub must NOT show Clearfield (no C&T rows there; got: "' + ctTxt + '")');
+  // Alphabetically sorted: Blair before Centre.
+  assert.ok(ctTxt.indexOf('Blair') < ctTxt.indexOf('Centre'),
+    'C&T sub is sorted alpha: Blair before Centre (got: "' + ctTxt + '")');
 
-  // When ooc is empty, the element is hidden (no spurious empty line).
+  // ── RVS C&T card: 1 RVS C&T row in Centre → "Centre 1"
+  const rvsCard = doc.querySelector('.cap-card[data-bucket="RVS C&T"]');
+  assert.ok(rvsCard, 'RVS C&T cap-card exists');
+  const rvsSub = rvsCard && rvsCard.querySelector('.sub');
+  assert.ok(rvsSub, 'RVS C&T cap-card has .sub element');
+  const rvsTxt = (rvsSub.textContent || '').trim();
+  assert.ok(/Centre.1/.test(rvsTxt),
+    'RVS C&T sub has "Centre 1" (got: "' + rvsTxt + '")');
+  assert.ok(!/Blair/.test(rvsTxt),
+    'RVS C&T sub must NOT show Blair (got: "' + rvsTxt + '")');
+
+  // ── COURIER card: 1 COURIER row in Clearfield → "Clearfield 1"
+  const courierCard = doc.querySelector('.cap-card[data-bucket="COURIER"]');
+  assert.ok(courierCard, 'COURIER cap-card exists');
+  const courierSub = courierCard && courierCard.querySelector('.sub');
+  assert.ok(courierSub, 'COURIER cap-card has .sub element');
+  const courierTxt = (courierSub.textContent || '').trim();
+  assert.ok(/Clearfield.1/.test(courierTxt),
+    'COURIER sub has "Clearfield 1" (got: "' + courierTxt + '")');
+  assert.ok(!/Blair/.test(courierTxt),
+    'COURIER sub must NOT show Blair (got: "' + courierTxt + '")');
+
+  // ── Standalone div is always hidden (per-role subs supersede it).
+  const breakdown = doc.getElementById('agg-county-breakdown');
+  assert.ok(breakdown, '#agg-county-breakdown element still exists in HTML');
+  assert.strictEqual(breakdown.style.display, 'none',
+    '#agg-county-breakdown is always hidden (superseded by per-role subs)');
+
+  // ── When ooc is empty each card falls back to "in range"; div stays hidden.
   const aggEmpty = {
     total_in_range: 0,
     role_counts: { 'C&T': 0, 'RVS C&T': 0, 'COURIER': 0 },
@@ -3153,12 +3181,15 @@ async function runTier2CountyBreakdown() {
     radius_too_broad: false,
   };
   const { doc: doc2 } = await driveTier2(aggEmpty, 'Allegheny', { rvs: false, issue: 'capture' });
+  const ctSub2 = doc2.querySelector('.cap-card[data-bucket="C&T"] .sub');
+  assert.ok(ctSub2 && ctSub2.textContent === 'in range',
+    'C&T sub shows "in range" when ooc is empty (got: "' + (ctSub2 && ctSub2.textContent) + '")');
   const bd2 = doc2.getElementById('agg-county-breakdown');
-  assert.ok(bd2, '#agg-county-breakdown element exists even when empty');
+  assert.ok(bd2, '#agg-county-breakdown element exists even when ooc empty');
   assert.strictEqual(bd2.style.display, 'none',
     '#agg-county-breakdown is hidden when ooc is empty');
 
-  console.log('PASS: county breakdown — "Blair 2, Centre 2, Clearfield 1" sorted alphabetically; hidden when ooc empty.');
+  console.log('PASS: county breakdown per-role inside each card — C&T Blair\u00a02/Centre\u00a01, RVS C&T Centre\u00a01, COURIER Clearfield\u00a01; standalone div always hidden; "in range" fallback when empty.');
 }
 
 async function run() {
@@ -3210,7 +3241,7 @@ async function run() {
   await runTier2NonConnecteamNotice();
   await runTier2AvailNote();
   await runTier2CountyBreakdown();
-  console.log('\nALL DOM TESTS PASSED (46 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (48 scenarios).');
 }
 
 run().then(function () {

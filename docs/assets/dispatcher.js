@@ -1367,29 +1367,36 @@
     renderAggCard('RVS C&T', rvs, avail ? (avail['RVS C&T'] || 0) : undefined, marginalThreshold);
     renderAggCard('COURIER', courier, avail ? (avail['COURIER'] || 0) : undefined, marginalThreshold);
 
-    // County breakdown: count volunteers per county from the ooc array and show
-    // a compact "Blair 2, Centre 2, Clearfield 1" line under the role boxes.
+    // County breakdown: per-role, inside each role card's .sub element so each
+    // box shows only the counties relevant to THAT role (mirrors Tier-1 layout).
+    // The standalone #agg-county-breakdown div is kept in the HTML for backward
+    // compatibility but is always hidden — the per-role subs supersede it.
     var countyBreakdownEl = $('#agg-county-breakdown');
     if (countyBreakdownEl) {
-      var oocForCounty = (agg && Array.isArray(agg.out_of_county)) ? agg.out_of_county : [];
-      var countyCounts = {};
-      oocForCounty.forEach(function (row) {
-        if (row && row.county) {
+      countyBreakdownEl.textContent = '';
+      countyBreakdownEl.style.display = 'none';
+    }
+    var oocArr = (agg && Array.isArray(agg.out_of_county)) ? agg.out_of_county : [];
+    ['C&T', 'RVS C&T', 'COURIER'].forEach(function (bucket) {
+      var card = document.querySelector('.cap-card[data-bucket="' + bucket + '"]');
+      if (!card) return;
+      var subEl = $('.sub', card);
+      if (!subEl) return;
+      var roleCountyCounts = {};
+      oocArr.forEach(function (row) {
+        if (!row) return;
+        var roleList = Array.isArray(row.roles) ? row.roles : [];
+        if (roleList.indexOf(bucket) === -1) return;
+        if (row.county) {
           var c = String(row.county).trim();
-          if (c) countyCounts[c] = (countyCounts[c] || 0) + 1;
+          if (c) roleCountyCounts[c] = (roleCountyCounts[c] || 0) + 1;
         }
       });
-      var countyKeys = Object.keys(countyCounts).sort();
-      if (countyKeys.length > 0) {
-        countyBreakdownEl.textContent = countyKeys.map(function (c) {
-          return c + ' ' + countyCounts[c];
-        }).join(', ');
-        countyBreakdownEl.style.display = '';
-      } else {
-        countyBreakdownEl.textContent = '';
-        countyBreakdownEl.style.display = 'none';
-      }
-    }
+      var countyKeys = Object.keys(roleCountyCounts).sort();
+      subEl.textContent = countyKeys.length > 0
+        ? countyKeys.map(function (c) { return c + '\u00a0' + roleCountyCounts[c]; }).join(', ')
+        : 'in range';
+    });
 
     var T2 = MSG.tier2Aggregate;
     var areasEl = $('#agg-areas');
