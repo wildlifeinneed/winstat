@@ -518,6 +518,9 @@
         url += '&exclude_county=' + encodeURIComponent(opts.excludeCounty);
       }
     }
+    if (opts && opts.tier1County) {
+      url += '&animal_county=' + encodeURIComponent(opts.tier1County);
+    }
     // Carry the SHARED animal base info (entered once at the top) into the Tier 2
     // request so both search paths consume the same input. From rvs+issue we
     // also derive the QUALIFYING ROLE SET via decision.js (the SINGLE source of
@@ -545,6 +548,9 @@
       if (opts.excludeCounty) {
         url += '&exclude_county=' + encodeURIComponent(opts.excludeCounty);
       }
+    }
+    if (opts && opts.tier1County) {
+      url += '&animal_county=' + encodeURIComponent(opts.tier1County);
     }
     url = appendAggregateOpts(url, opts);
     return fetchAggregate(url);
@@ -726,6 +732,14 @@
       html = fmt(T2.resolvedLocation, {
         county: escapeHtml(animalCounty), area: escapeHtml(animalArea)
       });
+      // Tier-1 fallback flag: if the county came from the Tier-1 panel (not
+      // geocoded from the address/coord), prepend an amber informational note
+      // so the dispatcher knows the area derivation is approximate.
+      if (agg && agg.county_source === 'tier1_fallback') {
+        html = '<span class="tier1-fallback-flag">' +
+               escapeHtml(T2.resolvedLocationTier1Fallback) +
+               '</span>' + html;
+      }
       // In-range spread: only when volunteers span MORE than the animal's area.
       var others = areas.filter(function (a) { return a !== animalArea; });
       if (others.length) {
@@ -1420,6 +1434,11 @@
     var base = readAnimalBaseInfo();
     var ctx = { radius: radius, rvs: base.rvs, issue: base.issue };
     if (excludeCounty) ctx.excludeCounty = excludeCounty;
+    // Pass the currently selected Tier-1 county to the Worker so it can fall
+    // back to it for WIN-area derivation when PIP returns null (out-of-PA coord
+    // or address that geocodes outside PA). The Worker marks the response with
+    // county_source="tier1_fallback" so the UI can show an informational flag.
+    var tier1County = ($('#county') && $('#county').value) || null;
 
     // Single origin: prefer the COORDINATE captured when the dispatcher picked a
     // typeahead suggestion (Photon already resolved it) — submit those coords
@@ -1434,9 +1453,9 @@
       picked.label === addr;
     var lookup = useCoord
       ? fetchAggregateByCoord(picked.lat, picked.lon, radius,
-          { context: true, excludeCounty: excludeCounty, base: base })
+          { context: true, excludeCounty: excludeCounty, tier1County: tier1County, base: base })
       : fetchAggregateByAddress(addr, radius,
-          { context: true, excludeCounty: excludeCounty, base: base });
+          { context: true, excludeCounty: excludeCounty, tier1County: tier1County, base: base });
     lookup
       .then(function (agg) {
         setAddressStatus('');

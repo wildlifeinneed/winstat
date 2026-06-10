@@ -2555,6 +2555,69 @@ async function runPinDropPaste() {
     'submit via animal_lat/animal_lon; a real address falls through to the Photon path.');
 }
 
+async function runTier1FallbackFlag() {
+  // Simulate a Worker response with county_source="tier1_fallback" — happens
+  // when PIP returned null (out-of-PA coordinate) and the Tier-1 county panel
+  // had a county selected. The ACTIONS section must show the county/area as
+  // normal AND render a visible amber "County from Tier-1 selection" indicator.
+  const fallbackAgg = {
+    total_in_range: 5,
+    role_counts: { 'C&T': 2, 'RVS C&T': 1, 'COURIER': 2 },
+    win_areas: ['10'],
+    animal_county: 'Washington',
+    animal_area: '10',
+    animal_geoid: null,
+    county_source: 'tier1_fallback',
+    out_of_county: [],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+    distance_mode: 'straight_line',
+  };
+
+  const { window, opts: domOpts } = loadDom({ workerAgg: fallbackAgg });
+  const doc = window.document;
+
+  await flush(window);
+  await flush(window);
+
+  // Switch to address mode
+  const addrRadio = doc.querySelector('input[name="mode"][value="address"]');
+  addrRadio.checked = true;
+  addrRadio.dispatchEvent(new window.Event('change', { bubbles: true }));
+
+  // Submit with any address (fetch mock returns fallbackAgg)
+  doc.getElementById('animal-address').value = '123 Out Of State Ave, Test NJ';
+  doc.getElementById('radius-mi').value = '20';
+  doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  const result = doc.getElementById('address-result');
+  assert.strictEqual(result.style.display, 'block', 'address-result section is shown');
+
+  // The resolved-location element must be visible and contain the fallback indicator.
+  const resolvedEl = doc.getElementById('resolved-location');
+  assert.ok(resolvedEl, '#resolved-location element exists');
+  assert.strictEqual(resolvedEl.style.display, 'block', '#resolved-location is visible');
+
+  const flagEl = resolvedEl.querySelector('.tier1-fallback-flag');
+  assert.ok(flagEl, 'tier1-fallback-flag span is present in #resolved-location');
+  const flagText = flagEl.textContent || '';
+  assert.ok(flagText.indexOf('Tier-1 selection') !== -1,
+    'fallback flag mentions "Tier-1 selection" (got: "' + flagText + '")');
+
+  // The county/area resolved header must still render correctly.
+  const resolvedHtml = resolvedEl.innerHTML || '';
+  assert.ok(resolvedHtml.indexOf('Washington') !== -1,
+    'resolved-location shows county name Washington (got: "' + resolvedHtml + '")');
+  assert.ok(resolvedHtml.indexOf('10') !== -1,
+    'resolved-location shows WIN area 10 (got: "' + resolvedHtml + '")');
+
+  console.log('PASS: county_source=tier1_fallback -> amber .tier1-fallback-flag present with "Tier-1 selection" text, county/area still shown.');
+}
+
 async function run() {
   await runHelpLink();
   await runHelpViewerRenders();
@@ -2577,6 +2640,7 @@ async function run() {
   await runTier2QualTagRvsCapture();
   await runTier2QualTagCaptureTransport();
   await runTier2LenientBackup();
+  await runTier1FallbackFlag();
   await runTier2LenientPrefersQualified();
   await runTier2QualTagBackcompat();
   await runMapRender();
@@ -2595,7 +2659,7 @@ async function run() {
   await runDeconfliction();
   await runStaleCountyLeakSchuylkill();
   await runAddressNoHorizontalOverflowCss();
-  console.log('\nALL DOM TESTS PASSED (37 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (38 scenarios).');
 }
 
 run().then(function () {

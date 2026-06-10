@@ -30,6 +30,7 @@ const { geocodeAddress } = require('./census');
 const { autocompleteAddress, photonGeocode, looksLikeFullAddress, looksLikeIntersection, hasHouseNumberMatch, censusAutocompleteFallback } = require('./autocomplete');
 const { rehabberDistances, drivingDistancesMiles } = require('./distance');
 const { countyForPoint } = require('./pip');
+const { countyToArea } = require('./county_win');
 // Single source of truth for county polygons: the SAME committed GeoJSON the
 // frontend fetches for the WIN-area map (docs/data/pa_counties.json). Imported
 // (not forked) so the worker and browser never diverge on boundaries. esbuild
@@ -75,6 +76,7 @@ async function readParams(request) {
     exclude_county: null,
     context: null,
     qualify_roles: null,
+    animal_county: null,
   };
 
   let url;
@@ -425,9 +427,26 @@ async function handleRequest(request, deps) {
   // county polygon — the UI then degrades to the in-range win_areas without an
   // animal-area header and never shows a stale value.
   const pip = countyForPoint(coord.lon, coord.lat, PA_COUNTIES_GEOJSON);
-  const animalCounty = pip ? pip.county : null;
-  const animalArea = pip ? pip.win_area : null;
-  const animalGeoid = pip ? pip.geoid : null;
+  let animalCounty = pip ? pip.county : null;
+  let animalArea = pip ? pip.win_area : null;
+  let animalGeoid = pip ? pip.geoid : null;
+
+  // TIER-1 FALLBACK: when PIP returns null (coordinate outside every PA polygon
+  // or a coord-free path) and the dispatcher supplied an explicit county via the
+  // Tier-1 By-County panel (animal_county param), use that county + its WIN area
+  // as the governing area so the ACTIONS section can still show a coordinator and
+  // in-area volunteer distinction. Mark the source so the UI can flag it.
+  let countySource = null;
+  if (!animalCounty && params.animal_county) {
+    const t1County = String(params.animal_county).trim();
+    const t1Area = countyToArea(t1County);
+    if (t1County && t1Area !== null) {
+      animalCounty = t1County;
+      animalArea = t1Area;
+      // geoid stays null — we have no polygon match for an out-of-PA coord.
+      countySource = 'tier1_fallback';
+    }
+  }
 
   const coords = await readCoordsFromKV(deps.kv);
 
@@ -486,6 +505,7 @@ async function handleRequest(request, deps) {
     tier2.animal_county = animalCounty;
     tier2.animal_area = animalArea;
     tier2.animal_geoid = animalGeoid;
+    if (countySource) tier2.county_source = countySource;
     return jsonResponse(ResponseCtor, 200, tier2, allowedOrigin);
   }
 
@@ -504,6 +524,7 @@ async function handleRequest(request, deps) {
   aggregateResponse.animal_county = animalCounty;
   aggregateResponse.animal_area = animalArea;
   aggregateResponse.animal_geoid = animalGeoid;
+  if (countySource) aggregateResponse.county_source = countySource;
   return jsonResponse(ResponseCtor, 200, aggregateResponse, allowedOrigin);
 }
 

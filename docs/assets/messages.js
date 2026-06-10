@@ -142,7 +142,7 @@
       areaCoordinatorListed: 'Area {area} Coordinator: <strong>{name}</strong>.',
       // LENIENT recommendation — qualified helpers in range.
       // {count}, {areaClause} (computed, may be empty), {radius}.
-      qualifiedHelpers: 'Out-of-county qualified helpers: <strong>{count}</strong>{areaClause} within {radius} mi — task via <strong>Connecteam</strong>.',
+      qualifiedHelpers: 'Qualified helpers: <strong>{count}</strong> {areaClause}  within {radius} mi — task via <strong>Connecteam</strong>.',
       // The "; WIN areas: ..." clause appended to the qualified/backup lines.
       // {areas} = sorted area list.
       areaClause: '; WIN areas: <strong>{areas}</strong>',
@@ -226,6 +226,10 @@
       // Shown when the geocoder returned coordinates but no county/area for the
       // animal — we fall back to the in-range area spread only (no animal area).
       resolvedLocationUnknown: 'Resolved location (county unavailable) — showing in-range WIN areas only.',
+      // Shown as an amber flag when the county is taken from the dispatcher's
+      // Tier-1 panel selection (not geocoded from the address). county_source
+      // === "tier1_fallback" triggers this in renderResolvedLocation.
+      resolvedLocationTier1Fallback: '\u26a0 County from Tier-1 selection (not from address)',
       // In-range spread note appended under the resolved header when volunteers
       // span more than the animal's own area. {areaWord} = "Area"/"Areas",
       // {areas} = sorted in-range area list.

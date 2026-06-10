@@ -2082,6 +2082,35 @@ async function main() {
     assert.notStrictEqual(body.animal_area, '9', 'must NOT be WIN area 9');
   });
 
+  // (pip6) Tier-1 fallback: coord OUTSIDE PA + animal_county supplied -> county
+  // and area are derived from the county_win map; county_source flags the path.
+  await test('(pip6) Tier-1 fallback: out-of-PA coord + animal_county=Washington -> county=Washington area=10 source=tier1_fallback', async () => {
+    // -74.0, 39.0 is in the Atlantic Ocean — PIP returns null.
+    const res = await handleRequest(
+      mockRequest('GET', { animal_lat: 39.0, animal_lon: -74.0, radius_mi: 20, animal_county: 'Washington' }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS), allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.strictEqual(body.animal_county, 'Washington', 'county falls back to Tier-1 selection');
+    assert.strictEqual(body.animal_area, '10', 'Washington WIN area is 10');
+    assert.strictEqual(body.county_source, 'tier1_fallback', 'county_source flags the fallback path');
+    assert.strictEqual(body.animal_geoid, null, 'geoid stays null — no polygon match for out-of-PA coord');
+  });
+
+  // (pip7) No fallback when both PIP and animal_county are absent.
+  await test('(pip7) No Tier-1 county supplied + out-of-PA coord -> county=null area=null county_source absent', async () => {
+    const res = await handleRequest(
+      mockRequest('GET', { animal_lat: 39.0, animal_lon: -74.0, radius_mi: 20 }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS), allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.strictEqual(body.animal_county, null, 'county is null when no fallback available');
+    assert.strictEqual(body.animal_area, null, 'area is null when no fallback available');
+    assert.ok(!Object.prototype.hasOwnProperty.call(body, 'county_source'), 'county_source absent when no fallback');
+  });
+
   console.log('\n----------------------------------------');
   console.log('Total: ' + (passed + failed) + '  Passed: ' + passed + '  Failed: ' + failed);
   if (failed > 0) {
