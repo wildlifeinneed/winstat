@@ -633,6 +633,31 @@ def is_available(
         return DEFAULT_AVAILABLE_WHEN_BLANK
     if today is None:
         today = date.today()
+    # Day-of-week patterns — must be checked BEFORE the generic denylist so
+    # that 'Unavail weekends' isn't swallowed by the 'unavail' denylist keyword.
+    _DOW_RE = re.compile(
+        r"\b(un)?avail(?:able)?\s+week(end|day)s?\b", re.IGNORECASE
+    )
+    dow_match = _DOW_RE.search(availability_text)
+    if dow_match:
+        negated   = bool(dow_match.group(1))   # True when 'un' prefix present
+        period    = dow_match.group(2).lower()  # 'end' or 'day'
+        is_weekend = today.weekday() >= 5       # Sat=5, Sun=6
+        if period == "end":
+            # 'Unavail weekends' → unavail on Sat/Sun
+            # 'Avail weekends'   → avail ONLY on Sat/Sun
+            if negated:
+                return not is_weekend
+            else:
+                return is_weekend
+        else:  # 'day'
+            # 'Avail weekdays'   → avail ONLY Mon-Fri
+            # 'Unavail weekdays' → unavail Mon-Fri (unusual but handled)
+            if negated:
+                return is_weekend
+            else:
+                return not is_weekend
+
     cleaned, currently_unavail = _evaluate_unavail_date_clauses(
         availability_text, today
     )
