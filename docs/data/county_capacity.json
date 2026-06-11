@@ -18,14 +18,19 @@
         "total": 11
       },
       "ct_no_rvs": {
-        "available": 0,
-        "marginal_volunteers": [],
-        "total": 0
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Weekdays 11AM-9PM, Weekends 11AM-9PM, Texts are better",
+            "connecteam_user": true
+          }
+        ],
+        "total": 1
       },
       "ct_rvs": {
-        "available": 5,
+        "available": 4,
         "marginal_volunteers": [],
-        "total": 5
+        "total": 4
       }
     },
     "Armstrong": {
@@ -187,7 +192,7 @@
         "total": 1
       },
       "ct_rvs": {
-        "available": 1,
+        "available": 0,
         "marginal_volunteers": [
           {
             "availability_note": "Avail Varies, Unavail 6/11-6/17",
@@ -1122,7 +1127,7 @@
       }
     }
   },
-  "generated_at": "2026-06-10T20:15:03Z",
+  "generated_at": "2026-06-11T14:05:08Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
