@@ -52,7 +52,11 @@ jobs:
           git add docs/data/county_capacity.json docs/data/.last_remote_update
           ts="$(date -u +'%Y-%m-%d %H:%M UTC')"
           git commit -m "Auto-refresh capacity snapshot (${ts})"
-          git push
+          for i in 1 2 3 4 5; do
+            git pull --rebase origin main && git push && break
+            echo "push attempt $i failed, retrying..."
+            sleep 3
+          done
 
   # ---------------------------------------------------------------------------
   # Phase F — dispatcher data refresh + private-dataset push to Cloudflare KV.
@@ -208,7 +212,11 @@ jobs:
 
           ts="$(date -u +'%Y-%m-%d %H:%M UTC')"
           git commit -m "Auto-refresh dispatcher data (${ts})"
-          git push
+          for i in 1 2 3 4 5; do
+            git pull --rebase origin main && git push && break
+            echo "push attempt $i failed, retrying..."
+            sleep 3
+          done
 
       # Record the sentinel date so the next run compares against it. Written
       # to a gitignored file (never committed). Runs only on a successful
