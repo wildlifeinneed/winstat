@@ -13,7 +13,7 @@
   "counties": {
     "Allegheny": {
       "courier": {
-        "available": 10,
+        "available": 9,
         "marginal_volunteers": [],
         "total": 11
       },
@@ -491,9 +491,14 @@
     },
     "Fayette": {
       "courier": {
-        "available": 0,
-        "marginal_volunteers": [],
-        "total": 0
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Fri, Every other Weekend, varies",
+            "connecteam_user": true
+          }
+        ],
+        "total": 1
       },
       "ct_no_rvs": {
         "available": 0,
@@ -626,7 +631,7 @@
         "available": 1,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail 24/7, select tasks - Raptors, Waterfowl/Water Birds; Birds: Dauphin, Lancaster, Lebanon;  Raptors only: Cumberland, York",
+            "availability_note": "Avail 24/7, select tasks - Raptors, Waterfowl/Water Birds; Birds: Dauphin, Lancaster, Lebanon; Raptors only: Cumberland, York",
             "connecteam_user": true
           }
         ],
@@ -874,7 +879,7 @@
         "available": 1,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail Varies, Covers Cumberland, Dauphin, Juniata, Perry Co",
+            "availability_note": "Avail Varies, Covers Cumberland, Dauphin, Juniata, Perry Co,",
             "connecteam_user": true
           }
         ],
@@ -915,10 +920,10 @@
         "total": 0
       },
       "ct_rvs": {
-        "available": 1,
+        "available": 0,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail varies Weekdays & Weekends, Covers parts of Lackawana, Pike, Monroe, Wayne Co, Resides in Lords Valley",
+            "availability_note": "Avail varies Weekdays & Weekends, Covers parts of Lackawana, Pike, Monroe, Wayne Co, Resides in Lords Valley, Unavail 6/12 -6/14",
             "connecteam_user": true
           }
         ],
@@ -1127,7 +1132,7 @@
       }
     }
   },
-  "generated_at": "2026-06-11T14:05:08Z",
+  "generated_at": "2026-06-12T13:33:06Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
