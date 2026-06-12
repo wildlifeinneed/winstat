@@ -4,6 +4,28 @@ This site is hosted from the `docs/` folder of the GitHub repo
 [`mjpierzga/winstats`](https://github.com/mjpierzga/winstats) on the `main` branch.
 Any change pushed to `main` goes live automatically (GitHub Pages).
 
+## 0. Sync first (before you edit or commit)
+
+Before you start editing, pull in any commits that may have landed since your
+last pull — the daily refresh bot or another machine could have pushed:
+
+```
+git pull --rebase
+```
+
+> `--rebase` replays your local commit cleanly on top of the remote work. If it
+> reports a **conflict**, stop and resolve it before continuing — don't
+> force-push.
+
+If your `git push` is ever **rejected** with *"fetch first"* / *"Updates were
+rejected because the remote contains work that you do not have locally"*, the
+fix is the same:
+
+```
+git pull --rebase
+git push
+```
+
 ## 1. Open a terminal in the project folder
 
 ```
