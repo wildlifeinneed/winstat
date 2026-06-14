@@ -1,16 +1,16 @@
-# Dispatcher Aggregate Worker (Phase E scaffold)
+# Dispatcher Aggregate Worker
 
-**Status: SCAFFOLD ONLY — NOT deployed.** This directory contains the
-Cloudflare Worker source, config, and local mocked tests. Deployment (login,
-KV namespace creation, account id, API token) happens LATER in Phase E-deploy /
-Phase F once a scoped token is provided. Nothing here calls live Cloudflare or
-live Census, and no secret is committed.
+**Status: DEPLOYED & LIVE.** This Cloudflare Worker is deployed as
+`pa-wildlife-dispatcher` and serving at
+<https://pa-wildlife-dispatcher.winstat.workers.dev>. It was deployed in commit
+`a2d8da7`. The private volunteer coordinates it serves are kept current by CI
+(see "KV data refresh" below). No secret is committed to this repo.
 
 ## Purpose
 
 The public GitHub Pages site must never see volunteer coordinates. This Worker
 is the private layer: it holds the volunteer coords in Cloudflare KV (pushed by
-the Phase F refresh job) and returns ONLY a PII-free aggregate to the browser.
+the CI refresh job) and returns ONLY a PII-free aggregate to the browser.
 
 It is a JS port of the Python ground truth:
 - `dispatch_core.py` → `src/aggregate.js` (haversine, radius clamp, role
@@ -19,42 +19,94 @@ It is a JS port of the Python ground truth:
 
 ## Response shape (the PII boundary)
 
-A successful request returns EXACTLY these keys and nothing else:
+A successful request returns the PII-free aggregate plus the dispatcher-entered
+ANIMAL location (the animal coordinate is NOT volunteer PII) so the browser can
+rank rehabbers by distance:
 
 ```json
-{ "total_in_range": 3, "role_counts": { "C&T": 1, "RVS C&T": 1, "COURIER": 2 }, "win_areas": ["WIN-1", "WIN-2"] }
+{
+  "total_in_range": 19,
+  "role_counts": { "C&T": 2, "RVS C&T": 5, "COURIER": 12 },
+  "win_areas": ["10"],
+  "distance_mode": "straight_line",
+  "animal_lat": 40.44,
+  "animal_lon": -79.99,
+  "animal_county": "Allegheny",
+  "animal_area": "10",
+  "animal_geoid": "42003"
+}
 ```
 
-No names, coordinates, addresses, `home_county`, `roles`, or per-volunteer rows
-are ever returned. The tests assert this (deep key scan).
+No names, volunteer coordinates, addresses, `home_county`, `roles`, or
+per-volunteer rows are ever returned. The tests assert this (deep key scan).
 
 ## Request contract
 
 `GET` or `POST` to the Worker:
-- Either `animal_lat` + `animal_lon`, OR `address` (geocoded via US Census at
-  runtime — mocked in tests).
+- Either `animal_lat` + `animal_lon`, OR `address` (geocoded via US Census /
+  Photon at runtime).
 - Optional `radius_mi` (default 20, clamped to max 100).
-- `400` on missing location, invalid radius, or unresolvable address. Error
-  bodies never echo input coordinates.
-- CORS: `Access-Control-Allow-Origin` from the `ALLOWED_ORIGIN` var.
+- `400 missing_location` when neither location is supplied; `400 invalid_radius`
+  on a non-numeric radius; `422 address_not_found` / `502 geocoder_unavailable`
+  on geocode failure. Error bodies never echo input coordinates.
+- CORS: `Access-Control-Allow-Origin` is set from the `ALLOWED_ORIGIN` var
+  (currently `https://mjpierzga.github.io`).
+
+Example:
+
+```bash
+curl "https://pa-wildlife-dispatcher.winstat.workers.dev/?animal_lat=40.44&animal_lon=-79.99&radius_mi=20"
+```
+
+## Deployment config (`wrangler.toml`)
+
+The committed `wrangler.toml` holds the real deployment binding values (no
+secrets):
+
+| Setting | Value |
+| --- | --- |
+| `name` | `pa-wildlife-dispatcher` |
+| `main` | `src/index.mjs` |
+| `compatibility_date` | `2024-09-23` |
+| `account_id` | `290463cfd0bc273076e8c62678f7c845` |
+| `[vars] ALLOWED_ORIGIN` | `https://mjpierzga.github.io` |
+| KV binding `VOLUNTEER_COORDS` | id `43bdd5e237544683b20cdbc61d42dd49` |
+
+The `ORS_API_KEY` (OpenRouteService, for the PUBLIC rehabber driving-distance
+panel) is supplied ONLY as a Worker secret (`wrangler secret put ORS_API_KEY`),
+never in `[vars]`. While unset, `/?mode=rehabber_distances` degrades gracefully
+to haversine straight-line distances (`duration_min: null`).
+
+## KV data refresh (CI)
+
+The private volunteer coords are refreshed in CI by the
+`refresh-dispatcher-data` job in `.github/workflows/refresh.yml`. On a refresh
+(gated by the Monday `VolDB_Status` sentinel) it:
+- runs `refresh_monday.py` to regenerate the datasets,
+- pushes ONLY the PRIVATE volunteer coords to Cloudflare KV under key
+  `volunteer_coords` via `wrangler kv key put` (namespace
+  `43bdd5e237544683b20cdbc61d42dd49`), authenticated with the
+  `CLOUDFLARE_API_TOKEN` repo secret and `CLOUDFLARE_ACCOUNT_ID`,
+- commits ONLY the public, PII-free aggregates (never the private coords).
+
+The Worker reads that data from KV under the key `volunteer_coords` (see
+`src/handler.js`).
 
 ## Files
 
 | File | Role |
 | --- | --- |
-| `wrangler.toml` | Worker config; **placeholder** KV id, no account id, no secrets |
+| `wrangler.toml` | Worker config: account id, `VOLUNTEER_COORDS` KV id, `ALLOWED_ORIGIN` |
 | `src/index.mjs` | Cloudflare ESM entry (thin wrapper) |
-| `src/handler.js` | Pure request handler (params, geocode, KV read, CORS, 400) |
+| `src/handler.js` | Pure request handler (params, geocode, KV read, CORS, errors) |
 | `src/aggregate.js` | Pure port of `find_volunteers_in_radius` |
 | `src/census.js` | Census geocode helper (injectable fetch) |
 | `test/run.test.js` | Local mocked tests (no install, no network) |
 
 ## Running the tests locally
 
-No install and no network required (the local toolchain is Node v12, which
-predates vitest / `@cloudflare/vitest-pool-workers` / miniflare — those need
-Node 18+). The tests exercise the exact shipped logic with mocked KV, mocked
-Census, and a mock `Response`:
+No install and no network required (the tests run on Node 12+). They exercise
+the exact shipped logic with mocked KV, mocked Census, and a mock `Response`:
 
 ```bash
 cd worker
@@ -66,27 +118,16 @@ Covered: correct aggregate for a known set, radius clamp, 400 on bad input,
 PII-free key set (no name/lat/lon/address leak), CORS headers, address-geocode
 path (mocked), POST body path, empty/malformed KV degradation.
 
-When deploying later on a Node 18+ machine, the same `src/*` modules can be
-wrapped in `@cloudflare/vitest-pool-workers` if a Workers-runtime integration
-test is desired.
+## Redeploying
 
-## Deploy steps (LATER — Phase E-deploy / Phase F, do NOT run now)
+On a Node 18+ environment with Wrangler installed and `CLOUDFLARE_API_TOKEN`
+exported:
 
-1. Use a Node 18+ environment and install Wrangler:
-   `npm install -D wrangler`
-2. `wrangler login`
-3. Create the KV namespace and paste the returned id into `wrangler.toml`
-   (replace `TODO_PLACEHOLDER_KV_NAMESPACE_ID`):
-   `wrangler kv:namespace create VOLUNTEER_COORDS`
-4. Supply the account id at deploy (not committed in code):
-   `export CLOUDFLARE_ACCOUNT_ID=290463cfd0bc273076e8c62678f7c845`
-5. Provide the scoped API token via environment (never committed):
-   `export CLOUDFLARE_API_TOKEN=<scoped token, supplied at deploy>`
-6. Set `ALLOWED_ORIGIN` in `wrangler.toml [vars]` to the project's real
-   GitHub Pages origin.
-7. `wrangler deploy`
-8. The Phase F refresh job writes the coords array (JSON) to KV under key
-   `volunteer_coords`.
+```bash
+cd worker
+wrangler deploy
+```
 
-No secret or real id is stored in this repo; all of the above are provided at
-deploy time only.
+`account_id`, the `VOLUNTEER_COORDS` KV binding, and `ALLOWED_ORIGIN` are
+already set in `wrangler.toml`; only the API token is supplied via the
+environment at deploy time (never committed).
