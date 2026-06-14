@@ -1,7 +1,7 @@
 # Publishing Changes to GitHub
 
 This site is hosted from the `docs/` folder of the GitHub repo
-[`mjpierzga/winstats`](https://github.com/mjpierzga/winstats) on the `main` branch.
+[`wildlifeinneed/winstat`](https://github.com/wildlifeinneed/winstat) on the `main` branch.
 Any change pushed to `main` goes live automatically (GitHub Pages).
 
 ## 0. Sync first (before you edit or commit)
@@ -33,7 +33,7 @@ cd ~/Projects/PA-Wildlife-Rehab
 ```
 
 > You do **not** need to specify the GitHub URL. This folder is already
-> linked to `https://github.com/mjpierzga/winstats.git` (branch `main`).
+> linked to `https://github.com/wildlifeinneed/winstat.git` (branch `main`).
 > Confirm anytime with:
 >
 > ```
@@ -118,7 +118,7 @@ git push
 ## Wildlife Dispatcher operations
 
 The dispatcher page (`docs/dispatcher.html`, live at
-<https://mjpierzga.github.io/winstats/dispatcher.html>) reads two static files
+<https://wildlifeinneed.github.io/winstat/dispatcher.html>) reads two static files
 from `docs/data/`:
 
 - `county_capacity.json` — snapshot of volunteer capacity per county (refreshed
@@ -156,7 +156,7 @@ python3 refresh_monday.py
 **How to confirm the new JSON went live:**
 
 1. Wait 1–2 minutes after `git push`.
-2. Open <https://mjpierzga.github.io/winstats/dispatcher.html> in an incognito
+2. Open <https://wildlifeinneed.github.io/winstat/dispatcher.html> in an incognito
    / private window (bypasses cache).
 3. Pick a county you know changed, click **Get Recommendation**, and check
    that the marginal-roster card's `availability_note` text reflects the new
@@ -178,7 +178,7 @@ so the local hour drifts by one across the daylight-saving boundary.
 
 **One-time setup (you have to do this in the GitHub web UI):**
 
-1. Go to <https://github.com/mjpierzga/winstats> → **Settings** → **Secrets
+1. Go to <https://github.com/wildlifeinneed/winstat> → **Settings** → **Secrets
    and variables** → **Actions** → **New repository secret**.
 2. Name: `MONDAY_TOKEN`. Value: paste the same token string from your local
    `.monday_token` file (the one that starts with `eyJ…`).

@@ -50,7 +50,7 @@ per-volunteer rows are ever returned. The tests assert this (deep key scan).
   on a non-numeric radius; `422 address_not_found` / `502 geocoder_unavailable`
   on geocode failure. Error bodies never echo input coordinates.
 - CORS: `Access-Control-Allow-Origin` is set from the `ALLOWED_ORIGIN` var
-  (currently `https://mjpierzga.github.io`).
+  (currently `https://wildlifeinneed.github.io`).
 
 Example:
 
@@ -69,7 +69,7 @@ secrets):
 | `main` | `src/index.mjs` |
 | `compatibility_date` | `2024-09-23` |
 | `account_id` | `290463cfd0bc273076e8c62678f7c845` |
-| `[vars] ALLOWED_ORIGIN` | `https://mjpierzga.github.io` |
+| `[vars] ALLOWED_ORIGIN` | `https://wildlifeinneed.github.io` |
 | KV binding `VOLUNTEER_COORDS` | id `43bdd5e237544683b20cdbc61d42dd49` |
 
 The `ORS_API_KEY` (OpenRouteService, for the PUBLIC rehabber driving-distance

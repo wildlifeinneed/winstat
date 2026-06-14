@@ -336,7 +336,7 @@ deploy time and are never committed.
 
 > Note: the committed `wrangler.toml` header still carries old "scaffold / not
 > deployed yet" comments and a `[vars] ALLOWED_ORIGIN` placeholder
-> (`https://mjpierzga.github.io`). The Worker is in fact deployed and live at the URL
+> (`https://wildlifeinneed.github.io`). The Worker is in fact deployed and live at the URL
 > above. Treat the live URL and the KV id as the source of truth; the stale scaffold
 > comments are documentation lag, not current state. (See §"Flagged facts".)
 
@@ -432,7 +432,7 @@ edit.
   `docs/assets/dispatcher.js` (`WORKER_URL`). However, `worker/wrangler.toml` still
   contains "SCAFFOLD ONLY -- not deployed" comments, a different
   `account_id` (`290463cfd0bc273076e8c62678f7c845`), and an `ALLOWED_ORIGIN`
-  placeholder `https://mjpierzga.github.io`. The KV namespace id
+  placeholder `https://wildlifeinneed.github.io`. The KV namespace id
   (`43bdd5e237544683b20cdbc61d42dd49`) matches the CI workflow. The account_id in
   the repo does not obviously match the "Wildlife In Need" account from the brief —
   reconcile the Cloudflare account/account_id before the next Worker deploy.
