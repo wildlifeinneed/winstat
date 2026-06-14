@@ -23,7 +23,7 @@ account_id = "290463cfd0bc273076e8c62678f7c845"
 # Public GitHub Pages origin allowed to call this Worker (CORS).
 # TODO(deploy): replace with the project's real Pages origin.
 [vars]
-ALLOWED_ORIGIN = "https://mjpierzga.github.io"
+ALLOWED_ORIGIN = "https://wildlifeinneed.github.io"
 # OpenRouteService Matrix API key for DRIVING distances on the PUBLIC rehabber
 # top-3 panel. Provided ONLY as a Worker SECRET, never in [vars]:
 #     wrangler secret put ORS_API_KEY
