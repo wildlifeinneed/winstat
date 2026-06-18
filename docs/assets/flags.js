@@ -83,6 +83,7 @@
     'index-tool-equipment':       { prod: 'live', dev: 'live' },
     'index-tool-dispatcher':      { prod: 'live', dev: 'live' },
     'index-tool-facilities':      { prod: 'live', dev: 'live' },
+    'index-tool-help':            { prod: 'live', dev: 'live' },
     'index-about':                { prod: 'live', dev: 'live' },
     'index-contact':              { prod: 'live', dev: 'live' },
 
@@ -118,7 +119,8 @@
   var TARGET_PAGES = {
     'index-tool-dispatcher': 'page-dispatcher',
     'index-tool-equipment':  'page-equipment',
-    'index-tool-facilities': 'page-facilities'
+    'index-tool-facilities': 'page-facilities',
+    'index-tool-help':       'page-help'
   };
 
   // Map an <a href> filename to its PAGES key (mirror of TARGET_PAGES, keyed by
