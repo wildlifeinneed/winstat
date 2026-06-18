@@ -1353,6 +1353,31 @@
     open: false
   };
 
+  // Average driving speed (mph) used to ESTIMATE travel time from distance when
+  // no real ORS driving time is available. ~40 mph is a sensible blended
+  // rural/suburban PA figure. Shared by both rehabber and volunteer popups so
+  // their fallback estimates are consistent. No external routing call is made.
+  var T2_EST_SPEED_MPH = 40;
+
+  // Compact single-line distance/time label for a map popup, e.g.
+  //   real ORS time present →  "10.1 miles / 15 min"
+  //   estimate fallback     →  "10.1 miles / ~15 min (est.)"
+  // distMi: distance in miles (any finite number). minReal: REAL driving minutes
+  // (whole or fractional) when known, else null/undefined to fall back to the
+  // 40 mph estimate. Returns '' when distance is not usable.
+  function t2DistTimeLine(distMi, minReal) {
+    if (typeof distMi !== 'number' || !isFinite(distMi)) return '';
+    var distTxt = distMi.toFixed(1) + ' miles';
+    if (typeof minReal === 'number' && isFinite(minReal)) {
+      return distTxt + ' / ' + Math.round(minReal) + ' min';
+    }
+    if (T2_EST_SPEED_MPH > 0) {
+      var estMin = Math.round((distMi / T2_EST_SPEED_MPH) * 60);
+      return distTxt + ' / ~' + estMin + ' min (est.)';
+    }
+    return distTxt;
+  }
+
   // Build a small CSS-styled DivIcon (no external sprite dependency).
   function t2DivIcon(cls, size) {
     return L.divIcon({
@@ -1417,14 +1442,22 @@
     // ── Rehabbers (public coords) ──
     (payload.rehabbers || []).forEach(function (r) {
       if (!r || !isFinite(r.lat) || !isFinite(r.lon)) return; // skip silently
-      var dist = isFinite(r.distance_mi) ? (' · ' + r.distance_mi.toFixed(1) + ' mi') : '';
+      // Distance/time line: prefer REAL ORS driving numbers (drive_distance_mi +
+      // duration_min, supplied by enhanceRehabDrivingDistances). Fall back to the
+      // straight-line distance_mi + the same 40 mph estimate volunteers use.
+      var rDist = (typeof r.drive_distance_mi === 'number' && isFinite(r.drive_distance_mi))
+        ? r.drive_distance_mi : r.distance_mi;
+      var rMin = (typeof r.duration_min === 'number' && isFinite(r.duration_min))
+        ? r.duration_min : null;
+      var distLine = t2DistTimeLine(rDist, rMin);
+      var distHtml = distLine ? ('<br>' + escapeHtml(distLine)) : '';
       var phone = r.phone ? ('<br>' + escapeHtml(r.phone)) : '';
       var county = r.county ? ('<br>' + escapeHtml(r.county) + ' County') : '';
       L_.marker([r.lat, r.lon], {
         icon: t2DivIcon('t2-pin-rehab', 16),
         title: r.rehab_name || 'Rehabber'
       }).bindPopup('<strong>' + escapeHtml(r.rehab_name || 'Rehabber') + '</strong>' +
-          dist + county + phone)
+          distHtml + county + phone)
         .addTo(t2map.layers.rehab);
       bounds.push([r.lat, r.lon]);
     });
@@ -1434,12 +1467,6 @@
     // never sends exact volunteer coordinates to the browser (PII rule). Each
     // county may hold several volunteers, so we offset stacked pins slightly so
     // they don't fully overlap. This whole block is gated by the flag above.
-    //
-    // Average driving speed (mph) used to ESTIMATE travel time from distance
-    // when the Worker did NOT supply a real ORS driving time (duration_min).
-    // ~40 mph is a sensible blended rural/suburban PA figure. No external
-    // routing call is made — this estimate is purely client-side.
-    var VOL_EST_SPEED_MPH = 40;
     if (SHOW_VOLUNTEER_MARKERS) {
       var perCounty = {};
       (payload.volunteers || []).forEach(function (v) {
@@ -1452,23 +1479,17 @@
         var rad = n === 0 ? 0 : 0.012 + 0.006 * n;
         var lat = v.lat + rad * Math.cos(ang);
         var lon = v.lon + rad * Math.sin(ang);
-        // Popup content: TRAVEL DISTANCE · TRAVEL TIME · COUNTY (no approx caveat).
+        // Popup content: ROLES · "X miles / Y min" · COUNTY. The distance/time
+        // line uses the REAL ORS driving time (duration_min) when present,
+        // otherwise the shared 40 mph estimate (marked "(est.)").
         var lines = [];
         if (v.roles && v.roles.length) {
           lines.push(escapeHtml(v.roles.join(', ')));
         }
-        if (isFinite(v.distance_mi)) {
-          lines.push('Travel distance: ' + v.distance_mi.toFixed(1) + ' mi');
-        }
-        // Travel time: REAL ORS driving time (duration_min) when present,
-        // otherwise a clearly-labeled estimate derived from distance at
-        // VOL_EST_SPEED_MPH (no external routing API).
-        if (typeof v.duration_min === 'number' && isFinite(v.duration_min)) {
-          lines.push('Travel time: ' + Math.round(v.duration_min) + ' min');
-        } else if (isFinite(v.distance_mi) && VOL_EST_SPEED_MPH > 0) {
-          var estMin = Math.round((v.distance_mi / VOL_EST_SPEED_MPH) * 60);
-          lines.push('Travel time: ~' + estMin + ' min (est.)');
-        }
+        var vMin = (typeof v.duration_min === 'number' && isFinite(v.duration_min))
+          ? v.duration_min : null;
+        var vLine = t2DistTimeLine(v.distance_mi, vMin);
+        if (vLine) lines.push(escapeHtml(vLine));
         if (v.county) {
           lines.push('County: ' + escapeHtml(v.county));
         }
@@ -1571,6 +1592,22 @@
     t2map.pending = payload;
     if (t2map.open && ensureT2Map()) {
       paintT2Map(payload);
+    }
+
+    // ── REAL driving distance + time for the map's rehabber popups ──────
+    // Reuse the SAME worker path the list uses (enhanceRehabDrivingDistances →
+    // ?mode=rehabber_distances). It mutates each rehabPool row in place with the
+    // real ORS drive_distance_mi + duration_min, then hands back the ranked
+    // pool. We swap that into the payload (so the markers stay in the SAME
+    // count/order space) and re-paint when the map is open. On ANY failure the
+    // enhancer is a no-op and the straight-line + 40 mph estimate already shown
+    // stays as-is. No second routing path / external API is introduced.
+    if (rehabPool.length && origin && typeof origin.lat === 'number') {
+      enhanceRehabDrivingDistances(origin, rehabPool, rehabPool.length, function (ranked) {
+        payload.rehabbers = ranked;
+        t2map.pending = payload;
+        if (t2map.open && t2map.instance) paintT2Map(payload);
+      });
     }
   }
 
