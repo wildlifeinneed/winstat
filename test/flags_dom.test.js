@@ -211,6 +211,107 @@ console.log('flags.js — SUB-PANEL fallback when no page-level key present');
   cfg[KEY_HIDDEN] = saved.hidden;
 })();
 
+// ── 4b. applyCardSync — index.html tool cards mirror target-page state ───────
+console.log('flags.js — applyCardSync reflects target-page state onto home cards');
+(function () {
+  const cfg = flags.pages;
+  const KEY = 'page-dispatcher';
+  const saved = Object.assign({}, cfg[KEY]);
+
+  // Build a synthetic index.html tool card linking to dispatcher.html, mirroring
+  // the real markup (data-card-target + an <a href> derived target).
+  function makeCardDoc() {
+    const dom = new JSDOM(
+      '<!doctype html><html><body data-panel-key="page-index">' +
+      '<div class="tools-grid">' +
+      '<a class="tool-card" href="dispatcher.html" ' +
+      'data-panel-key="index-tool-dispatcher" ' +
+      'data-card-target="index-tool-dispatcher">' +
+      '<span class="status-badge beta">Beta Testing</span>' +
+      '<h3>Dispatch Helper</h3><p>desc</p>' +
+      '</a></div></body></html>'
+    );
+    return dom.window.document;
+  }
+
+  // hrefToPageKey is exposed and correct.
+  ok("hrefToPageKey('dispatcher.html') === 'page-dispatcher'",
+    flags.hrefToPageKey('dispatcher.html') === 'page-dispatcher');
+  ok("hrefToPageKey('equipment-transfers.html') === 'page-equipment'",
+    flags.hrefToPageKey('equipment-transfers.html') === 'page-equipment');
+  ok("hrefToPageKey('facilities.html') === 'page-facilities'",
+    flags.hrefToPageKey('facilities.html') === 'page-facilities');
+  ok("hrefToPageKey('./dispatcher.html?x=1#frag') strips query/hash/dir",
+    flags.hrefToPageKey('./dispatcher.html?x=1#frag') === 'page-dispatcher');
+  ok("hrefToPageKey('unknown.html') === null",
+    flags.hrefToPageKey('unknown.html') === null);
+
+  // targetPages binding is exported and correct.
+  ok("flags.targetPages binds dispatcher card -> page-dispatcher",
+    flags.targetPages['index-tool-dispatcher'] === 'page-dispatcher' &&
+    flags.targetPages['index-tool-equipment'] === 'page-equipment' &&
+    flags.targetPages['index-tool-facilities'] === 'page-facilities');
+
+  // MAINTENANCE on prod -> card inactive + compact badge.
+  cfg[KEY] = { prod: 'maintenance', dev: 'live' };
+  const docM = makeCardDoc();
+  const appliedM = flags.applyCardSync({ hostname: 'wildlifeinneed.github.io', doc: docM });
+  const cardM = docM.querySelector('[data-card-target="index-tool-dispatcher"]');
+  ok("card-sync maintenance: applied map reports the card state",
+    appliedM['index-tool-dispatcher'] === 'maintenance');
+  ok("card-sync maintenance: card has .is-inactive",
+    cardM.classList.contains('is-inactive'));
+  ok("card-sync maintenance: compact badge injected",
+    !!cardM.querySelector('[data-maint-card-badge]'));
+  ok("card-sync maintenance: ONE badge only (idempotent within a run)",
+    cardM.querySelectorAll('[data-maint-card-badge]').length === 1);
+  ok("card-sync maintenance: badge uses .status-badge.construction palette",
+    cardM.querySelector('[data-maint-card-badge]').classList.contains('status-badge') &&
+    cardM.querySelector('[data-maint-card-badge]').classList.contains('construction'));
+  ok("card-sync maintenance: card NOT display:none",
+    cardM.style.display !== 'none');
+
+  // idempotency across two runs -> still ONE badge, still inactive.
+  flags.applyCardSync({ hostname: 'wildlifeinneed.github.io', doc: docM });
+  ok("card-sync maintenance: idempotent (single badge after 2 runs)",
+    cardM.querySelectorAll('[data-maint-card-badge]').length === 1 &&
+    cardM.classList.contains('is-inactive'));
+
+  // DEV env: dispatcher resolves to 'live' here -> card normal.
+  const docDev = makeCardDoc();
+  flags.applyCardSync({ hostname: 'winstat.pages.dev', doc: docDev });
+  const cardDev = docDev.querySelector('[data-card-target="index-tool-dispatcher"]');
+  ok("card-sync dev: live target -> card normal (no inactive, no badge, visible)",
+    !cardDev.classList.contains('is-inactive') &&
+    !cardDev.querySelector('[data-maint-card-badge]') &&
+    cardDev.style.display !== 'none');
+
+  // HIDDEN on prod -> card display:none.
+  cfg[KEY] = { prod: 'hidden', dev: 'live' };
+  const docH = makeCardDoc();
+  const appliedH = flags.applyCardSync({ hostname: 'wildlifeinneed.github.io', doc: docH });
+  const cardH = docH.querySelector('[data-card-target="index-tool-dispatcher"]');
+  ok("card-sync hidden: applied map reports hidden",
+    appliedH['index-tool-dispatcher'] === 'hidden');
+  ok("card-sync hidden: card display:none",
+    cardH.style.display === 'none');
+
+  // LIVE on prod -> clean state (no class, no badge, visible) even if previously dimmed.
+  cfg[KEY] = { prod: 'live', dev: 'live' };
+  const docL = makeCardDoc();
+  // Pre-dirty the card to prove 'live' RESETS it.
+  const cardL = docL.querySelector('[data-card-target="index-tool-dispatcher"]');
+  cardL.classList.add('is-inactive');
+  cardL.appendChild(docL.createElement('span')).setAttribute('data-maint-card-badge', '');
+  flags.applyCardSync({ hostname: 'wildlifeinneed.github.io', doc: docL });
+  ok("card-sync live: resets card to normal (no inactive, no badge, visible)",
+    !cardL.classList.contains('is-inactive') &&
+    !cardL.querySelector('[data-maint-card-badge]') &&
+    cardL.style.display !== 'none');
+
+  cfg[KEY] = saved; // restore
+})();
+
 // ── 5. Default-live guarantee (shipped config) ───────────────────────────────
 console.log('flags.js — shipped config defaults to live everywhere');
 (function () {
@@ -262,6 +363,14 @@ console.log('flags.js — page-level wrappers are wired into the real docs/*.htm
     ok(PAGE_FILE[key] + ' includes assets/flags.js',
       html[PAGE_FILE[key]].indexOf('assets/flags.js') !== -1);
   });
+
+  // index.html wires data-card-target onto each of the 3 tool cards.
+  const indexSrc = html['index.html'];
+  ['index-tool-dispatcher', 'index-tool-equipment', 'index-tool-facilities']
+    .forEach(function (cardKey) {
+      ok('index.html wires data-card-target="' + cardKey + '"',
+        indexSrc.indexOf('data-card-target="' + cardKey + '"') !== -1);
+    });
 })();
 
 console.log('\nflags_dom.test.js: ' + passed + ' assertions passed.');

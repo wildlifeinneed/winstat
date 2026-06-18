@@ -108,6 +108,30 @@
     'help-manual': { prod: 'live', dev: 'live' }
   };
 
+  // ── TOOL-CARD -> TARGET-PAGE binding (index.html home cards) ──────────────
+  // Each tool card on index.html links to another page. These bindings let the
+  // home page reflect a target page's maintenance state on its card BEFORE a
+  // volunteer clicks through. Keyed by the card's own SUB_PANELS key; the value
+  // is the PAGES key whose resolved state the card should mirror. applyCardSync
+  // also derives the target from the card's <a href>, so this map is the
+  // authoritative href->page-key lookup (and the source of truth for tests).
+  var TARGET_PAGES = {
+    'index-tool-dispatcher': 'page-dispatcher',
+    'index-tool-equipment':  'page-equipment',
+    'index-tool-facilities': 'page-facilities'
+  };
+
+  // Map an <a href> filename to its PAGES key (mirror of TARGET_PAGES, keyed by
+  // the page file the card links to). Lets applyCardSync resolve the target from
+  // the live DOM link rather than trusting only the static binding.
+  var HREF_TO_PAGE = {
+    'dispatcher.html':          'page-dispatcher',
+    'equipment-transfers.html': 'page-equipment',
+    'facilities.html':          'page-facilities',
+    'index.html':               'page-index',
+    'help.html':                'page-help'
+  };
+
   // Backwards-compatible alias: PANELS is the union (page + sub) so existing
   // tooling that iterates "every key" keeps working. PAGES wins on conflicts.
   var PANELS = {};
@@ -186,6 +210,92 @@
     // 'live' -> no-op.
   }
 
+  // ── buildCardBadge(): compact maintenance indicator for a tool card ───────
+  // Reuses the existing .status-badge palette (compact construction variant).
+  // Carries data-maint-card-badge so applyCardSync stays idempotent.
+  function buildCardBadge(doc) {
+    var el = doc.createElement('span');
+    el.className = 'status-badge construction';
+    el.setAttribute('data-maint-card-badge', '');
+    el.textContent = 'Maintenance';
+    return el;
+  }
+
+  // ── hrefToPageKey(): derive a PAGES key from a card's <a href> ────────────
+  // Strips query/hash and directory, lower-cases the filename, then looks it up
+  // in HREF_TO_PAGE. Returns null when the href maps to no known page.
+  function hrefToPageKey(href) {
+    if (!href) return null;
+    var s = String(href).split('#')[0].split('?')[0];
+    // Take the last path segment (handles relative + absolute hrefs).
+    var parts = s.split('/');
+    var file = parts[parts.length - 1].toLowerCase();
+    if (!file) return null;
+    return HREF_TO_PAGE[file] || null;
+  }
+
+  // ── applyToCard(): apply a resolved target-page state to a tool card ───────
+  function applyToCard(card, state, doc) {
+    if (!card) return;
+    if (state === 'hidden') {
+      card.style.display = 'none';
+      card.setAttribute('data-card-hidden', '');
+      return;
+    }
+    if (state === 'maintenance') {
+      card.classList.add('is-inactive');
+      card.setAttribute('data-card-under-maintenance', '');
+      if (!card.querySelector(':scope > [data-maint-card-badge]')) {
+        card.appendChild(buildCardBadge(doc));
+      }
+      return;
+    }
+    // 'live' -> clean any prior inactive state (idempotent reset).
+    card.classList.remove('is-inactive');
+    card.removeAttribute('data-card-under-maintenance');
+    card.style.display = '';
+    card.removeAttribute('data-card-hidden');
+    var badge = card.querySelector(':scope > [data-maint-card-badge]');
+    if (badge && badge.parentNode) badge.parentNode.removeChild(badge);
+  }
+
+  // ── applyCardSync(): mirror target-page state onto index.html tool cards ───
+  // SECOND PASS (runs after applyPanelFlags). Finds every element carrying a
+  // data-card-target attribute, derives its target page (from the card's <a>
+  // href, falling back to the data-card-target value), resolves that PAGE-LEVEL
+  // state for THIS env, and reflects it onto the card:
+  //   'maintenance' -> .is-inactive/.is-under-maintenance + compact badge
+  //   'hidden'      -> display:none
+  //   'live'        -> clean state (classes/badge removed)
+  // opts.hostname / opts.doc mirror applyPanelFlags for tests. Returns a map of
+  // { cardKey: appliedState }.
+  function applyCardSync(opts) {
+    opts = opts || {};
+    var doc = opts.doc || (typeof document !== 'undefined' ? document : null);
+    if (!doc) return {};
+    var env = resolveEnv(opts.hostname);
+    var applied = {};
+    var cards = doc.querySelectorAll('[data-card-target]');
+    for (var i = 0; i < cards.length; i++) {
+      var card = cards[i];
+      // Prefer the live <a href>; fall back to the static data-card-target key.
+      var link = card.matches && card.matches('a[href]')
+        ? card
+        : card.querySelector('a[href]');
+      var href = link ? (link.getAttribute('href') || '') : '';
+      var pageKey = hrefToPageKey(href);
+      if (!pageKey) {
+        // Fall back: data-card-target may itself name the SUB_PANELS card key.
+        pageKey = TARGET_PAGES[card.getAttribute('data-card-target')] || null;
+      }
+      if (!pageKey) continue;
+      var state = resolveState(pageKey, env, { source: 'page' });
+      applyToCard(card, state, doc);
+      applied[card.getAttribute('data-card-target') || pageKey] = state;
+    }
+    return applied;
+  }
+
   // ── findPanel(): locate a panel/page element by key ────────────────────────
   // Matches EITHER [data-panel-key="key"] OR an element whose id === key.
   function findPanel(doc, key) {
@@ -246,6 +356,8 @@
   if (typeof document !== 'undefined' && document.addEventListener) {
     document.addEventListener('DOMContentLoaded', function () {
       applyPanelFlags();
+      // SECOND PASS: reflect each tool card's target-page state onto the card.
+      applyCardSync();
     });
   }
 
@@ -253,10 +365,13 @@
     pages: PAGES,
     subPanels: SUB_PANELS,
     panels: PANELS,
+    targetPages: TARGET_PAGES,
     bannerText: MAINT_BANNER_TEXT,
     resolveEnv: resolveEnv,
     resolveState: resolveState,
-    applyPanelFlags: applyPanelFlags
+    hrefToPageKey: hrefToPageKey,
+    applyPanelFlags: applyPanelFlags,
+    applyCardSync: applyCardSync
   };
 
   if (typeof module !== 'undefined' && module.exports) {

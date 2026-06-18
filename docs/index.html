@@ -372,6 +372,35 @@
       border-radius: 8px;
     }
 
+    /* ─── Tool card inactive state (target page in maintenance, flags.js) ──── */
+    /* applyCardSync() adds .is-inactive when a card's TARGET page is in
+       'maintenance' so volunteers see it's down before clicking. The card is
+       dimmed/de-saturated and non-clickable, while its compact maintenance
+       badge stays fully legible. */
+    .tool-card.is-inactive {
+      opacity: 0.55;
+      filter: grayscale(0.7);
+      pointer-events: none;
+      cursor: default;
+    }
+    .tool-card.is-inactive:hover {
+      transform: none;
+      box-shadow: var(--shadow);
+      border-color: var(--border);
+    }
+    .tool-card.is-inactive:hover::before { transform: scaleY(0); }
+    /* Keep the injected maintenance badge crisp even when the card is dimmed. */
+    .tool-card.is-inactive [data-maint-card-badge] {
+      opacity: 1;
+      filter: none;
+      pointer-events: none;
+    }
+    /* Compact maintenance badge reuses the .status-badge.construction palette. */
+    .status-badge[data-maint-card-badge] {
+      font-size: 10.5px;
+      padding: 3px 8px;
+    }
+
     /* ─── About / Mission ──────────────────────────────────────── */
     .about-band {
       background: var(--surface);
@@ -662,7 +691,7 @@
 
   
   <div class="tools-grid">
-    <a class="tool-card" href="equipment-transfers.html" data-panel-key="index-tool-equipment">
+    <a class="tool-card" href="equipment-transfers.html" data-panel-key="index-tool-equipment" data-card-target="index-tool-equipment">
       <span class="status-badge live">LIVE</span>
       <div class="tool-icon">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -680,7 +709,7 @@
     
     <!-- ─── DISPATCH HELPER ───────────────────────────────────────── -->
 
-    <a class="tool-card" href="dispatcher.html" data-panel-key="index-tool-dispatcher">
+    <a class="tool-card" href="dispatcher.html" data-panel-key="index-tool-dispatcher" data-card-target="index-tool-dispatcher">
       <span class="status-badge beta">Beta Testing</span>
       <div class="tool-icon">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -697,7 +726,7 @@
     
     <!-- ─── REHAB FACILITY STATUS ───────────────────────────────────────── -->
 
-      <a class="tool-card" href="facilities.html" data-panel-key="index-tool-facilities">
+      <a class="tool-card" href="facilities.html" data-panel-key="index-tool-facilities" data-card-target="index-tool-facilities">
         <span class="status-badge beta">Beta Testing</span>
         <div class="tool-icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
