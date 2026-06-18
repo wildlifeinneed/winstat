@@ -143,20 +143,44 @@ work on the dev URL with no further changes.
 
 ## Step 7 — Daily workflow recap
 
-Use this loop whenever you want to put a panel under maintenance on the public
+Use this loop whenever you want to take a page down for maintenance on the public
 (production) site, test the change on dev first, then ship it.
 
-1. **Put a panel under maintenance on production:**
-   Edit `docs/assets/flags.js`. Find the panel's line in the `PANELS` list and set
-   its **`prod`** value to `'maintenance'`. For example, to take the facilities grid
-   down on production but keep it live on the dev preview:
+1. **Put a whole PAGE under maintenance on production:**
+   Edit `docs/assets/flags.js`. Find the page's line in the `PAGES` list and set
+   its **`prod`** value to `'maintenance'`. There is **one key per page** — you no
+   longer flip several panels to take a page down. The five page keys are:
 
    ```js
-   'facilities-grid': { prod: 'maintenance', dev: 'live' },
+   var PAGES = {
+     'page-index':      { prod: 'live', dev: 'live' }, // index.html (home)
+     'page-dispatcher': { prod: 'live', dev: 'live' }, // dispatcher.html
+     'page-facilities': { prod: 'live', dev: 'live' }, // facilities.html
+     'page-equipment':  { prod: 'live', dev: 'live' }, // equipment-transfers.html
+     'page-help':       { prod: 'live', dev: 'live' }, // help.html
+   };
    ```
 
-   (Valid states are `'live'`, `'maintenance'`, and `'hidden'`. Default everywhere is
-   `'live'`.)
+   For example, to take the **whole dispatcher page** down on production but keep
+   it live on the dev preview:
+
+   ```js
+   'page-dispatcher': { prod: 'maintenance', dev: 'live' },
+   ```
+
+   This dims the entire page and shows **one** "Down for Maintenance, check back
+   later." banner at the top. (Valid states are `'live'`, `'maintenance'`, and
+   `'hidden'`. Default everywhere is `'live'`.)
+
+   > **Optional — finer-grained sub-panel control (dormant by default):** If you
+   > ever need to flag a single section instead of a whole page, the per-panel
+   > keys still exist in the `SUB_PANELS` list (e.g. `'facilities-grid'`,
+   > `'dispatcher-map-panel'`). They are **dormant**: they only take effect on a
+   > page that has **no** page-level `data-panel-key="page-…"` wrapper. To use
+   > sub-panel mode for a page, remove that page's `data-panel-key="page-…"`
+   > attribute from its `<body>` (or delete its entry from `PAGES`) and set the
+   > individual `SUB_PANELS` keys. For routine maintenance, prefer the page-level
+   > keys above.
 
 2. **Commit the flag change to `main`** (this is what production serves).
 

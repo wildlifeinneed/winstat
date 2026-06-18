@@ -1,21 +1,25 @@
 'use strict';
 /**
- * REAL-DOM regression test for the per-panel maintenance flag system.
+ * REAL-DOM regression test for the PAGE-LEVEL maintenance flag system.
  *
  * Loads the ACTUAL docs/assets/flags.js (via require — it exports its API under
  * module.exports in a CommonJS context) and exercises:
  *
  *   1. resolveEnv(hostname)   — prod vs *.pages.dev hostname resolution.
- *   2. resolveState(key, env) — per-panel/per-env state lookup + fail-open.
- *   3. applyPanelFlags()      — against a synthetic jsdom document:
- *        - 'live'        -> untouched (no class, no banner, visible).
- *        - 'maintenance' -> .is-under-maintenance + injected banner with EXACT
- *                           copy "Down for Maintenance, check back later.".
- *        - 'hidden'      -> display:none.
- *   4. Default-live guarantee — every panel in the shipped config resolves to
- *      'live' in BOTH envs (committing this is a production visual no-op).
- *   5. Wiring check — every panel key in the config that belongs to a page is
- *      actually present (data-panel-key or id) in the real docs/*.html.
+ *   2. resolveState(key, env) — page + sub-panel state lookup + fail-open.
+ *   3. applyPanelFlags()      — PAGE-LEVEL primary path against a synthetic
+ *      jsdom document carrying a data-panel-key="page-…" wrapper:
+ *        - 'live'        -> page wrapper untouched (no class, no banner).
+ *        - 'maintenance' -> wrapper gets .is-under-maintenance + ONE injected
+ *                           banner with EXACT copy
+ *                           "Down for Maintenance, check back later.".
+ *        - 'hidden'      -> wrapper display:none.
+ *   4. SUB-PANEL fallback — when NO page-level key is present, the per-panel
+ *      loop still applies SUB_PANELS states (dormant override mode).
+ *   5. Default-live guarantee — every page key (and every sub-panel key)
+ *      resolves to 'live' in BOTH envs (committing this is a prod no-op).
+ *   6. Wiring check — every page declares its page-level wrapper in the real
+ *      docs/*.html, and every page loads flags.js.
  *
  * Run: node test/flags_dom.test.js   (exit 0 = pass, 1 = fail)
  */
@@ -37,23 +41,7 @@ function ok(label, cond) {
   console.log('  ✓ ' + label);
 }
 
-// Build a small jsdom document with one panel per state so applyPanelFlags can
-// run against a known, controlled config (we override states via a temp config
-// by re-tagging known keys). We reuse REAL config keys to keep it honest.
-function makeDoc(overrides) {
-  const dom = new JSDOM('<!doctype html><html><body></body></html>');
-  const doc = dom.window.document;
-  // Map each requested key->element so applyPanelFlags(findPanel) locates them.
-  Object.keys(overrides).forEach(function (key) {
-    const el = doc.createElement('div');
-    el.setAttribute('data-panel-key', key);
-    const child = doc.createElement('p');
-    child.textContent = 'content of ' + key;
-    el.appendChild(child);
-    doc.body.appendChild(el);
-  });
-  return { dom: dom, doc: doc };
-}
+const BANNER_COPY = 'Down for Maintenance, check back later.';
 
 console.log('flags.js — env + state resolution');
 
@@ -73,15 +61,107 @@ ok("resolveEnv('') === 'prod' (file:// / empty -> prod)",
 ok("resolveEnv('evil-pages.dev.attacker.com') === 'prod' (suffix spoof blocked)",
   flags.resolveEnv('evil-pages.dev.attacker.com') === 'prod');
 
-// ── 2. resolveState fail-open ───────────────────────────────────────────────
+// ── 2. resolveState fail-open + table selection ─────────────────────────────
 ok("resolveState('does-not-exist','prod') === 'live' (unknown -> live)",
   flags.resolveState('does-not-exist', 'prod') === 'live');
+ok("flags.pages has exactly 5 page-level keys",
+  Object.keys(flags.pages).length === 5);
+ok("flags.pages keys are the 5 expected page keys",
+  ['page-index', 'page-dispatcher', 'page-facilities', 'page-equipment', 'page-help']
+    .every(function (k) { return !!flags.pages[k]; }));
 
-// ── 3. applyPanelFlags state application ─────────────────────────────────────
-console.log('flags.js — applyPanelFlags state application');
+// ── 3. applyPanelFlags — PAGE-LEVEL primary path ─────────────────────────────
+console.log('flags.js — applyPanelFlags PAGE-LEVEL application');
+
+// Build a page-level doc: <body data-panel-key="page-X"> with several inner
+// panels. The whole page should get the page state applied to the wrapper.
+function makePageDoc(pageKey, innerKeys) {
+  const dom = new JSDOM('<!doctype html><html><body data-panel-key="' + pageKey + '"></body></html>');
+  const doc = dom.window.document;
+  (innerKeys || []).forEach(function (k) {
+    const el = doc.createElement('section');
+    el.setAttribute('data-panel-key', k);
+    const child = doc.createElement('p');
+    child.textContent = 'content of ' + k;
+    el.appendChild(child);
+    doc.body.appendChild(el);
+  });
+  return { dom: dom, doc: doc };
+}
+
 (function () {
-  // Temporarily force three real keys into the three states.
-  const cfg = flags.panels;
+  const cfg = flags.pages;
+  const KEY = 'page-dispatcher';
+  const saved = Object.assign({}, cfg[KEY]);
+
+  // maintenance on prod, live on dev.
+  cfg[KEY] = { prod: 'maintenance', dev: 'live' };
+
+  // PROD: page wrapper dimmed + ONE banner; inner sub-panel keys NOT touched.
+  const built = makePageDoc(KEY, ['dispatcher-county-mode', 'dispatcher-map-panel']);
+  const doc = built.doc;
+  const applied = flags.applyPanelFlags({ hostname: 'wildlifeinneed.github.io', doc: doc });
+  const pageEl = doc.querySelector('[data-panel-key="' + KEY + '"]');
+
+  ok("page-level: applied map reports only the page key",
+    applied[KEY] === 'maintenance' && Object.keys(applied).length === 1);
+  ok("page-level maintenance: wrapper has .is-under-maintenance",
+    pageEl.classList.contains('is-under-maintenance'));
+  const banner = pageEl.querySelector('[data-maint-banner]');
+  ok("page-level maintenance: banner injected", !!banner);
+  ok("page-level maintenance: ONE banner only",
+    pageEl.querySelectorAll('[data-maint-banner]').length === 1);
+  ok("page-level maintenance: banner uses .status-strip.construction palette",
+    banner.classList.contains('status-strip') && banner.classList.contains('construction'));
+  ok("page-level maintenance: banner copy is EXACT",
+    banner.textContent.indexOf(BANNER_COPY) !== -1);
+  ok("page-level maintenance: banner is FIRST child (top of page)",
+    pageEl.firstChild === banner);
+  ok("page-level maintenance: inner sub-panels NOT individually flagged",
+    !doc.querySelector('[data-panel-key="dispatcher-county-mode"]').classList.contains('is-under-maintenance') &&
+    !doc.querySelector('[data-panel-key="dispatcher-county-mode"]').querySelector('[data-maint-banner]'));
+
+  // idempotency: running twice does not inject a second banner.
+  flags.applyPanelFlags({ hostname: 'wildlifeinneed.github.io', doc: doc });
+  ok("page-level maintenance: idempotent (single banner after 2 runs)",
+    pageEl.querySelectorAll('[data-maint-banner]').length === 1);
+
+  // DEV env: same page resolves to 'live' -> wrapper untouched.
+  const built2 = makePageDoc(KEY, []);
+  const doc2 = built2.doc;
+  flags.applyPanelFlags({ hostname: 'winstat.pages.dev', doc: doc2 });
+  const pageEl2 = doc2.querySelector('[data-panel-key="' + KEY + '"]');
+  ok("page-level dev: resolves live (no class, no banner, visible)",
+    !pageEl2.classList.contains('is-under-maintenance') &&
+    !pageEl2.querySelector('[data-maint-banner]') &&
+    pageEl2.style.display !== 'none');
+
+  // hidden state on the page wrapper.
+  cfg[KEY] = { prod: 'hidden', dev: 'live' };
+  const built3 = makePageDoc(KEY, []);
+  const doc3 = built3.doc;
+  flags.applyPanelFlags({ hostname: 'wildlifeinneed.github.io', doc: doc3 });
+  ok("page-level hidden: wrapper display:none",
+    doc3.querySelector('[data-panel-key="' + KEY + '"]').style.display === 'none');
+
+  // live state on the page wrapper -> no-op.
+  cfg[KEY] = { prod: 'live', dev: 'live' };
+  const built4 = makePageDoc(KEY, []);
+  const doc4 = built4.doc;
+  flags.applyPanelFlags({ hostname: 'wildlifeinneed.github.io', doc: doc4 });
+  const pageEl4 = doc4.querySelector('[data-panel-key="' + KEY + '"]');
+  ok("page-level live: wrapper untouched (no class, no banner, visible)",
+    !pageEl4.classList.contains('is-under-maintenance') &&
+    !pageEl4.querySelector('[data-maint-banner]') &&
+    pageEl4.style.display !== 'none');
+
+  cfg[KEY] = saved; // restore
+})();
+
+// ── 4. SUB-PANEL fallback (dormant override mode) ────────────────────────────
+console.log('flags.js — SUB-PANEL fallback when no page-level key present');
+(function () {
+  const cfg = flags.subPanels;
   const KEY_LIVE = 'help-manual';
   const KEY_MAINT = 'facilities-grid';
   const KEY_HIDDEN = 'equipment-table';
@@ -94,135 +174,93 @@ console.log('flags.js — applyPanelFlags state application');
   cfg[KEY_MAINT] = { prod: 'maintenance', dev: 'live' };
   cfg[KEY_HIDDEN] = { prod: 'hidden', dev: 'live' };
 
-  const built = makeDoc({});
-  const doc = built.doc;
+  // NOTE: NO page-level key on this body -> fallback to per-panel loop.
+  const dom = new JSDOM('<!doctype html><html><body></body></html>');
+  const doc = dom.window.document;
   [KEY_LIVE, KEY_MAINT, KEY_HIDDEN].forEach(function (key) {
     const el = doc.createElement('div');
     el.setAttribute('data-panel-key', key);
-    const child = doc.createElement('p');
-    child.textContent = 'content of ' + key;
-    el.appendChild(child);
+    el.appendChild(doc.createElement('p'));
     doc.body.appendChild(el);
   });
 
-  // PROD env: live untouched, maint dimmed+banner, hidden display:none.
   const applied = flags.applyPanelFlags({ hostname: 'wildlifeinneed.github.io', doc: doc });
+
+  ok("sub-panel fallback: applied map reports live/maintenance/hidden",
+    applied[KEY_LIVE] === 'live' &&
+    applied[KEY_MAINT] === 'maintenance' &&
+    applied[KEY_HIDDEN] === 'hidden');
 
   const liveEl = doc.querySelector('[data-panel-key="' + KEY_LIVE + '"]');
   const maintEl = doc.querySelector('[data-panel-key="' + KEY_MAINT + '"]');
   const hiddenEl = doc.querySelector('[data-panel-key="' + KEY_HIDDEN + '"]');
 
-  ok("applied map reports live/maintenance/hidden correctly",
-    applied[KEY_LIVE] === 'live' &&
-    applied[KEY_MAINT] === 'maintenance' &&
-    applied[KEY_HIDDEN] === 'hidden');
-
-  // live
-  ok("live panel: no .is-under-maintenance class",
-    !liveEl.classList.contains('is-under-maintenance'));
-  ok("live panel: no injected banner",
-    !liveEl.querySelector('[data-maint-banner]'));
-  ok("live panel: not display:none",
+  ok("sub-panel fallback: live panel untouched",
+    !liveEl.classList.contains('is-under-maintenance') &&
+    !liveEl.querySelector('[data-maint-banner]') &&
     liveEl.style.display !== 'none');
-
-  // maintenance
-  ok("maintenance panel: has .is-under-maintenance class",
-    maintEl.classList.contains('is-under-maintenance'));
-  const banner = maintEl.querySelector('[data-maint-banner]');
-  ok("maintenance panel: banner injected", !!banner);
-  ok("maintenance panel: banner uses .status-strip.construction palette",
-    banner.classList.contains('status-strip') &&
-    banner.classList.contains('construction'));
-  ok("maintenance panel: banner copy is EXACT",
-    banner.textContent.indexOf('Down for Maintenance, check back later.') !== -1);
-  ok("maintenance panel: banner is FIRST child (top of panel)",
-    maintEl.firstChild === banner);
-  ok("maintenance panel: still visible (not display:none)",
-    maintEl.style.display !== 'none');
-
-  // hidden
-  ok("hidden panel: display:none",
+  ok("sub-panel fallback: maintenance panel dimmed + banner",
+    maintEl.classList.contains('is-under-maintenance') &&
+    maintEl.querySelector('[data-maint-banner]') &&
+    maintEl.querySelector('[data-maint-banner]').textContent.indexOf(BANNER_COPY) !== -1);
+  ok("sub-panel fallback: hidden panel display:none",
     hiddenEl.style.display === 'none');
 
-  // idempotency: running twice does not inject a second banner.
-  flags.applyPanelFlags({ hostname: 'wildlifeinneed.github.io', doc: doc });
-  ok("maintenance panel: idempotent (single banner after 2 runs)",
-    maintEl.querySelectorAll('[data-maint-banner]').length === 1);
-
-  // DEV env: all three forced to 'live' -> the previously-hidden panel would
-  // still be display:none from the prior run, so use a FRESH doc to prove dev
-  // resolution independently.
-  const built2 = makeDoc({});
-  const doc2 = built2.doc;
-  [KEY_MAINT, KEY_HIDDEN].forEach(function (key) {
-    const el = doc2.createElement('div');
-    el.setAttribute('data-panel-key', key);
-    el.appendChild(doc2.createElement('p'));
-    doc2.body.appendChild(el);
-  });
-  flags.applyPanelFlags({ hostname: 'winstat.pages.dev', doc: doc2 });
-  ok("dev env: maint key resolves live (no class) per per-env config",
-    !doc2.querySelector('[data-panel-key="' + KEY_MAINT + '"]').classList.contains('is-under-maintenance'));
-  ok("dev env: hidden key resolves live (visible) per per-env config",
-    doc2.querySelector('[data-panel-key="' + KEY_HIDDEN + '"]').style.display !== 'none');
-
-  // restore config
   cfg[KEY_LIVE] = saved.live;
   cfg[KEY_MAINT] = saved.maint;
   cfg[KEY_HIDDEN] = saved.hidden;
 })();
 
-// ── 4. Default-live guarantee (shipped config) ───────────────────────────────
+// ── 5. Default-live guarantee (shipped config) ───────────────────────────────
 console.log('flags.js — shipped config defaults to live everywhere');
 (function () {
   let allLive = true;
   let offender = null;
-  Object.keys(flags.panels).forEach(function (key) {
-    ['prod', 'dev'].forEach(function (env) {
-      const s = flags.resolveState(key, env);
-      if (s !== 'live') { allLive = false; offender = key + '/' + env + '=' + s; }
+  // Check both tables explicitly.
+  [flags.pages, flags.subPanels].forEach(function (table) {
+    Object.keys(table).forEach(function (key) {
+      ['prod', 'dev'].forEach(function (env) {
+        const s = flags.resolveState(key, env);
+        if (s !== 'live') { allLive = false; offender = key + '/' + env + '=' + s; }
+      });
     });
   });
-  ok("every shipped panel resolves to 'live' in prod AND dev" +
+  ok("every shipped page + sub-panel resolves to 'live' in prod AND dev" +
     (offender ? ' (offender: ' + offender + ')' : ''), allLive);
 })();
 
-// ── 5. Wiring check: config keys exist in the real docs pages ────────────────
-console.log('flags.js — panel keys are wired into the real docs/*.html');
+// ── 6. Wiring check: page wrappers + flags.js present in real docs/*.html ─────
+console.log('flags.js — page-level wrappers are wired into the real docs/*.html');
 (function () {
-  const PAGE_PREFIX = {
-    'index.html': 'index-',
-    'dispatcher.html': 'dispatcher-',
-    'facilities.html': 'facilities-',
-    'equipment-transfers.html': 'equipment-',
-    'help.html': 'help-',
+  const PAGE_FILE = {
+    'page-index':      'index.html',
+    'page-dispatcher': 'dispatcher.html',
+    'page-facilities': 'facilities.html',
+    'page-equipment':  'equipment-transfers.html',
+    'page-help':       'help.html',
   };
   const html = {};
-  Object.keys(PAGE_PREFIX).forEach(function (f) {
-    html[f] = fs.readFileSync(path.join(DOCS, f), 'utf8');
+  Object.keys(PAGE_FILE).forEach(function (k) {
+    html[PAGE_FILE[k]] = fs.readFileSync(path.join(DOCS, PAGE_FILE[k]), 'utf8');
   });
 
+  // Every page-level key has a matching data-panel-key wrapper in its page.
   let allWired = true;
   const missing = [];
-  Object.keys(flags.panels).forEach(function (key) {
-    // find the page whose prefix this key starts with
-    const page = Object.keys(PAGE_PREFIX).find(function (f) {
-      return key.indexOf(PAGE_PREFIX[f]) === 0;
-    });
-    if (!page) { allWired = false; missing.push(key + ' (no page prefix)'); return; }
-    const src = html[page];
-    const present =
-      src.indexOf('data-panel-key="' + key + '"') !== -1 ||
-      src.indexOf('id="' + key + '"') !== -1;
-    if (!present) { allWired = false; missing.push(key + ' -> ' + page); }
+  Object.keys(PAGE_FILE).forEach(function (key) {
+    const src = html[PAGE_FILE[key]];
+    if (src.indexOf('data-panel-key="' + key + '"') === -1) {
+      allWired = false;
+      missing.push(key + ' -> ' + PAGE_FILE[key]);
+    }
   });
-  ok("every config panel key is present in its page" +
+  ok("every page-level key has a wrapper in its page" +
     (missing.length ? ' (missing: ' + missing.join(', ') + ')' : ''), allWired);
 
-  // Every page that includes a flaggable panel must load flags.js.
-  Object.keys(PAGE_PREFIX).forEach(function (f) {
-    ok(f + ' includes assets/flags.js',
-      html[f].indexOf('assets/flags.js') !== -1);
+  // Every page loads flags.js.
+  Object.keys(PAGE_FILE).forEach(function (key) {
+    ok(PAGE_FILE[key] + ' includes assets/flags.js',
+      html[PAGE_FILE[key]].indexOf('assets/flags.js') !== -1);
   });
 })();
 
