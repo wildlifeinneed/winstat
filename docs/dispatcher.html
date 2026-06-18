@@ -8,6 +8,9 @@
   <meta name="description" content="Dispatcher console for routing wildlife emergencies to available volunteers by county and role." />
   <meta name="theme-color" content="#154d2a" />
   <link rel="icon" type="image/jpeg" href="assets/winlogo.jpg" />
+  <!-- Vendored Leaflet (1.9.4) for the Tier-2 locator map. Library is local
+       (works on file:// + GitHub Pages, no CDN); only map TILES need network. -->
+  <link rel="stylesheet" href="assets/vendor/leaflet/leaflet.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Bitter:wght@600;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
   <style>
@@ -990,6 +993,116 @@
       line-height: 1.4;
     }
 
+    /* ─── Tier-2 inline locator map (Leaflet) ──────────────────────── */
+    .t2map-block { margin: 14px 0 6px; }
+    .btn-t2map-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 40px;
+      padding: 9px 16px;
+      font-family: 'DM Sans', system-ui, sans-serif;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--green-deep);
+      background: var(--green-light);
+      border: 1px solid #bcdcc7;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background var(--transition), border-color var(--transition);
+    }
+    .btn-t2map-toggle:hover { background: #dcefe3; border-color: var(--green); }
+    .btn-t2map-toggle:focus-visible {
+      outline: 2px solid var(--green);
+      outline-offset: 2px;
+    }
+    .btn-t2map-toggle::before {
+      content: '▶';
+      font-size: 10px;
+      color: var(--text-muted);
+      transition: transform var(--transition);
+    }
+    .btn-t2map-toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
+    .t2map-body { margin-top: 12px; }
+    .t2map {
+      width: 100%;
+      height: 340px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #eef3ef;
+      z-index: 0; /* keep Leaflet panes below page chrome */
+    }
+    .t2map-unavailable {
+      width: 100%;
+      min-height: 120px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 18px;
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+      background: #f7f9f7;
+      color: var(--text-muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .t2map-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 16px;
+      margin-top: 10px;
+    }
+    .t2map-legend .leg-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text);
+    }
+    .t2map-legend .leg-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      border: 1px solid rgba(0,0,0,.25);
+    }
+    .t2map-legend .leg-animal {
+      border-radius: 2px;
+      background: var(--red);
+      transform: rotate(45deg);
+      border-color: #7d241a;
+    }
+    .t2map-legend .leg-rehab { background: #1d6fb8; border-color: #14507f; }
+    .t2map-legend .leg-vol { background: var(--amber); border-color: #9c540a; }
+    .t2map-note {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      margin-top: 8px;
+      line-height: 1.4;
+    }
+    /* Custom DivIcon markers (no external sprite needed) */
+    .t2-pin {
+      display: block;
+      border-radius: 50%;
+      border: 2px solid #fff;
+      box-shadow: 0 1px 3px rgba(0,0,0,.4);
+    }
+    .t2-pin-rehab { width: 16px; height: 16px; background: #1d6fb8; }
+    .t2-pin-vol   { width: 14px; height: 14px; background: var(--amber); }
+    .t2-pin-animal {
+      width: 22px; height: 22px;
+      background: var(--red);
+      border: 3px solid #fff;
+      border-radius: 4px;
+      transform: rotate(45deg);
+      box-shadow: 0 2px 5px rgba(0,0,0,.45);
+    }
+    @media (max-width: 640px) {
+      .t2map { height: 280px; }
+      .btn-t2map-toggle { min-height: 44px; }
+    }
+
     /* ─── Mobile tap-target sizing (>=44px touch height) ───────────
        Scoped to phones so desktop layout is unchanged. Enlarges the
        interactive controls flagged by the mobile audit while keeping
@@ -1194,6 +1307,31 @@
         </div>
       </div>
 
+      <!-- ─── Tier-2 inline locator map (Leaflet, lazy-init behind toggle) ─── -->
+      <div id="t2map-block" class="t2map-block" style="display:none;">
+        <button id="t2map-toggle" class="btn-t2map-toggle" type="button"
+                aria-expanded="false" aria-controls="t2map-body">
+          <span class="t2map-toggle-label">Show map</span>
+        </button>
+        <div id="t2map-body" class="t2map-body" hidden>
+          <div id="t2map" class="t2map" role="application"
+               aria-label="Map of the animal location and nearby helpers"></div>
+          <div id="t2map-unavailable" class="t2map-unavailable" style="display:none;"></div>
+          <div class="t2map-legend" id="t2map-legend" aria-label="Map legend">
+            <span class="leg-item"><span class="leg-dot leg-animal"></span>Animal location</span>
+            <span class="leg-item"><span class="leg-dot leg-rehab"></span>Rehabbers</span>
+            <!-- === VOLUNTEER MARKERS START (legend entry) === -->
+            <span class="leg-item" id="t2map-leg-vol"><span class="leg-dot leg-vol"></span>Volunteers (approx. by county)</span>
+            <!-- === VOLUNTEER MARKERS END (legend entry) === -->
+          </div>
+          <p class="t2map-note">
+            Pins show the entered animal address (star), nearby rehabbers, and
+            volunteer clusters placed at their home-county center (exact volunteer
+            locations are never sent to the browser).
+          </p>
+        </div>
+      </div>
+
       <div class="agg-meta">
         WIN areas covered:
         <div class="win-areas" id="agg-areas"></div>
@@ -1229,6 +1367,7 @@
   <p>Wildlife In Need PA · Dispatcher (internal tool)</p>
 </footer>
 
+<script src="assets/vendor/leaflet/leaflet.js"></script>
 <script src="assets/messages.js"></script>
 <script src="assets/decision.js"></script>
 <script src="assets/dispatcher.js"></script>

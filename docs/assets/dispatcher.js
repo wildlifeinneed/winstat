@@ -1326,6 +1326,251 @@
     return null;
   }
 
+  // ════════════════════════════════════════════════════════════════════
+  //  TIER-2 INLINE LOCATOR MAP (Leaflet) — lazy-init behind a Show/Hide
+  //  toggle inside #address-result. Lets the dispatcher visually verify the
+  //  geocoded animal address and see who is nearby. Library is vendored
+  //  (assets/vendor/leaflet) so it works on file:// + GitHub Pages with no
+  //  CDN; only the OSM map TILES require network.
+  //
+  //  Three marker types (see legend in dispatcher.html):
+  //    • Animal location — red diamond, most prominent, map auto-fits to it.
+  //    • Rehabbers       — blue dots (public coords from rehabbers.json).
+  //    • Volunteers      — amber dots at HOME-COUNTY CENTROID (exact volunteer
+  //                        coords are NEVER sent to the browser; see the
+  //                        clearly-marked VOLUNTEER block below).
+  // ════════════════════════════════════════════════════════════════════
+
+  // ── VOLUNTEER MARKERS master switch ────────────────────────────────
+  // Flip to false (or delete the marked blocks) to remove ALL volunteer
+  // markers — data prep, markers, and the legend entry are isolated.
+  var SHOW_VOLUNTEER_MARKERS = true;
+
+  var t2map = {
+    instance: null,   // Leaflet map (created lazily on first reveal)
+    layers: null,     // { animal, rehab, volunteer } feature groups
+    pending: null,    // last render payload, applied when the map first opens
+    open: false
+  };
+
+  // Build a small CSS-styled DivIcon (no external sprite dependency).
+  function t2DivIcon(cls, size) {
+    return L.divIcon({
+      className: '',
+      html: '<span class="t2-pin ' + cls + '"></span>',
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size / 2],
+      popupAnchor: [0, -(size / 2)]
+    });
+  }
+
+  // Create the Leaflet map once, on the first reveal (Leaflet needs a sized,
+  // visible container). Returns true if a usable map instance exists.
+  function ensureT2Map() {
+    if (t2map.instance) return true;
+    if (typeof L === 'undefined' || !L.map) return false; // Leaflet missing
+    var el = document.getElementById('t2map');
+    if (!el) return false;
+    var map = L.map(el, { scrollWheelZoom: true, attributionControl: true })
+      .setView([40.9, -77.6], 7); // PA center fallback before data binds
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+    t2map.instance = map;
+    t2map.layers = {
+      animal: L.layerGroup().addTo(map),
+      rehab: L.layerGroup().addTo(map),
+      // === VOLUNTEER MARKERS START (layer) ===
+      volunteer: L.layerGroup().addTo(map)
+      // === VOLUNTEER MARKERS END (layer) ===
+    };
+    return true;
+  }
+
+  // Apply the latest payload to the (already-created) map: clear old markers,
+  // plot animal + rehabbers + volunteers, then fit bounds to everything.
+  function paintT2Map(payload) {
+    if (!t2map.instance || !payload) return;
+    var L_ = L;
+    t2map.layers.animal.clearLayers();
+    t2map.layers.rehab.clearLayers();
+    // === VOLUNTEER MARKERS START (clear) ===
+    if (t2map.layers.volunteer) t2map.layers.volunteer.clearLayers();
+    // === VOLUNTEER MARKERS END (clear) ===
+
+    var bounds = [];
+
+    // ── Animal location (most prominent) ──
+    var a = payload.animal;
+    if (a && isFinite(a.lat) && isFinite(a.lon)) {
+      L_.marker([a.lat, a.lon], {
+        icon: t2DivIcon('t2-pin-animal', 22),
+        zIndexOffset: 1000,
+        title: 'Animal location'
+      }).bindPopup('<strong>Animal location</strong><br>' +
+          escapeHtml(a.label || 'Entered address'))
+        .addTo(t2map.layers.animal);
+      bounds.push([a.lat, a.lon]);
+    }
+
+    // ── Rehabbers (public coords) ──
+    (payload.rehabbers || []).forEach(function (r) {
+      if (!r || !isFinite(r.lat) || !isFinite(r.lon)) return; // skip silently
+      var dist = isFinite(r.distance_mi) ? (' · ' + r.distance_mi.toFixed(1) + ' mi') : '';
+      var phone = r.phone ? ('<br>' + escapeHtml(r.phone)) : '';
+      var county = r.county ? ('<br>' + escapeHtml(r.county) + ' County') : '';
+      L_.marker([r.lat, r.lon], {
+        icon: t2DivIcon('t2-pin-rehab', 16),
+        title: r.rehab_name || 'Rehabber'
+      }).bindPopup('<strong>' + escapeHtml(r.rehab_name || 'Rehabber') + '</strong>' +
+          dist + county + phone)
+        .addTo(t2map.layers.rehab);
+      bounds.push([r.lat, r.lon]);
+    });
+
+    // === VOLUNTEER MARKERS START (markers) ===
+    // Volunteers are plotted at their HOME-COUNTY CENTROID because the Worker
+    // never sends exact volunteer coordinates to the browser (PII rule). Each
+    // county may hold several volunteers, so we offset stacked pins slightly so
+    // they don't fully overlap. This whole block is gated by the flag above.
+    if (SHOW_VOLUNTEER_MARKERS) {
+      var perCounty = {};
+      (payload.volunteers || []).forEach(function (v) {
+        if (!v || !isFinite(v.lat) || !isFinite(v.lon)) return; // skip silently
+        var key = v.county || (v.lat + ',' + v.lon);
+        var n = perCounty[key] || 0;
+        perCounty[key] = n + 1;
+        // Tiny deterministic spiral offset (~0.01-0.03°) for stacked pins.
+        var ang = n * 2.399; // golden-angle radians
+        var rad = n === 0 ? 0 : 0.012 + 0.006 * n;
+        var lat = v.lat + rad * Math.cos(ang);
+        var lon = v.lon + rad * Math.sin(ang);
+        var roles = (v.roles && v.roles.length) ? (' · ' + v.roles.join(', ')) : '';
+        var dist = isFinite(v.distance_mi) ? (' · ' + v.distance_mi.toFixed(1) + ' mi') : '';
+        L_.marker([lat, lon], {
+          icon: t2DivIcon('t2-pin-vol', 14),
+          title: 'Volunteer (approx.)'
+        }).bindPopup('<strong>Volunteer</strong> <em>(approx. — county center)</em>' +
+            roles + dist +
+            (v.county ? ('<br>' + escapeHtml(v.county) + ' County') : ''))
+          .addTo(t2map.layers.volunteer);
+        bounds.push([lat, lon]);
+      });
+    }
+    // === VOLUNTEER MARKERS END (markers) ===
+
+    if (bounds.length === 1) {
+      t2map.instance.setView(bounds[0], 12);
+    } else if (bounds.length > 1) {
+      t2map.instance.fitBounds(bounds, { padding: [30, 30], maxZoom: 13 });
+    }
+    // Container may have just become visible — recompute tile size.
+    t2map.instance.invalidateSize();
+  }
+
+  // Public entry: gather the data shape for the map and either paint now (if
+  // open) or stash for the first reveal. Shows a clear 'unavailable' state when
+  // the animal has no usable coordinates.
+  function renderTier2Map(agg, origin) {
+    var block = document.getElementById('t2map-block');
+    var unavailEl = document.getElementById('t2map-unavailable');
+    var mapEl = document.getElementById('t2map');
+    if (!block) return;
+    block.style.display = 'block';
+
+    // === VOLUNTEER MARKERS START (legend visibility) ===
+    // Hide the static legend entry when volunteers are disabled, so flipping the
+    // single flag above removes EVERY trace of volunteers (markers + legend).
+    var legVol = document.getElementById('t2map-leg-vol');
+    if (legVol) legVol.style.display = SHOW_VOLUNTEER_MARKERS ? '' : 'none';
+    // === VOLUNTEER MARKERS END (legend visibility) ===
+
+    var hasAnimal = agg && typeof agg.animal_lat === 'number' &&
+                    typeof agg.animal_lon === 'number' &&
+                    isFinite(agg.animal_lat) && isFinite(agg.animal_lon);
+
+    // Edge case: no usable animal coordinates → show a message, not a broken map.
+    if (!hasAnimal) {
+      if (mapEl) mapEl.style.display = 'none';
+      if (unavailEl) {
+        unavailEl.textContent =
+          'Map unavailable: the animal location could not be placed on a map ' +
+          '(no coordinates for this lookup).';
+        unavailEl.style.display = 'flex';
+      }
+      t2map.pending = null;
+      return;
+    }
+    if (mapEl) mapEl.style.display = '';
+    if (unavailEl) unavailEl.style.display = 'none';
+
+    // Rehabbers near the origin (public coords). Reuse the same ranking helper
+    // the list uses so map + list agree.
+    var rehabPool = (origin && typeof origin.lat === 'number')
+      ? nearestRehabbers(origin.lat, origin.lon, 8) : [];
+
+    // === VOLUNTEER MARKERS START (data prep) ===
+    // Map the PII-safe out_of_county rows to county-centroid points. Rows carry
+    // {roles, distance_mi, win_area, county} only — no coords — so we look up
+    // the county centroid (from pa_counties geojson). Rows with an unknown
+    // county are skipped silently.
+    var volunteers = [];
+    if (SHOW_VOLUNTEER_MARKERS && agg && Array.isArray(agg.out_of_county)) {
+      agg.out_of_county.forEach(function (row) {
+        if (!row || !row.county) return;
+        var c = state.countyCentroids && state.countyCentroids[row.county];
+        if (!c || !isFinite(c.lat) || !isFinite(c.lon)) return; // skip silently
+        volunteers.push({
+          lat: c.lat,
+          lon: c.lon,
+          county: row.county,
+          roles: Array.isArray(row.roles) ? row.roles : [],
+          distance_mi: (typeof row.distance_mi === 'number') ? row.distance_mi : NaN
+        });
+      });
+    }
+    // === VOLUNTEER MARKERS END (data prep) ===
+
+    var label = (origin && origin.source === 'animal' && state.selectedAnimalCoord &&
+                 state.selectedAnimalCoord.label)
+      ? state.selectedAnimalCoord.label : '';
+
+    var payload = {
+      animal: { lat: agg.animal_lat, lon: agg.animal_lon, label: label },
+      rehabbers: rehabPool,
+      volunteers: volunteers
+    };
+
+    t2map.pending = payload;
+    if (t2map.open && ensureT2Map()) {
+      paintT2Map(payload);
+    }
+  }
+
+  // Wire the Show/Hide toggle once. Expanding lazy-inits the map and paints any
+  // pending payload; Leaflet needs the container visible + sized first.
+  function wireT2MapToggle() {
+    var btn = document.getElementById('t2map-toggle');
+    var body = document.getElementById('t2map-body');
+    var label = btn ? btn.querySelector('.t2map-toggle-label') : null;
+    if (!btn || !body || btn.dataset.bound) return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', function () {
+      var willOpen = body.hidden;
+      body.hidden = !willOpen;
+      btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+      if (label) label.textContent = willOpen ? 'Hide map' : 'Show map';
+      t2map.open = willOpen;
+      if (willOpen) {
+        if (ensureT2Map()) {
+          if (t2map.pending) paintT2Map(t2map.pending);
+          else t2map.instance.invalidateSize();
+        }
+      }
+    });
+  }
+
   function renderAggregate(agg, ctx) {
     // DECONFLICTION: a geocoded address now governs. Rebind the active location
     // to 'address' and clear the county-mode coordinator line so the dropdown
@@ -1620,6 +1865,7 @@
     $('#agg-actions').innerHTML = premiseHtml + actions.join('');
     renderContextList(agg, ctx);
     renderNearestRehabbers(pickRehabberOrigin(agg, ctx));
+    renderTier2Map(agg, pickRehabberOrigin(agg, ctx));
     $('#address-result').style.display = 'block';
   }
 
@@ -2482,6 +2728,7 @@
     if (widenBtn) widenBtn.addEventListener('click', widenFromCounty);
     var addrBtn = $('#address-btn');
     if (addrBtn) addrBtn.addEventListener('click', onAddressSubmit);
+    wireT2MapToggle();
     setupAutocomplete();
     var addrInput = $('#animal-address');
     if (addrInput) {
