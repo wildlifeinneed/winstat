@@ -633,6 +633,57 @@
       color: #8a2020;
     }
 
+    /* ─── Disclaimer Banner ────────────────────────────────────── */
+    .disclaimer-banner {
+      max-width: 680px;
+      margin: 12px auto 0;
+      padding: 0 16px;
+    }
+
+    .disclaimer-inner {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      background: var(--amber-light);
+      border: 1px solid #f0c070;
+      border-left: 4px solid var(--amber);
+      border-radius: var(--radius);
+      padding: 11px 14px;
+      font-size: 13px;
+      line-height: 1.45;
+      color: #6b3a00;
+    }
+
+    .disclaimer-inner .disclaimer-icon {
+      flex-shrink: 0;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--amber);
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1;
+      margin-top: 1px;
+    }
+
+    .disclaimer-inner .disclaimer-text { flex: 1; }
+
+    .disclaimer-inner .disclaimer-title {
+      display: block;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      font-size: 10.5px;
+      color: var(--amber);
+      margin-bottom: 3px;
+    }
+
+    .disclaimer-inner strong { color: #5a3000; }
+
     /* ─── Mobile Optimizations ─────────────────────────────────── */
     @media (max-width: 640px) {
       /* Un-stick header/controls on mobile — avoids stacking jitter and frees up screen */
@@ -769,6 +820,20 @@
         <button class="status-btn" data-status="closed">Closed</button>
         <button class="status-btn" data-status="call">Call</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Disclaimer Banner ───────────────────────────────────────── -->
+<div class="disclaimer-banner">
+  <div class="disclaimer-inner" role="note" aria-label="Important advisory about facility status">
+    <span class="disclaimer-icon" aria-hidden="true">!</span>
+    <div class="disclaimer-text">
+      <span class="disclaimer-title">Please Read</span>
+      This status is kept current by volunteers who report when a facility temporarily
+      closes after reaching capacity for certain animals, so the information shown here
+      may be out of date. Use it as a guide only —
+      <strong>always contact the facility directly to confirm before bringing an animal in for care.</strong>
     </div>
   </div>
 </div>
