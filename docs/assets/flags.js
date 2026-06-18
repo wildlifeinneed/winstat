@@ -69,7 +69,7 @@
   // DEFAULT for every page in every env is 'live' (commit = visual no-op).
   var PAGES = {
     'page-index':      { prod: 'live', dev: 'live' },
-    'page-dispatcher': { prod: 'live', dev: 'live' },
+    'page-dispatcher': { prod: 'maintenance', dev: 'live' },
     'page-facilities': { prod: 'live', dev: 'live' },
     'page-equipment':  { prod: 'live', dev: 'live' },
     'page-help':       { prod: 'live', dev: 'live' }
