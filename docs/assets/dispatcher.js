@@ -1434,6 +1434,12 @@
     // never sends exact volunteer coordinates to the browser (PII rule). Each
     // county may hold several volunteers, so we offset stacked pins slightly so
     // they don't fully overlap. This whole block is gated by the flag above.
+    //
+    // Average driving speed (mph) used to ESTIMATE travel time from distance
+    // when the Worker did NOT supply a real ORS driving time (duration_min).
+    // ~40 mph is a sensible blended rural/suburban PA figure. No external
+    // routing call is made — this estimate is purely client-side.
+    var VOL_EST_SPEED_MPH = 40;
     if (SHOW_VOLUNTEER_MARKERS) {
       var perCounty = {};
       (payload.volunteers || []).forEach(function (v) {
@@ -1446,14 +1452,31 @@
         var rad = n === 0 ? 0 : 0.012 + 0.006 * n;
         var lat = v.lat + rad * Math.cos(ang);
         var lon = v.lon + rad * Math.sin(ang);
-        var roles = (v.roles && v.roles.length) ? (' · ' + v.roles.join(', ')) : '';
-        var dist = isFinite(v.distance_mi) ? (' · ' + v.distance_mi.toFixed(1) + ' mi') : '';
+        // Popup content: TRAVEL DISTANCE · TRAVEL TIME · COUNTY (no approx caveat).
+        var lines = [];
+        if (v.roles && v.roles.length) {
+          lines.push(escapeHtml(v.roles.join(', ')));
+        }
+        if (isFinite(v.distance_mi)) {
+          lines.push('Travel distance: ' + v.distance_mi.toFixed(1) + ' mi');
+        }
+        // Travel time: REAL ORS driving time (duration_min) when present,
+        // otherwise a clearly-labeled estimate derived from distance at
+        // VOL_EST_SPEED_MPH (no external routing API).
+        if (typeof v.duration_min === 'number' && isFinite(v.duration_min)) {
+          lines.push('Travel time: ' + Math.round(v.duration_min) + ' min');
+        } else if (isFinite(v.distance_mi) && VOL_EST_SPEED_MPH > 0) {
+          var estMin = Math.round((v.distance_mi / VOL_EST_SPEED_MPH) * 60);
+          lines.push('Travel time: ~' + estMin + ' min (est.)');
+        }
+        if (v.county) {
+          lines.push('County: ' + escapeHtml(v.county));
+        }
         L_.marker([lat, lon], {
           icon: t2DivIcon('t2-pin-vol', 14),
-          title: 'Volunteer (approx.)'
-        }).bindPopup('<strong>Volunteer</strong> <em>(approx. — county center)</em>' +
-            roles + dist +
-            (v.county ? ('<br>' + escapeHtml(v.county) + ' County') : ''))
+          title: 'Volunteer'
+        }).bindPopup('<strong>Volunteer</strong>' +
+            (lines.length ? ('<br>' + lines.join('<br>')) : ''))
           .addTo(t2map.layers.volunteer);
         bounds.push([lat, lon]);
       });
@@ -1512,9 +1535,11 @@
 
     // === VOLUNTEER MARKERS START (data prep) ===
     // Map the PII-safe out_of_county rows to county-centroid points. Rows carry
-    // {roles, distance_mi, win_area, county} only — no coords — so we look up
-    // the county centroid (from pa_counties geojson). Rows with an unknown
-    // county are skipped silently.
+    // {roles, distance_mi, win_area, county, duration_min?} only — no coords —
+    // so we look up the county centroid (from pa_counties geojson). Rows with an
+    // unknown county are skipped silently. duration_min (whole-minute ORS
+    // driving time) is carried through when present so the popup can show a REAL
+    // travel time; otherwise the popup estimates one from distance_mi.
     var volunteers = [];
     if (SHOW_VOLUNTEER_MARKERS && agg && Array.isArray(agg.out_of_county)) {
       agg.out_of_county.forEach(function (row) {
@@ -1526,7 +1551,8 @@
           lon: c.lon,
           county: row.county,
           roles: Array.isArray(row.roles) ? row.roles : [],
-          distance_mi: (typeof row.distance_mi === 'number') ? row.distance_mi : NaN
+          distance_mi: (typeof row.distance_mi === 'number') ? row.distance_mi : NaN,
+          duration_min: (typeof row.duration_min === 'number') ? row.duration_min : null
         });
       });
     }
