@@ -225,6 +225,27 @@ OUTPUT_REL_PATH = Path("docs") / "data" / "county_capacity.json"
 # gitignored), this file IS committed: rehabbers are public-facing facilities.
 REHABBERS_REL_PATH = Path("docs") / "data" / "rehabbers.json"
 
+# Facility-status page dataset (Option A: join-at-read). This is the PUBLIC
+# BASE-facility dataset consumed by docs/facilities.html, which merges it with
+# the Google-Sheet STATUS feed by normalized facility name at read time. It
+# carries ONLY base fields {name, address, city, state, zip, phone, website,
+# lat, lon, county} — NEVER any open/closed/status field (the Monday status
+# column is never kept current; status lives exclusively in the Sheet). These
+# are PUBLIC facility addresses (the page already displays them), NOT volunteer
+# PII, so the file IS committed to docs/.
+FACILITIES_REL_PATH = Path("docs") / "data" / "facilities.json"
+
+# Join-key bridge. The RehabDB board has NO clean full-facility-name column:
+# the 'Rehab Name' column holds an abbreviation ("Adams Co", "HAR", "AARK"),
+# 'Full name' is the contact person, and the only place the full name appears
+# is buried (un-delimited) in the first token of the 'Availability' column.
+# The facilities page joins to the Google Sheet by FULL facility name, so we
+# bridge Monday's abbreviation -> the full Sheet name via this committed,
+# hand-maintained map. Add a new entry here whenever a facility is added to the
+# RehabDB board. Unmapped facilities fall back to the raw 'Rehab Name' value
+# and are reported on stderr so the map can be kept current.
+FACILITY_NAME_MAP_REL_PATH = Path("docs") / "data" / "facility_name_map.json"
+
 # Area-coordinator NAME dataset. PUBLIC-safe (coordinator names are agreed
 # public; phone is excluded). Maps area-string -> coordinator name. Consumed
 # by county_win.py as an override on top of the static counties.xlsx column.
@@ -877,6 +898,109 @@ def build_rehabbers(items: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for it in items:
         rec = build_rehabber_record(it)
+        if rec is not None:
+            out.append(rec)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Facility-status page BASE dataset (Option A: join-at-read)
+# ---------------------------------------------------------------------------
+#
+# docs/facilities.html merges this BASE-facility dataset with the Google-Sheet
+# STATUS feed by NORMALIZED facility name at read time. We emit ONLY base
+# fields here; the Monday open/closed column (color_mkv6xbc) is NEVER pulled
+# (it is not kept current). The full facility name — the join key against the
+# Sheet — is sourced from the FACILITY_NAME_MAP_REL_PATH bridge because the
+# board's 'Rehab Name' column is an abbreviation; see that constant's comment.
+
+
+def load_facility_name_map(repo_root: Path) -> Dict[str, str]:
+    """Load the committed Monday-abbreviation -> full-facility-name map.
+
+    Returns {} (with a warning) when the file is missing so a fresh checkout
+    still runs; malformed JSON raises so a typo fails loud rather than
+    silently degrading every facility's join key.
+    """
+    path = repo_root / FACILITY_NAME_MAP_REL_PATH
+    if not path.exists():
+        logger.warning(
+            "%s not found; facility names will fall back to the raw "
+            "'Rehab Name' abbreviation (Sheet join will likely miss).",
+            FACILITY_NAME_MAP_REL_PATH,
+        )
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"{FACILITY_NAME_MAP_REL_PATH} must be a JSON object "
+            f"(abbreviation -> full name), got {type(data).__name__}."
+        )
+    return {str(k): str(v) for k, v in data.items()}
+
+
+def build_facility_record(
+    item: Dict[str, Any], name_map: Dict[str, str]
+) -> Optional[Dict[str, Any]]:
+    """Convert a raw RehabDB item to a BASE-facility record for facilities.json.
+
+    Emits ONLY base fields: {name, address, city, state, zip, phone, website,
+    lat, lon, county}. NO status/open-closed field is ever included. ``name``
+    is the join key against the Google Sheet: it is resolved from ``name_map``
+    keyed on the board's 'Rehab Name' value, falling back to the raw abbreviation
+    (with a warning) when unmapped. Rows missing a parseable lat OR lon are
+    skipped with a logged warning (same rule as build_rehabber_record).
+    """
+    abbr = _column_text(item, REHAB_COL_IDS["rehab_name"])
+    if not abbr:
+        abbr = (item.get("name") or "").strip()
+
+    name = name_map.get(abbr)
+    if not name:
+        logger.warning(
+            "Facility %r has no entry in %s; falling back to the raw "
+            "abbreviation as the join name (add it to the map).",
+            abbr or item.get("id"),
+            FACILITY_NAME_MAP_REL_PATH,
+        )
+        name = abbr
+
+    lat = _parse_float(_column_text(item, REHAB_COL_IDS["latitude"]))
+    lon = _parse_float(_column_text(item, REHAB_COL_IDS["longitude"]))
+    if lat is None or lon is None:
+        logger.warning(
+            "Skipping facility %r: missing/unparseable lat/lon "
+            "(lat=%r, lon=%r)",
+            name or item.get("id"),
+            _column_text(item, REHAB_COL_IDS["latitude"]),
+            _column_text(item, REHAB_COL_IDS["longitude"]),
+        )
+        return None
+
+    return {
+        "name": name,
+        "address": _column_text(item, REHAB_COL_IDS["address"]),
+        "city": _column_text(item, REHAB_COL_IDS["city"]),
+        "state": _column_text(item, REHAB_COL_IDS["state"]),
+        "zip": _column_text(item, REHAB_COL_IDS["zip"]),
+        "phone": _column_text(item, REHAB_COL_IDS["phone"]),
+        "website": _column_text(item, REHAB_COL_IDS["website"]),
+        "lat": lat,
+        "lon": lon,
+        "county": _column_text(item, REHAB_COL_IDS["county"]),
+    }
+
+
+def build_facilities(
+    items: Iterable[Dict[str, Any]], name_map: Dict[str, str]
+) -> List[Dict[str, Any]]:
+    """Transform raw RehabDB items into the BASE-facility list for the page.
+
+    Rows missing lat/lon are skipped (build_facility_record warns).
+    """
+    out: List[Dict[str, Any]] = []
+    for it in items:
+        rec = build_facility_record(it, name_map)
         if rec is not None:
             out.append(rec)
     return out
@@ -1682,6 +1806,26 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         atomic_write_json(rehabbers_path, rehabbers)
         logger.info(
             "Wrote %d rehabber records to %s", len(rehabbers), rehabbers_path
+        )
+
+    # Facility-status page BASE dataset (Option A: join-at-read). Built from the
+    # SAME RehabDB items already fetched above; emits ONLY base fields (NO
+    # status/open-closed). docs/facilities.html merges this with the Google
+    # Sheet STATUS feed by normalized facility name. The full facility name
+    # (the join key) is resolved via the committed abbreviation->full-name map.
+    facilities_path = Path(__file__).resolve().parent / FACILITIES_REL_PATH
+    name_map = load_facility_name_map(repo_root)
+    facilities = build_facilities(rehab_items, name_map)
+    if args.dry_run:
+        logger.info(
+            "[dry-run] would write %d facility records to %s",
+            len(facilities),
+            facilities_path,
+        )
+    else:
+        atomic_write_json(facilities_path, facilities)
+        logger.info(
+            "Wrote %d facility records to %s", len(facilities), facilities_path
         )
 
     # Area coordinators — fetch the coordinator NAME per WIN area and emit the

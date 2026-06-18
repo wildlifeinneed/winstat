@@ -166,10 +166,20 @@ jobs:
 
           # Explicit public allow-list. NEVER add data/volunteer_coords.json
           # or any other private/PII path here.
+          #
+          # docs/data/facilities.json is the BASE-facility dataset for
+          # docs/facilities.html (Option A join-at-read). It carries PUBLIC
+          # facility addresses the page already displays — NOT volunteer PII —
+          # so it is committed like the other public aggregates. Its companion
+          # facility_name_map.json (Monday abbreviation -> full facility name)
+          # is hand-maintained but committed here too so a name-map edit made
+          # alongside a board change is published on the same refresh.
           PUBLIC_PATHS="docs/data/county_capacity.json \
             docs/data/.last_remote_update \
             docs/data/rehabbers.json \
-            docs/data/coordinators.json"
+            docs/data/coordinators.json \
+            docs/data/facilities.json \
+            docs/data/facility_name_map.json"
 
           if git diff --quiet -- $PUBLIC_PATHS; then
             echo "No public-aggregate changes to commit."
@@ -183,7 +193,7 @@ jobs:
           # (a) Allow-list assertion: the staged set must be a subset of the
           # public paths. If ANY other path is staged (e.g. a private file was
           # accidentally un-gitignored), abort before committing or pushing.
-          ALLOWED_RE='^docs/data/(county_capacity\.json|\.last_remote_update|rehabbers\.json|coordinators\.json)$'
+          ALLOWED_RE='^docs/data/(county_capacity\.json|\.last_remote_update|rehabbers\.json|coordinators\.json|facilities\.json|facility_name_map\.json)$'
           staged="$(git diff --cached --name-only)"
           bad_paths="$(printf '%s\n' "$staged" | grep -Ev "$ALLOWED_RE" || true)"
           if [ -n "$bad_paths" ]; then
@@ -203,7 +213,14 @@ jobs:
           # (b) PII content scan of the staged additions. The public rehabber +
           # coordinator datasets must contain NO volunteer phone/email/street/
           # address keys. Scan added lines (leading '+') for those JSON keys.
-          added="$(git diff --cached -- $PUBLIC_PATHS | grep -E '^\+' || true)"
+          #
+          # SCOPE: facilities.json is intentionally EXCLUDED — it is the public
+          # facility-address dataset (name/address/city/state/zip are public org
+          # data the page already shows), so its address/zip keys are expected
+          # and must not abort the push. The scan stays active on the rehabber +
+          # coordinator files, which are the volunteer-PII surfaces.
+          PII_SCAN_PATHS="docs/data/rehabbers.json docs/data/coordinators.json"
+          added="$(git diff --cached -- $PII_SCAN_PATHS | grep -E '^\+' || true)"
           if printf '%s\n' "$added" | grep -Eiq '"(phone|phone_number|cell|mobile|email|e_mail|street|address|address1|address_line|home_address|zip|postal)"[[:space:]]*:'; then
             echo "ABORT: staged public diff contains a PII-shaped key (phone/email/address/etc.)." >&2
             git reset -q

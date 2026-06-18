@@ -891,7 +891,14 @@
 
 <script>
 // ─── Configuration ──────────────────────────────────────────────
+// Option A — join-at-read. BASE facility data (name/address/city/state/zip/
+// phone/website/lat/lon/county) comes from the Monday-sourced facilities.json;
+// STATUS data (Status/Status Notes/Alerts/Expected Reopen Date/Last Updated)
+// comes from the published Google Sheet CSV. The two are merged by NORMALIZED
+// facility name at read time (see mergeFacilities). The Apps Script submit form
+// + the Sheet write path are untouched: this page only READS both sources.
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSyzu9RBr4suotvsDCChhkC67BRmmYZJqSQtbqj2awMEVpcdFbd8rNxkKQECQUOIz_aXtcy-agkN41P/pub?output=csv';
+const FACILITIES_JSON_URL = 'data/facilities.json';
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 // ─── State ──────────────────────────────────────────────────────
@@ -899,6 +906,20 @@ let allFacilities = [];
 let activeStatus  = '';
 let activeCounty  = '';
 let searchQuery   = '';
+
+// ─── Name normalization (join key) ──────────────────────────────
+// Facility name is the join key between the Monday BASE feed and the Sheet
+// STATUS feed. Normalize away case, surrounding/internal whitespace runs, and
+// ALL punctuation so "AARK Wildlife Rehab. & Education Center, Inc." and
+// "aark wildlife rehab education center inc" collapse to the same key. Returns
+// '' for blank names (those never join).
+function normalizeName(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 // ─── CSV Parser ─────────────────────────────────────────────────
 function parseCSV(text) {
@@ -1148,26 +1169,112 @@ function populateCounties(data) {
   });
 }
 
+// ─── Merge BASE (Monday JSON) + STATUS (Sheet CSV) ──────────────
+// Union join by normalized facility name:
+//   * matched      → BASE fills name/address/city/state/zip/phone/website/
+//                     county; STATUS wins Status/Status Notes/Alerts/Expected
+//                     Reopen Date/Last Updated; non-base Sheet-only columns
+//                     (Contact Person, Animals Accepted) are carried from Sheet.
+//   * Sheet-only    → rendered from Sheet base data (Sheet is the base fallback).
+//   * Monday-only   → rendered from BASE data with empty status.
+// Output rows use the Sheet-style column keys renderCards already expects, so
+// the renderer is unchanged. Unmatched names (either side) are logged.
+function mergeFacilities(baseList, statusRows) {
+  const statusByName = new Map();
+  statusRows.forEach(r => {
+    const key = normalizeName(r['Facility Name']);
+    // Keep the FIRST row for a given normalized name. The Sheet occasionally
+    // lists one facility twice (e.g. the same site under two counties); the
+    // first occurrence is treated as primary so its status wins deterministically.
+    if (key && !statusByName.has(key)) statusByName.set(key, r);
+  });
+  const baseByName = new Map();
+  (baseList || []).forEach(b => {
+    const key = normalizeName(b.name);
+    if (key) baseByName.set(key, b);
+  });
+
+  const out = [];
+  const usedStatusKeys = new Set();
+
+  // 1) Walk BASE (Monday source of truth for base fields).
+  baseByName.forEach((b, key) => {
+    const s = statusByName.get(key);
+    if (s) usedStatusKeys.add(key);
+    const row = s ? { ...s } : {};
+    // BASE wins the base fields.
+    row['Facility Name'] = b.name || row['Facility Name'] || '';
+    row['Address'] = b.address || '';
+    row['City']    = b.city || '';
+    row['State']   = b.state || '';
+    row['Zip']     = b.zip || '';
+    row['Phone']   = b.phone || '';
+    row['Website'] = b.website || '';
+    row['County']  = b.county || row['County'] || '';
+    out.push(row);
+  });
+
+  // 2) Sheet-only facilities (no Monday base) → keep Sheet base data as-is.
+  statusByName.forEach((s, key) => {
+    if (!usedStatusKeys.has(key)) out.push({ ...s });
+  });
+
+  // 3) Report unmatched names for cleanup (console only).
+  const baseUnmatched = [];
+  baseByName.forEach((b, key) => { if (!statusByName.has(key)) baseUnmatched.push(b.name); });
+  const sheetUnmatched = [];
+  statusByName.forEach((s, key) => { if (!baseByName.has(key)) sheetUnmatched.push(s['Facility Name']); });
+  if (baseUnmatched.length) {
+    console.warn(`[facilities] ${baseUnmatched.length} Monday facility(ies) had no Sheet status match (rendered with empty status):`, baseUnmatched);
+  }
+  if (sheetUnmatched.length) {
+    console.warn(`[facilities] ${sheetUnmatched.length} Sheet facility(ies) had no Monday base match (rendered from Sheet base data):`, sheetUnmatched);
+  }
+
+  return out;
+}
+
 // ─── Data Fetching ───────────────────────────────────────────────
 async function fetchData() {
   try {
-    // Cache-bust with timestamp so browser always fetches fresh data
-    const url = CSV_URL === 'GOOGLE_SHEET_CSV_URL'
+    // Cache-bust with timestamp so browser always fetches fresh data.
+    const cb = Date.now();
+    const csvUrl = CSV_URL === 'GOOGLE_SHEET_CSV_URL'
       ? null
-      : `${CSV_URL}${CSV_URL.includes('?') ? '&' : '?'}_=${Date.now()}`;
+      : `${CSV_URL}${CSV_URL.includes('?') ? '&' : '?'}_=${cb}`;
 
-    if (!url) {
+    if (!csvUrl) {
       showError('Data URL not configured. Replace GOOGLE_SHEET_CSV_URL with your published Google Sheets CSV link.');
       showDemoData();
       return;
     }
 
     hideError();
-    const res  = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    let text = await res.text();
-    text = text.replace(/^\uFEFF/, ''); // strip UTF-8 BOM if present
-    processData(text);
+
+    // STATUS feed (Sheet) is required; BASE feed (Monday JSON) is best-effort —
+    // if it fails the page still renders from Sheet base data.
+    const baseUrl = `${FACILITIES_JSON_URL}?_=${cb}`;
+    const [csvText, baseList] = await Promise.all([
+      (async () => {
+        const res = await fetch(csvUrl);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        let text = await res.text();
+        return text.replace(/^\uFEFF/, ''); // strip UTF-8 BOM if present
+      })(),
+      (async () => {
+        try {
+          const res = await fetch(baseUrl);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          return Array.isArray(data) ? data : [];
+        } catch (e) {
+          console.warn('[facilities] base facilities.json load failed; using Sheet base data only:', e);
+          return [];
+        }
+      })(),
+    ]);
+
+    processData(csvText, baseList);
     updateTimestamp();
   } catch (err) {
     showError(`Could not load facility data: ${err.message}. Showing cached data if available.`);
@@ -1175,12 +1282,13 @@ async function fetchData() {
   }
 }
 
-function processData(csvText) {
+function processData(csvText, baseList) {
   const rows = parseCSV(csvText);
-  allFacilities = rows.map(r => ({ ...r, _status: inferStatus(r) }));
+  const merged = mergeFacilities(baseList || [], rows);
+  allFacilities = merged.map(r => ({ ...r, _status: inferStatus(r) }));
 
   if (allFacilities.length === 0) {
-    showError('No facility data found in the sheet. Check that the CSV URL is correct and the sheet has data.');
+    showError('No facility data found. Check that the CSV URL is correct and the sheet has data.');
     return;
   }
 
