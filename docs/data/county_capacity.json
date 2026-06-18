@@ -13,7 +13,7 @@
   "counties": {
     "Allegheny": {
       "courier": {
-        "available": 9,
+        "available": 10,
         "marginal_volunteers": [],
         "total": 11
       },
@@ -192,10 +192,10 @@
         "total": 1
       },
       "ct_rvs": {
-        "available": 0,
+        "available": 1,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail Varies, Unavail 6/11-6/17",
+            "availability_note": "Avail Varies",
             "connecteam_user": true
           }
         ],
@@ -832,10 +832,10 @@
         "total": 1
       },
       "ct_rvs": {
-        "available": 0,
+        "available": 1,
         "marginal_volunteers": [
           {
-            "availability_note": "Contact for avail, Covers Monroe & Northhampton Co, Unavail 6/6 - 6/17",
+            "availability_note": "Contact for avail, Covers Monroe & Northhampton Co",
             "connecteam_user": true
           }
         ],
@@ -1132,7 +1132,7 @@
       }
     }
   },
-  "generated_at": "2026-06-17T18:38:06Z",
+  "generated_at": "2026-06-18T18:39:17Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
