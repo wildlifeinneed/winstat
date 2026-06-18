@@ -28,6 +28,9 @@ BASE_FIELDS = {
     "phone", "website", "lat", "lon", "county",
 }
 
+# Stand-in id for the future dedicated "OWNER full name" join column.
+OWNER_COL_ID = "text_owner_fullname_TEST"
+
 
 def _rehab_item(
     name="Doe",
@@ -42,24 +45,28 @@ def _rehab_item(
     longitude="-75.3413",
     website="https://example.org",
     availability="M/P/RVS",
+    owner=None,
 ) -> dict:
     c = rm.REHAB_COL_IDS
+    cols = [
+        {"id": c["rehab_name"], "text": rehab_name, "value": None, "type": "text"},
+        {"id": c["city"], "text": city, "value": None, "type": "text"},
+        {"id": c["address"], "text": address, "value": None, "type": "text"},
+        {"id": c["state"], "text": state, "value": None, "type": "text"},
+        {"id": c["zip"], "text": zip_code, "value": None, "type": "text"},
+        {"id": c["county"], "text": county, "value": None, "type": "text"},
+        {"id": c["phone"], "text": phone, "value": None, "type": "text"},
+        {"id": c["latitude"], "text": latitude, "value": None, "type": "text"},
+        {"id": c["longitude"], "text": longitude, "value": None, "type": "text"},
+        {"id": c["website"], "text": website, "value": None, "type": "text"},
+        {"id": c["availability"], "text": availability, "value": None, "type": "text"},
+    ]
+    if owner is not None:
+        cols.append({"id": OWNER_COL_ID, "text": owner, "value": None, "type": "text"})
     return {
         "id": name.replace(" ", "_"),
         "name": name,
-        "column_values": [
-            {"id": c["rehab_name"], "text": rehab_name, "value": None, "type": "text"},
-            {"id": c["city"], "text": city, "value": None, "type": "text"},
-            {"id": c["address"], "text": address, "value": None, "type": "text"},
-            {"id": c["state"], "text": state, "value": None, "type": "text"},
-            {"id": c["zip"], "text": zip_code, "value": None, "type": "text"},
-            {"id": c["county"], "text": county, "value": None, "type": "text"},
-            {"id": c["phone"], "text": phone, "value": None, "type": "text"},
-            {"id": c["latitude"], "text": latitude, "value": None, "type": "text"},
-            {"id": c["longitude"], "text": longitude, "value": None, "type": "text"},
-            {"id": c["website"], "text": website, "value": None, "type": "text"},
-            {"id": c["availability"], "text": availability, "value": None, "type": "text"},
-        ],
+        "column_values": cols,
     }
 
 
@@ -115,11 +122,13 @@ def test_no_status_field_ever():
 
 
 def test_unmapped_name_falls_back_to_abbreviation_and_warns(caplog):
+    # Default Availability "M/P/RVS" is pure codes (no name), so with no owner
+    # column and no map entry the join name drops to the raw abbreviation.
     with caplog.at_level("WARNING", logger="refresh_monday"):
         rec = rm.build_facility_record(_rehab_item(rehab_name="Unknown Abbr"), {})
     assert rec is not None
     assert rec["name"] == "Unknown Abbr"
-    assert any("has no entry in" in r.message for r in caplog.records)
+    assert any("raw abbreviation" in r.message for r in caplog.records)
 
 
 def test_blank_rehab_name_falls_back_to_item_name():
@@ -182,6 +191,78 @@ def test_load_facility_name_map_missing_returns_empty(tmp_path, caplog):
         m = rm.load_facility_name_map(tmp_path)
     assert m == {}
     assert any("not found" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# 3b. Future-proof join-key precedence (owner col -> map -> Availability -> abbr)
+# ---------------------------------------------------------------------------
+
+def test_owner_column_is_primary_join_key():
+    # Owner column present + non-empty wins over BOTH the map and the abbr.
+    rec = rm.build_facility_record(
+        _rehab_item(rehab_name="Adams Co", owner="Adams County Wildlife Care"),
+        {"Adams Co": "WRONG MAP NAME"},
+        owner_col_id=OWNER_COL_ID,
+    )
+    assert rec["name"] == "Adams County Wildlife Care"
+
+
+def test_empty_owner_column_falls_back_to_map():
+    # Owner column present but blank -> use the map.
+    rec = rm.build_facility_record(
+        _rehab_item(rehab_name="Adams Co", owner=""),
+        {"Adams Co": "Adams County Wildlife Care"},
+        owner_col_id=OWNER_COL_ID,
+    )
+    assert rec["name"] == "Adams County Wildlife Care"
+
+
+def test_no_owner_column_uses_map():
+    # owner_col_id None (column not added yet) -> use the map.
+    rec = rm.build_facility_record(
+        _rehab_item(rehab_name="Adams Co"),
+        {"Adams Co": "Adams County Wildlife Care"},
+        owner_col_id=None,
+    )
+    assert rec["name"] == "Adams County Wildlife Care"
+
+
+def test_unmapped_falls_back_to_parsed_availability(caplog):
+    # No owner col, not in map -> parse the name out of Availability.
+    with caplog.at_level("WARNING", logger="refresh_monday"):
+        rec = rm.build_facility_record(
+            _rehab_item(
+                rehab_name="Schuylkil",
+                availability="Schuylkill Wildlife Rehabilitation Center M,P,R,RA",
+            ),
+            {},
+            owner_col_id=None,
+        )
+    assert rec["name"] == "Schuylkill Wildlife Rehabilitation Center"
+    assert any("parsed from Availability" in r.message for r in caplog.records)
+
+
+def test_raw_abbreviation_last_resort(caplog):
+    # No owner, no map, Availability has no name-like token -> raw abbreviation.
+    with caplog.at_level("WARNING", logger="refresh_monday"):
+        rec = rm.build_facility_record(
+            _rehab_item(rehab_name="Mystery", availability="M,P,R"),
+            {},
+            owner_col_id=None,
+        )
+    assert rec["name"] == "Mystery"
+
+
+def test_parse_facility_name_from_availability():
+    p = rm.parse_facility_name_from_availability
+    assert p("Schuylkill Wildlife Rehabilitation Center M,P,R,RA") == \
+        "Schuylkill Wildlife Rehabilitation Center"
+    assert p("Adams County Wildlife Care\nM") == "Adams County Wildlife Care"
+    assert p("Pocono Wildlife Rehab Center  M P R") == "Pocono Wildlife Rehab Center"
+    assert p("Centre Wildlife Care; NOTE: call first") == "Centre Wildlife Care"
+    assert p("") == ""
+    # All-codes (no name) collapses to empty so the caller drops to raw abbr.
+    assert p("M,P,R") == ""
 
 
 # ---------------------------------------------------------------------------
