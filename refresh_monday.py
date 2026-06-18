@@ -188,6 +188,7 @@ PA_COUNTIES = (
 REHAB_BOARD_ID = "9092004762"          # RehabDB
 REHAB_COL_IDS = {
     "rehab_name": "text_mkv6bp9s",
+    "facility_name": "text_mm4esfft",
     "city": "text_mkqqc1s1",
     "address": "text_mkqqff5k",
     "state": "text_mkqqk1xk",
@@ -204,20 +205,13 @@ REHAB_COL_IDS = {
 # status lives in a separate beta "rehab status" app, not wired in here), so
 # surfacing it would be misleading. It is omitted from the data pipeline.
 
-# Future-proof join key for facilities.json. The org plans to add a dedicated
-# "OWNER full name" text column to the RehabDB board to use as a STABLE join ID
-# against the Google Sheet (it is NOT populated yet). When that column exists
-# and a row has a value, it is used as the PRIMARY facility-name join key,
-# making the hand-maintained facility_name_map.json unnecessary. Until then we
-# fall back to the map (then the Availability-parsed name, then Rehab Name).
-# The column id is unknown ahead of time, so it is resolved BY TITLE at refresh
-# time (case-insensitive) — add whatever exact title the org chooses here.
-OWNER_NAME_COLUMN_TITLES = (
-    "OWNER full name",
-    "Owner Full Name",
-    "Owner full name",
-    "Owner Name",
-)
+# PRIMARY join key for facilities.json. The RehabDB board has a dedicated
+# "Facility Name" column (text_mm4esfft) holding the full facility name; this is
+# the clean Option-A join key, matched (normalized: case/whitespace/punctuation)
+# against the Google Sheet facility names. It is partially populated today (the
+# org is filling it in), so rows where it is BLANK fall back to the thin
+# facility_name_map.json (then an Availability-parsed name, then 'Rehab Name').
+# As the column is filled, the map shrinks toward empty with no code change.
 
 # Area Coordinators board. The county->area map stays in counties.xlsx
 # (stable); only the volatile coordinator NAME is sourced here so a Monday
@@ -250,18 +244,16 @@ REHABBERS_REL_PATH = Path("docs") / "data" / "rehabbers.json"
 # PII, so the file IS committed to docs/.
 FACILITIES_REL_PATH = Path("docs") / "data" / "facilities.json"
 
-# Join-key bridge (FALLBACK). The RehabDB board has NO clean full-facility-name
-# column today: the 'Rehab Name' column holds an abbreviation ("Adams Co",
-# "HAR", "AARK"), 'Full name' is the contact person, and the full name only
-# appears (un-delimited) in the first token of the 'Availability' free text.
-# The facilities page joins to the Google Sheet by FULL facility name, so we
-# bridge Monday's abbreviation -> the full Sheet name via this committed,
-# hand-maintained map. NOTE: once the org adds and fills the dedicated
-# "OWNER full name" column (see OWNER_NAME_COLUMN_TITLES), that column becomes
-# the PRIMARY join key and this map is only used for rows it has not yet filled.
-# Add a new entry here whenever a facility is added to the RehabDB board until
-# then. Unmapped facilities fall back to a name parsed from Availability, then
-# the raw 'Rehab Name', and are reported on stderr so the map can be kept current.
+# Join-key bridge (FALLBACK ONLY). The RehabDB board now has a dedicated
+# "Facility Name" column (REHAB_COL_IDS['facility_name'] = text_mm4esfft) which
+# is the PRIMARY join key: its value is matched (normalized) against the Google
+# Sheet facility name in facilities.html. That column is only partially filled
+# today, so for rows where it is still blank we fall back through this committed,
+# hand-maintained map (Monday 'Rehab Name' abbreviation -> full Sheet name),
+# then a name parsed from the 'Availability' free text, then the raw 'Rehab
+# Name'. Add a new entry here only for an as-yet-unfilled facility; once the
+# "Facility Name" column is fully populated this map becomes unused with no
+# code change. Unmatched names are reported on stderr so the map stays current.
 FACILITY_NAME_MAP_REL_PATH = Path("docs") / "data" / "facility_name_map.json"
 
 # Area-coordinator NAME dataset. PUBLIC-safe (coordinator names are agreed
@@ -815,24 +807,14 @@ query ($board_ids: [ID!], $col_ids: [String!], $limit: Int!, $cursor: String) {
 def fetch_rehabbers(
     token: Optional[str] = None,
     session: Optional[requests.Session] = None,
-    extra_col_ids: Optional[Sequence[str]] = None,
 ) -> List[Dict[str, Any]]:
     """Fetch all items on the RehabDB board and return raw item dicts.
 
     Narrow-fetch: only the REHAB_COL_IDS column_values are requested (mirrors
     the volunteer fetch pattern) to stay under Monday's per-query complexity
     budget. Paginates via items_page cursor.
-
-    ``extra_col_ids`` lets callers append additional column ids to the narrow
-    fetch (e.g. the dynamically-discovered "OWNER full name" join column) so
-    those values appear in each item's column_values. Ids already present in
-    REHAB_COL_IDS are de-duplicated.
     """
     col_ids = list(REHAB_COL_IDS.values())
-    if extra_col_ids:
-        for cid in extra_col_ids:
-            if cid and cid not in col_ids:
-                col_ids.append(cid)
     out: List[Dict[str, Any]] = []
     cursor: Optional[str] = None
     page = 0
@@ -967,47 +949,6 @@ def load_facility_name_map(repo_root: Path) -> Dict[str, str]:
     return {str(k): str(v) for k, v in data.items()}
 
 
-def find_owner_name_column_id(
-    token: Optional[str] = None,
-    session: Optional[requests.Session] = None,
-) -> Optional[str]:
-    """Resolve the RehabDB 'OWNER full name' join column id by TITLE, or None.
-
-    The org plans to add a dedicated owner/full-facility-name column later to
-    use as the stable join key; its column id is not known ahead of time, so we
-    introspect the board and match any of OWNER_NAME_COLUMN_TITLES
-    case-insensitively. Returns the column id when found, else None (callers
-    then fall back to the name-map). Never raises on a missing column — absence
-    is the expected state until the org creates it.
-    """
-    data = graphql_request(
-        INTROSPECT_QUERY,
-        variables={"board_ids": [REHAB_BOARD_ID]},
-        token=token,
-        session=session,
-    )
-    boards = data.get("boards") or []
-    if not boards:
-        return None
-    wanted = {t.strip().lower() for t in OWNER_NAME_COLUMN_TITLES}
-    for col in boards[0].get("columns") or []:
-        title = (col.get("title") or "").strip().lower()
-        if title and title in wanted:
-            logger.info(
-                "Found owner-name join column %r (id=%s); using it as the "
-                "PRIMARY facility-name join key.",
-                col.get("title"),
-                col.get("id"),
-            )
-            return col.get("id")
-    logger.info(
-        "No owner-name join column (%s) on RehabDB yet; using the "
-        "abbreviation->full-name map as the join key.",
-        ", ".join(OWNER_NAME_COLUMN_TITLES),
-    )
-    return None
-
-
 def parse_facility_name_from_availability(text: str) -> str:
     """Best-effort full facility name from the free-text 'Availability' column.
 
@@ -1040,27 +981,27 @@ def parse_facility_name_from_availability(text: str) -> str:
 def _resolve_facility_join_name(
     item: Dict[str, Any],
     name_map: Dict[str, str],
-    owner_col_id: Optional[str],
 ) -> str:
-    """Resolve a facility's join name via the future-proof precedence chain.
+    """Resolve a facility's join name via the Option-A precedence chain.
 
     Precedence:
-      1. OWNER full name column (PRIMARY, stable join ID) when present + non-empty
-      2. static facility_name_map.json keyed on 'Rehab Name'
+      1. dedicated 'Facility Name' column (PRIMARY, clean join key) when non-empty
+      2. static facility_name_map.json keyed on 'Rehab Name' (thin fallback)
       3. name parsed from the free-text 'Availability' column
       4. raw 'Rehab Name' (or item name) as a last resort
     """
-    # 1) Dedicated owner column — the stable join key once the org fills it.
-    if owner_col_id:
-        owner = _column_text(item, owner_col_id)
-        if owner:
-            return owner
+    # 1) Dedicated full-name column — the clean Option-A join key. Populated
+    # incrementally by the org; non-empty value always wins.
+    facility = _column_text(item, REHAB_COL_IDS["facility_name"])
+    if facility:
+        return facility
 
     abbr = _column_text(item, REHAB_COL_IDS["rehab_name"])
     if not abbr:
         abbr = (item.get("name") or "").strip()
 
-    # 2) Hand-maintained abbreviation -> full Sheet name map.
+    # 2) Hand-maintained abbreviation -> full Sheet name map (fallback only for
+    # rows where the Facility Name column is not yet filled).
     mapped = name_map.get(abbr)
     if mapped:
         return mapped
@@ -1071,8 +1012,9 @@ def _resolve_facility_join_name(
     )
     if parsed:
         logger.warning(
-            "Facility %r not in %s; using name parsed from Availability (%r). "
-            "Add a map entry (or fill the owner column) to pin it.",
+            "Facility %r has a blank Facility Name column and no %s entry; "
+            "using name parsed from Availability (%r). Fill the Facility Name "
+            "column (or add a map entry) to pin it.",
             abbr or item.get("id"),
             FACILITY_NAME_MAP_REL_PATH,
             parsed,
@@ -1081,9 +1023,9 @@ def _resolve_facility_join_name(
 
     # 4) Last resort: the raw abbreviation.
     logger.warning(
-        "Facility %r has no owner-column value, no %s entry, and no parseable "
-        "Availability name; falling back to the raw abbreviation as the join "
-        "name.",
+        "Facility %r has a blank Facility Name column, no %s entry, and no "
+        "parseable Availability name; falling back to the raw abbreviation as "
+        "the join name.",
         abbr or item.get("id"),
         FACILITY_NAME_MAP_REL_PATH,
     )
@@ -1093,18 +1035,18 @@ def _resolve_facility_join_name(
 def build_facility_record(
     item: Dict[str, Any],
     name_map: Dict[str, str],
-    owner_col_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """Convert a raw RehabDB item to a BASE-facility record for facilities.json.
 
     Emits ONLY base fields: {name, address, city, state, zip, phone, website,
     lat, lon, county}. NO status/open-closed field is ever included. ``name``
-    is the join key against the Google Sheet, resolved via the future-proof
-    precedence chain in _resolve_facility_join_name (owner column -> name-map ->
-    Availability-parsed -> raw 'Rehab Name'). Rows missing a parseable lat OR
-    lon are skipped with a logged warning (same rule as build_rehabber_record).
+    is the join key against the Google Sheet, resolved via the Option-A
+    precedence chain in _resolve_facility_join_name (Facility Name column ->
+    name-map -> Availability-parsed -> raw 'Rehab Name'). Rows missing a
+    parseable lat OR lon are skipped with a logged warning (same rule as
+    build_rehabber_record).
     """
-    name = _resolve_facility_join_name(item, name_map, owner_col_id)
+    name = _resolve_facility_join_name(item, name_map)
 
     lat = _parse_float(_column_text(item, REHAB_COL_IDS["latitude"]))
     lon = _parse_float(_column_text(item, REHAB_COL_IDS["longitude"]))
@@ -1135,7 +1077,6 @@ def build_facility_record(
 def build_facilities(
     items: Iterable[Dict[str, Any]],
     name_map: Dict[str, str],
-    owner_col_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Transform raw RehabDB items into the BASE-facility list for the page.
 
@@ -1143,7 +1084,7 @@ def build_facilities(
     """
     out: List[Dict[str, Any]] = []
     for it in items:
-        rec = build_facility_record(it, name_map, owner_col_id)
+        rec = build_facility_record(it, name_map)
         if rec is not None:
             out.append(rec)
     return out
@@ -1933,22 +1874,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # file IS committed to docs/. Lat/lon are already on the board (no
     # geocoding). Rows missing lat/lon are skipped with a warning.
     rehabbers_path = Path(__file__).resolve().parent / REHABBERS_REL_PATH
-    # Future-proof facility join key: discover the dedicated "OWNER full name"
-    # column id BY TITLE (None until the org adds it) and include it in the
-    # narrow fetch so its value is available as the PRIMARY join key.
     try:
-        owner_col_id = find_owner_name_column_id(token=token, session=session)
-    except MondayAPIError as exc:
-        logger.warning(
-            "owner-name column discovery failed (%s); falling back to map.", exc
-        )
-        owner_col_id = None
-    try:
-        rehab_items = fetch_rehabbers(
-            token=token,
-            session=session,
-            extra_col_ids=[owner_col_id] if owner_col_id else None,
-        )
+        rehab_items = fetch_rehabbers(token=token, session=session)
     except MondayAPIError as exc:
         print(f"ERROR: RehabDB fetch failed: {exc}", file=sys.stderr)
         return 8
@@ -1969,12 +1896,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # SAME RehabDB items already fetched above; emits ONLY base fields (NO
     # status/open-closed). docs/facilities.html merges this with the Google
     # Sheet STATUS feed by normalized facility name. The full facility name
-    # (the join key) is resolved via: the dedicated OWNER-name column when the
-    # org has filled it, else the committed abbreviation->full-name map (then a
-    # name parsed from Availability, then the raw 'Rehab Name').
+    # (the join key) is resolved via: the dedicated 'Facility Name' column when
+    # filled, else the committed abbreviation->full-name map (then a name parsed
+    # from Availability, then the raw 'Rehab Name').
     facilities_path = Path(__file__).resolve().parent / FACILITIES_REL_PATH
     name_map = load_facility_name_map(repo_root)
-    facilities = build_facilities(rehab_items, name_map, owner_col_id)
+    facilities = build_facilities(rehab_items, name_map)
     if args.dry_run:
         logger.info(
             "[dry-run] would write %d facility records to %s",

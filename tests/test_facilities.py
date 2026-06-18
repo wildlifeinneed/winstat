@@ -28,10 +28,6 @@ BASE_FIELDS = {
     "phone", "website", "lat", "lon", "county",
 }
 
-# Stand-in id for the future dedicated "OWNER full name" join column.
-OWNER_COL_ID = "text_owner_fullname_TEST"
-
-
 def _rehab_item(
     name="Doe",
     rehab_name="Doe Wildlife",
@@ -45,7 +41,7 @@ def _rehab_item(
     longitude="-75.3413",
     website="https://example.org",
     availability="M/P/RVS",
-    owner=None,
+    facility_name=None,
 ) -> dict:
     c = rm.REHAB_COL_IDS
     cols = [
@@ -61,8 +57,8 @@ def _rehab_item(
         {"id": c["website"], "text": website, "value": None, "type": "text"},
         {"id": c["availability"], "text": availability, "value": None, "type": "text"},
     ]
-    if owner is not None:
-        cols.append({"id": OWNER_COL_ID, "text": owner, "value": None, "type": "text"})
+    if facility_name is not None:
+        cols.append({"id": c["facility_name"], "text": facility_name, "value": None, "type": "text"})
     return {
         "id": name.replace(" ", "_"),
         "name": name,
@@ -194,41 +190,38 @@ def test_load_facility_name_map_missing_returns_empty(tmp_path, caplog):
 
 
 # ---------------------------------------------------------------------------
-# 3b. Future-proof join-key precedence (owner col -> map -> Availability -> abbr)
+# 3b. Option-A join-key precedence (Facility Name col -> map -> Availability -> abbr)
 # ---------------------------------------------------------------------------
 
-def test_owner_column_is_primary_join_key():
-    # Owner column present + non-empty wins over BOTH the map and the abbr.
+def test_facility_name_column_is_primary_join_key():
+    # Facility Name column present + non-empty wins over BOTH the map and abbr.
     rec = rm.build_facility_record(
-        _rehab_item(rehab_name="Adams Co", owner="Adams County Wildlife Care"),
+        _rehab_item(rehab_name="Adams Co", facility_name="Adams County Wildlife Care"),
         {"Adams Co": "WRONG MAP NAME"},
-        owner_col_id=OWNER_COL_ID,
     )
     assert rec["name"] == "Adams County Wildlife Care"
 
 
-def test_empty_owner_column_falls_back_to_map():
-    # Owner column present but blank -> use the map.
+def test_empty_facility_name_column_falls_back_to_map():
+    # Facility Name column present but blank -> use the map.
     rec = rm.build_facility_record(
-        _rehab_item(rehab_name="Adams Co", owner=""),
+        _rehab_item(rehab_name="Adams Co", facility_name=""),
         {"Adams Co": "Adams County Wildlife Care"},
-        owner_col_id=OWNER_COL_ID,
     )
     assert rec["name"] == "Adams County Wildlife Care"
 
 
-def test_no_owner_column_uses_map():
-    # owner_col_id None (column not added yet) -> use the map.
+def test_no_facility_name_column_uses_map():
+    # Facility Name column absent on the item -> use the map.
     rec = rm.build_facility_record(
         _rehab_item(rehab_name="Adams Co"),
         {"Adams Co": "Adams County Wildlife Care"},
-        owner_col_id=None,
     )
     assert rec["name"] == "Adams County Wildlife Care"
 
 
 def test_unmapped_falls_back_to_parsed_availability(caplog):
-    # No owner col, not in map -> parse the name out of Availability.
+    # No Facility Name col, not in map -> parse the name out of Availability.
     with caplog.at_level("WARNING", logger="refresh_monday"):
         rec = rm.build_facility_record(
             _rehab_item(
@@ -236,19 +229,17 @@ def test_unmapped_falls_back_to_parsed_availability(caplog):
                 availability="Schuylkill Wildlife Rehabilitation Center M,P,R,RA",
             ),
             {},
-            owner_col_id=None,
         )
     assert rec["name"] == "Schuylkill Wildlife Rehabilitation Center"
     assert any("parsed from Availability" in r.message for r in caplog.records)
 
 
 def test_raw_abbreviation_last_resort(caplog):
-    # No owner, no map, Availability has no name-like token -> raw abbreviation.
+    # No Facility Name col, no map, Availability has no name -> raw abbreviation.
     with caplog.at_level("WARNING", logger="refresh_monday"):
         rec = rm.build_facility_record(
             _rehab_item(rehab_name="Mystery", availability="M,P,R"),
             {},
-            owner_col_id=None,
         )
     assert rec["name"] == "Mystery"
 
