@@ -306,6 +306,26 @@
       pointer-events: auto;
     }
     .is-stale > .stale-notice { display: block; }
+
+    /* ─── Per-panel maintenance dim (flags.js 'maintenance' state) ──────
+       Distinct class from .is-stale so it never collides with the
+       dispatcher's dynamic .is-stale toggling, but reuses the same dim
+       treatment (opacity + grayscale + no pointer events). The injected
+       .status-strip.construction banner stays fully readable on top. */
+    .is-under-maintenance { position: relative; }
+    .is-under-maintenance > *:not([data-maint-banner]) {
+      opacity: 0.4;
+      filter: grayscale(0.85);
+      pointer-events: none;
+    }
+    .is-under-maintenance > [data-maint-banner] {
+      opacity: 1 !important;
+      filter: none !important;
+      pointer-events: auto;
+      margin-bottom: 12px;
+      border-radius: 8px;
+    }
+
     .stale-notice .stale-hint {
       display: block;
       margin-top: 3px;
@@ -1162,7 +1182,7 @@
 <div id="refresh-banner" class="refresh-banner">Loading snapshot…</div>
 
 <main>
-  <section class="panel" id="animal-base-info">
+  <section class="panel" id="animal-base-info" data-panel-key="dispatcher-animal-base-info">
     <div class="form-row form-row--inline">
       <div>
         <label class="field-label">RVS Animal?</label>
@@ -1186,7 +1206,7 @@
     <label><input type="radio" name="mode" value="address" /> By Animal Address</label>
   </div>
 
-  <div id="county-mode" class="mode-panel">
+  <div id="county-mode" class="mode-panel" data-panel-key="dispatcher-county-mode">
   <section class="panel">
     <label class="field-label" for="county">County</label>
     <select id="county" aria-label="County">
@@ -1232,7 +1252,7 @@
   </section>
   </div><!-- /#county-mode -->
 
-  <div id="address-mode" class="mode-panel" hidden>
+  <div id="address-mode" class="mode-panel" hidden data-panel-key="dispatcher-address-mode">
     <section class="panel">
       <label class="field-label" for="animal-address">Animal Address</label>
       <div class="ac-wrap">
@@ -1297,7 +1317,7 @@
         <ul id="ctx-list" class="ctx-list"></ul>
       </div>
 
-      <div id="rehab-block" style="display:none;">
+      <div id="rehab-block" style="display:none;" data-panel-key="dispatcher-rehab-block">
         <button id="rehab-toggle" class="btn-rehab-toggle" type="button"
                 aria-expanded="false" aria-controls="rehab-content"></button>
         <div id="rehab-content" style="display:none;">
@@ -1308,7 +1328,7 @@
       </div>
 
       <!-- ─── Tier-2 inline locator map (Leaflet, lazy-init behind toggle) ─── -->
-      <div id="t2map-block" class="t2map-block" style="display:none;">
+      <div id="t2map-block" class="t2map-block" style="display:none;" data-panel-key="dispatcher-t2map-block">
         <button id="t2map-toggle" class="btn-t2map-toggle" type="button"
                 aria-expanded="false" aria-controls="t2map-body">
           <span class="t2map-toggle-label">Show map</span>
@@ -1342,7 +1362,7 @@
     </section>
   </div><!-- /#address-mode -->
 
-  <details id="map-panel" class="panel map-panel" data-panel-id="win-map">
+  <details id="map-panel" class="panel map-panel" data-panel-id="win-map" data-panel-key="dispatcher-map-panel">
     <summary class="map-summary">
       <span class="chevron">▶</span>
       <span>WIN Areas map</span>
@@ -1368,6 +1388,7 @@
 </footer>
 
 <script src="assets/vendor/leaflet/leaflet.js"></script>
+<script src="assets/flags.js"></script>
 <script src="assets/messages.js"></script>
 <script src="assets/decision.js"></script>
 <script src="assets/dispatcher.js"></script>

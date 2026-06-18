@@ -774,6 +774,21 @@
     .status-strip.beta strong  { background: var(--amber); color: #fff; }
     .status-strip.construction         { background: var(--red-light); color: var(--red); border-bottom-color: #f0b8b0; }
     .status-strip.construction strong  { background: var(--red); color: #fff; }
+
+    /* ─── Per-panel maintenance dim (flags.js 'maintenance' state) ────── */
+    .is-under-maintenance { position: relative; }
+    .is-under-maintenance > *:not([data-maint-banner]) {
+      opacity: 0.4;
+      filter: grayscale(0.85);
+      pointer-events: none;
+    }
+    .is-under-maintenance > [data-maint-banner] {
+      opacity: 1 !important;
+      filter: none !important;
+      pointer-events: auto;
+      margin-bottom: 12px;
+      border-radius: 8px;
+    }
     @media (max-width: 480px) {
       .status-strip { font-size: 12px; padding: 7px 12px; }
       .status-strip .sub { display: block; margin-top: 2px; }
@@ -801,7 +816,7 @@
 </div>
 
 <!-- ─── Disclaimer Banner ───────────────────────────────────────── -->
-<div class="disclaimer-banner">
+<div class="disclaimer-banner" data-panel-key="facilities-disclaimer">
   <div class="disclaimer-inner" role="note" aria-label="Important advisory about facility status">
     <span class="disclaimer-icon" aria-hidden="true">!</span>
     <div class="disclaimer-text">
@@ -813,7 +828,7 @@
 </div>
 
 <!-- ─── Controls ───────────────────────────────────────────────── -->
-<div class="controls-bar">
+<div class="controls-bar" data-panel-key="facilities-controls">
   <div class="controls-inner">
     <div class="search-wrap">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -866,7 +881,7 @@
 </div>
 
 <!-- ─── Facilities Grid ─────────────────────────────────────────── -->
-<main class="facilities-grid" id="facilities-grid" aria-live="polite">
+<main class="facilities-grid" id="facilities-grid" aria-live="polite" data-panel-key="facilities-grid">
   <div class="loading-state">
     <div class="spinner"></div>
     <p>Loading facility data…</p>
@@ -879,7 +894,7 @@
     <img class="footer-logo" src="assets/winlogo.jpg" alt="Wildlife In Need PA" />
     <p>Data provided by the <strong>PA Wildlife Rehabilitators Association</strong>. For emergencies, contact your nearest facility directly.</p>
     <p id="last-refresh">Last refreshed: —</p>
-    <p style="text-align:center; margin: 1.5em 0 .5em; font-size: .9em;">
+    <p style="text-align:center; margin: 1.5em 0 .5em; font-size: .9em;" data-panel-key="facilities-submit-form">
       <a href="https://script.google.com/macros/s/AKfycbyswXJWDY2N8Mjcm7qOurgEPgUHumooEaXwtbEO-231yxxZ9U7bAfNvS65mgVdtHHu7/exec"
          target="_blank" rel="noopener"
          style="color: var(--green-dark, #154d2a);">
@@ -889,6 +904,7 @@
   </div>
 </footer>
 
+<script src="assets/flags.js"></script>
 <script>
 // ─── Configuration ──────────────────────────────────────────────
 // Option A — join-at-read. BASE facility data (name/address/city/state/zip/

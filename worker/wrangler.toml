@@ -20,10 +20,15 @@ main = "src/index.mjs"
 compatibility_date = "2024-09-23"
 account_id = "290463cfd0bc273076e8c62678f7c845"
 
-# Public GitHub Pages origin allowed to call this Worker (CORS).
-# TODO(deploy): replace with the project's real Pages origin.
+# Origins allowed to call this Worker (CORS). COMMA-SEPARATED allowlist:
+#   * production GitHub Pages site, AND
+#   * Cloudflare Pages dev-preview deployments (*.pages.dev wildcard).
+# The Worker echoes back whichever listed origin the request actually came from
+# (ACAO names a single origin); with no/unknown Origin it falls back to the
+# first entry (production). The "*" only matches within the host portion.
+# TODO(deploy): if a custom Pages project domain is used, add it here too.
 [vars]
-ALLOWED_ORIGIN = "https://wildlifeinneed.github.io"
+ALLOWED_ORIGIN = "https://wildlifeinneed.github.io,https://*.pages.dev"
 # OpenRouteService Matrix API key for DRIVING distances on the PUBLIC rehabber
 # top-3 panel. Provided ONLY as a Worker SECRET, never in [vars]:
 #     wrangler secret put ORS_API_KEY

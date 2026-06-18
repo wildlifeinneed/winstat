@@ -345,6 +345,33 @@
       .status-badge { font-size: 10px; padding: 2px 7px; top: 8px; right: 8px; }
     }
 
+    /* ─── Per-panel maintenance dim + banner (flags.js 'maintenance') ──── */
+    .status-strip.construction {
+      display: block;
+      padding: 9px 14px;
+      font-size: 13px;
+      background: var(--red-light);
+      color: var(--red);
+      border: 1px solid #f0b8b0;
+    }
+    .status-strip.construction strong {
+      background: var(--red); color: #fff;
+      padding: 1px 7px; border-radius: 4px; margin-right: 8px;
+    }
+    .is-under-maintenance { position: relative; }
+    .is-under-maintenance > *:not([data-maint-banner]) {
+      opacity: 0.4;
+      filter: grayscale(0.85);
+      pointer-events: none;
+    }
+    .is-under-maintenance > [data-maint-banner] {
+      opacity: 1 !important;
+      filter: none !important;
+      pointer-events: auto;
+      margin-bottom: 12px;
+      border-radius: 8px;
+    }
+
     /* ─── About / Mission ──────────────────────────────────────── */
     .about-band {
       background: var(--surface);
@@ -635,7 +662,7 @@
 
   
   <div class="tools-grid">
-    <a class="tool-card" href="equipment-transfers.html">
+    <a class="tool-card" href="equipment-transfers.html" data-panel-key="index-tool-equipment">
       <span class="status-badge live">LIVE</span>
       <div class="tool-icon">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -653,7 +680,7 @@
     
     <!-- ─── DISPATCH HELPER ───────────────────────────────────────── -->
 
-    <a class="tool-card" href="dispatcher.html">
+    <a class="tool-card" href="dispatcher.html" data-panel-key="index-tool-dispatcher">
       <span class="status-badge beta">Beta Testing</span>
       <div class="tool-icon">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -670,7 +697,7 @@
     
     <!-- ─── REHAB FACILITY STATUS ───────────────────────────────────────── -->
 
-      <a class="tool-card" href="facilities.html">
+      <a class="tool-card" href="facilities.html" data-panel-key="index-tool-facilities">
         <span class="status-badge beta">Beta Testing</span>
         <div class="tool-icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -692,7 +719,7 @@
 
 <!-- ─── About ────────────────────────────────────────────────────── -->
 <div class="about-band">
-  <section id="about">
+  <section id="about" data-panel-key="index-about">
     <h2 class="section-title">What WIN Does</h2>
     <p class="section-subtitle">
       We're the link between a wildlife emergency in the field and the rehabber who can treat it.
@@ -737,7 +764,7 @@
 </div>
 
 <!-- ─── Contact ──────────────────────────────────────────────────── -->
-<section id="contact" class="contact-band" style="max-width:none;">
+<section id="contact" class="contact-band" style="max-width:none;" data-panel-key="index-contact">
   <div class="contact-inner">
     <div class="contact-item">
       <h5>Emergency Hotline</h5>
@@ -768,5 +795,6 @@
   <p>501(c)(3) non-profit · All-volunteer · Serving the Commonwealth of Pennsylvania</p>
 </footer>
 
+<script src="assets/flags.js"></script>
 </body>
 </html>

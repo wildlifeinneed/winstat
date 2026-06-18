@@ -46,6 +46,7 @@ const { geocodeAddress } = require('../src/census');
 const { autocompleteAddress, photonGeocode, looksLikeFullAddress, looksLikeIntersection, hasHouseNumberMatch, censusAutocompleteFallback } = require('../src/autocomplete');
 const { rehabberDistances, drivingDistancesMiles, MAX_MATRIX_DESTINATIONS } = require('../src/distance');
 const { handleRequest } = require('../src/handler');
+const { resolveAllowedOrigin } = require('../src/handler');
 const { COUNTY_WIN, countyToArea, areaCounties } = require('../src/county_win');
 
 // --- tiny test framework ---------------------------------------------------
@@ -2494,6 +2495,62 @@ async function main() {
       assert.ok(Object.prototype.hasOwnProperty.call(tier2, k), 'Tier-2 response has ' + k);
     });
     assert.ok(Array.isArray(tier2.out_of_county), 'Tier-2 out_of_county is an array (rows rendered without error)');
+  });
+
+  // (5) CORS allowlist resolution -- widened ALLOWED_ORIGIN (*.pages.dev). -----
+  await test('CORS: legacy single-origin config with no request Origin -> that origin', () => {
+    assert.strictEqual(
+      resolveAllowedOrigin('https://wildlifeinneed.github.io', null),
+      'https://wildlifeinneed.github.io');
+  });
+  await test('CORS: comma allowlist, prod Origin echoes prod', () => {
+    assert.strictEqual(
+      resolveAllowedOrigin(
+        'https://wildlifeinneed.github.io,https://*.pages.dev',
+        'https://wildlifeinneed.github.io'),
+      'https://wildlifeinneed.github.io');
+  });
+  await test('CORS: comma allowlist, *.pages.dev preview Origin echoes that preview', () => {
+    assert.strictEqual(
+      resolveAllowedOrigin(
+        'https://wildlifeinneed.github.io,https://*.pages.dev',
+        'https://winstat.pages.dev'),
+      'https://winstat.pages.dev');
+  });
+  await test('CORS: nested preview subdomain still matches the *.pages.dev pattern', () => {
+    assert.strictEqual(
+      resolveAllowedOrigin(
+        'https://wildlifeinneed.github.io,https://*.pages.dev',
+        'https://abc123.winstat.pages.dev'),
+      'https://abc123.winstat.pages.dev');
+  });
+  await test('CORS: unknown/spoofed Origin falls back to prod (first entry), never echoed', () => {
+    assert.strictEqual(
+      resolveAllowedOrigin(
+        'https://wildlifeinneed.github.io,https://*.pages.dev',
+        'https://evil.pages.dev.attacker.com'),
+      'https://wildlifeinneed.github.io');
+  });
+  await test('CORS: no Origin header with widened allowlist -> first entry (prod default)', () => {
+    assert.strictEqual(
+      resolveAllowedOrigin(
+        'https://wildlifeinneed.github.io,https://*.pages.dev',
+        null),
+      'https://wildlifeinneed.github.io');
+  });
+  await test('CORS: preflight on widened config still emits ACAO for a *.pages.dev request', async () => {
+    const reqWithOrigin = {
+      method: 'OPTIONS',
+      url: 'https://worker.example/',
+      headers: { get: (h) => (String(h).toLowerCase() === 'origin' ? 'https://winstat.pages.dev' : null) },
+      json: async () => { throw new Error('no body'); },
+    };
+    const res = await handleRequest(reqWithOrigin, {
+      ResponseCtor: MockResponse, kv: mockKV([]),
+      allowedOrigin: 'https://wildlifeinneed.github.io,https://*.pages.dev',
+    });
+    assert.strictEqual(res.status, 204);
+    assert.strictEqual(res.header('Access-Control-Allow-Origin'), 'https://winstat.pages.dev');
   });
 
   console.log('\n----------------------------------------');

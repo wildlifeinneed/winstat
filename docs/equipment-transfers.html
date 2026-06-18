@@ -644,6 +644,21 @@
     .status-strip.beta strong  { background: var(--amber); color: #fff; }
     .status-strip.construction         { background: var(--red-light); color: var(--red); border-bottom-color: #f0b8b0; }
     .status-strip.construction strong  { background: var(--red); color: #fff; }
+
+    /* ─── Per-panel maintenance dim (flags.js 'maintenance' state) ────── */
+    .is-under-maintenance { position: relative; }
+    .is-under-maintenance > *:not([data-maint-banner]) {
+      opacity: 0.4;
+      filter: grayscale(0.85);
+      pointer-events: none;
+    }
+    .is-under-maintenance > [data-maint-banner] {
+      opacity: 1 !important;
+      filter: none !important;
+      pointer-events: auto;
+      margin-bottom: 12px;
+      border-radius: 8px;
+    }
     @media (max-width: 480px) {
       .status-strip { font-size: 12px; padding: 7px 12px; }
       .status-strip .sub { display: block; margin-top: 2px; }
@@ -669,7 +684,7 @@
   <strong>LIVE</strong><span class="sub">This feature is fully operational.</span>
 </div>
 
-<div class="controls-bar">
+<div class="controls-bar" data-panel-key="equipment-controls">
   <div class="controls-inner">
     <div class="search-wrap">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -699,7 +714,7 @@
   </div>
 </div>
 
-<main class="table-wrap">
+<main class="table-wrap" data-panel-key="equipment-table">
   <div class="table-scroll">
     <table id="transfers-table">
       <thead>
@@ -741,6 +756,7 @@
   </div>
 </div>
 
+<script src="assets/flags.js"></script>
 <script>
 // ─── Configuration ──────────────────────────────────────────────
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRP-mI92FtDz-nWAoLfRaaWKgpCRC5Io_oCIMGGdmjzX4b9frFLqQVrdATjWkLd7u4vBmwAsSMn_jdL/pub?output=csv';

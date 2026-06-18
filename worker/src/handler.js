@@ -44,6 +44,44 @@ const KV_COORDS_KEY = 'volunteer_coords';
 // to the project's GitHub Pages origin in wrangler.toml [vars].
 const DEFAULT_ALLOWED_ORIGIN = 'https://example.github.io';
 
+// resolveAllowedOrigin(): pick the single Access-Control-Allow-Origin value.
+//
+// `configured` is the ALLOWED_ORIGIN wrangler var, which may be a SINGLE origin
+// (legacy: "https://wildlifeinneed.github.io") or a COMMA-SEPARATED allowlist
+// where entries may be exact origins OR a "*.pages.dev" wildcard pattern. When
+// the incoming request carries an Origin that matches any allowlist entry, we
+// echo that exact origin back (ACAO can only name one origin). Otherwise we
+// fall back to the FIRST configured entry so behaviour with no Origin header
+// (and the existing worker tests) is unchanged.
+function resolveAllowedOrigin(configured, requestOrigin) {
+  const list = String(configured || DEFAULT_ALLOWED_ORIGIN)
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const fallback = list[0] || DEFAULT_ALLOWED_ORIGIN;
+  const origin = String(requestOrigin || '').trim();
+  if (!origin) return fallback;
+  for (const entry of list) {
+    if (entry === origin) return origin;
+    // Wildcard subdomain pattern, e.g. "https://*.pages.dev".
+    const star = entry.indexOf('*');
+    if (star !== -1) {
+      const prefix = entry.slice(0, star);
+      const suffix = entry.slice(star + 1);
+      if (
+        origin.startsWith(prefix) &&
+        origin.endsWith(suffix) &&
+        origin.length >= prefix.length + suffix.length &&
+        // the wildcard must not span a '/' (stay within the host portion)
+        origin.slice(prefix.length, origin.length - suffix.length).indexOf('/') === -1
+      ) {
+        return origin;
+      }
+    }
+  }
+  return fallback;
+}
+
 function corsHeaders(allowedOrigin) {
   return {
     'Access-Control-Allow-Origin': allowedOrigin || DEFAULT_ALLOWED_ORIGIN,
@@ -259,7 +297,14 @@ async function readCoordsFromKV(kv) {
  */
 async function handleRequest(request, deps) {
   const ResponseCtor = deps.ResponseCtor;
-  const allowedOrigin = deps.allowedOrigin;
+  // Resolve the single ACAO value from the configured allowlist + the incoming
+  // Origin header. Echoes a matching prod or *.pages.dev preview origin; falls
+  // back to the first configured entry when there is no/unknown Origin.
+  const requestOrigin =
+    request && request.headers && typeof request.headers.get === 'function'
+      ? request.headers.get('Origin')
+      : null;
+  const allowedOrigin = resolveAllowedOrigin(deps.allowedOrigin, requestOrigin);
 
   const method = (request.method || 'GET').toUpperCase();
   if (method === 'OPTIONS') {
@@ -539,6 +584,7 @@ async function handleRequest(request, deps) {
 module.exports = {
   KV_COORDS_KEY,
   DEFAULT_ALLOWED_ORIGIN,
+  resolveAllowedOrigin,
   corsHeaders,
   readParams,
   urlMode,
