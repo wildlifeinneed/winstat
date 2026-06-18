@@ -1,231 +1,361 @@
-# Dispatcher Console — User Manual
+# WIN Volunteer Tools — User Manual
 
-This is the guide for dispatchers who operate the Wildlife In Need PA Dispatcher
-Console. It explains, step by step, how to take a wildlife report and route it to
-the right volunteer or action.
+This guide is for **WIN volunteers, dispatchers, and coordinators** using the live
+tools on the WIN help site. It covers what each page does, what the information
+means, and what to expect from the current version of the tools.
 
-> Status: this is a preview ("Under Construction") build. Read the **Beta caveats**
-> section at the end before you rely on anything here.
-
----
-
-## 1. What the console is for
-
-When someone reports a wild animal in trouble, your job is to get the right help to
-that animal. The console does one thing: it takes a few facts about the animal and
-tells you **who to dispatch** or **what action to take** (for example, send a
-volunteer through Connecteam, or call the PA Game Commission).
-
-It does **not** call anyone for you and it does **not** change any volunteer's
-schedule. It gives you a recommendation; you act on it.
+These tools are **decision aids**. They do not place calls, assign work, or update
+Connecteam for you. A volunteer or dispatcher still makes the final call.
 
 ---
 
-## 2. Two facts you always set first (top of the page)
+## 1. Home page
 
-At the very top of the page there is a shared block you fill in **before** choosing
-a lookup mode. These two facts apply to both lookup modes.
+The home page is the starting point for the current WIN tools.
 
-1. **RVS Animal?** — Choose **Yes** or **No**.
-   - "RVS" means the animal needs a Rabies Vector Species qualified volunteer
-     (an RVS C&T volunteer). Default is **No**.
-2. **Issue** — Choose **Capture** or **Transport**. Default is **Capture**.
-   - **Capture** = the animal needs to be caught / contained ("C&T" = Capture &
-     Transport).
-   - **Transport** = the animal mainly needs to be moved (couriers are preferred,
-     but C&T volunteers can also do transport runs).
+It includes:
 
-These choices change the recommendation, so set them correctly first. If you change
-them **after** results are already on screen, see **Section 6 — Stale results**.
+- the **wildlife emergency hotline**
+- a short **About WIN** section
+- contact information
+- three tool cards:
+  - **Equipment Transfers**
+  - **Dispatch Helper**
+  - **Rehab Facility Status**
 
----
+Each tool card has a status badge such as **LIVE** or **Beta Testing**.
 
-## 3. Choosing a lookup mode
-
-Below the two facts is a toggle with two modes:
-
-- **By County** — you know the county; pick it from a list.
-- **By Animal Address** — you have the animal's street address; the console finds
-  volunteers within a radius of that address.
-
-Pick whichever matches the information you have.
+If a tool is temporarily unavailable, its card may appear **dimmed**. If you open a
+page that is unavailable, you may see a **Down for Maintenance, check back later.**
+banner.
 
 ---
 
-## 4. COUNTY mode — step by step
+## 2. Dispatch Helper
 
-Use this when you know the county the animal is in.
+Use the Dispatch Helper when you need to decide **who should respond** to a wildlife
+call or what fallback action to take.
 
-1. Set **RVS Animal?** and **Issue** at the top of the page (Section 2).
-2. Make sure **By County** is selected.
-3. Pick the county from the **County** dropdown.
-4. Three **capacity cards** appear for that county:
-   - **C&T** — non-RVS Capture & Transport volunteers.
-   - **RVS C&T** — RVS-qualified Capture & Transport volunteers.
-   - **Courier** — transport-only volunteers.
-   Each card shows **available / total** (for example, `2 / 5 available`).
-5. A **coordinator line** appears showing the WIN area coordinator for that county
-   (for example, "Area 10 Coordinator: Julia Meredith"). If there is no coordinator
-   on file for the county, it says so. This line shows a **name only** — never a
-   phone number.
-6. If the county looks thin, a **"Thin in this county?"** prompt offers a
-   **"Widen search → enter address + radius"** button that switches you to
-   Address mode (Section 5) carrying your animal facts with you.
-7. Click **Get Recommendation**.
-8. Read the recommendation box that appears (see **Section 7 — How to read a
-   recommendation**).
+### Set these two facts first
 
-If you click **Get Recommendation** before picking a county, the box tells you to
-**select a county first**.
+At the top of the page, choose:
 
----
+1. **RVS Animal?** — **Yes** or **No**
+2. **Issue** — **Capture** or **Transport**
 
-## 5. ADDRESS + RADIUS mode — step by step
+These choices affect every lookup and recommendation.
 
-Use this when you have the animal's address (or after you clicked "Widen search"
-from County mode).
+- **Capture** means the animal needs to be safely contained or caught.
+- **Transport** means the animal mainly needs a ride or handoff.
+- For transport, **couriers are preferred**, but C&T volunteers can also appear as
+  transport-capable help.
 
-1. Set **RVS Animal?** and **Issue** at the top of the page (Section 2).
-2. Select **By Animal Address**.
-3. Type the animal's address in **Animal Address**. As you type, a list of address
-   suggestions appears — use the arrow keys and Enter, or click, to pick one.
-   - The address is geocoded by a public service (US Census, no key). **No address
-     is stored.**
-4. Set the **Search Radius (miles)**. Default is **20**; the maximum is **100**.
-   Distance is straight-line ("as the crow flies").
-5. Click **Find Help Nearby**.
-6. Results appear in a panel:
-   - **Volunteers in range** — the total count of WIN volunteers within the radius.
-   - Three capacity cards (**C&T**, **RVS C&T**, **Courier**) showing
-     **available / total** in range.
-   - **WIN areas covered** — chips listing which WIN areas fall in range.
-   - An **Out-of-county helpers** list when relevant: one row per volunteer with
-     role badge(s) and distance, nearest first. Each row also carries a
-     **Qualified / Not qualified** tag for *this* animal (based on your RVS + Issue
-     choices). If the radius is very large, you may see a notice that only the
-     nearest few are shown — narrow the radius for a complete list.
-   - **Recommended Actions** — one or more action lines (see Section 7).
-   - The on-demand **nearest rehabber** panel (see Section 8).
+### Choose a lookup mode
 
-If the address can't be found or the service is unavailable, an error message
-explains what to try (for example, check spelling, or try again shortly).
+The page has two lookup modes:
+
+- **By County**
+- **By Animal Address**
+
+Use the one that matches the information you have from the caller.
 
 ---
 
-## 6. Stale results — when you change a fact after results show
+## 3. Dispatch Helper — By County
 
-If you change the **RVS Animal?** toggle or the **Capture / Transport** selection
-**after** a result is already on screen, the console does **not** silently update
-the numbers. Instead it:
+Use **By County** when you know the county but do not have a usable street address.
 
-- **dims and greys out** the shown result so you don't trust stale numbers, and
-- shows a banner: **"Inputs changed — re-run the lookup to refresh results."**
-  with a hint to click the lookup button again.
+### What you see
 
-To refresh, just click the lookup button again:
+After choosing a county, the page shows:
 
-- In County mode: **Get Recommendation**.
-- In Address mode: **Find Help Nearby**.
+- a county badge such as **County · Area number**
+- three volunteer cards:
+  - **C&T**
+  - **RVS C&T**
+  - **Courier**
+- each card shows **available out of total**
+- a coordinator line for that WIN area, when one is on file
 
-Re-running clears the banner and shows fresh numbers. (Numbers are never changed
-behind your back — you always re-run on purpose.) When an address result goes
-stale, the nearest-rehabber panel is also collapsed so it can't reveal stale rows.
+The county cards are based on the **WIN area pool** tied to that county, so the
+subtext may show an area breakdown across more than one county.
 
----
+### Getting a recommendation
 
-## 7. How to read a recommendation
+Click **Get Recommendation**.
 
-A recommendation has a few parts. Read them top to bottom.
+The recommendation may tell you to:
 
-### The action headline
-A colored bar tells you the recommended action:
+- **dispatch through Connecteam**
+- use a **courier**
+- use an available **C&T / RVS C&T** volunteer
+- or tell the finder to call **PA Game Commission**
 
-- **Dispatch via Connecteam** (green) — send a qualified volunteer the task through
-  Connecteam.
-- **Call PA Game Commission** (amber) — there is no available qualified volunteer;
-  the finder should call the Game Commission (see Section 9).
-- **No automatic action - escalate to supervisor** (grey) — the inputs weren't
-  enough to decide; pick Capture or Transport, or escalate.
+If capacity is very low, the result may show a **Marginal** badge and list the
+stored availability notes for those volunteers. Those notes are meant to help you
+judge whether someone is likely usable, but they may be out of date.
 
-In Address mode the action lines read similarly (task qualified helpers via
-Connecteam, or escalate to the PA Game Commission, etc.).
+### Thin county handoff
 
-### Target role
-A line such as **"Target role: RVS C&T"** tells you which kind of volunteer the
-recommendation is for (C&T, RVS C&T, C&T (any), or Courier).
+If the county looks thin, the page may show:
 
-### Reasoning
-A short numbered list explains *why* the console chose that action — for example,
-"Capture + RVS animal -> RVS-capable C&T required" then "Recommended: dispatch a
-C&T+RVS volunteer via Connecteam."
+**Thin in this county? → Widen search → enter address + radius**
 
-### Capacity cards
-The same **available / total** cards from the lookup, so you can see how much
-capacity is behind the recommendation.
-
-### "Marginal" low-capacity badge + roster
-If the chosen role has very little capacity left (at or below the low-capacity
-threshold but still above zero), the recommendation shows a **Low capacity** block.
-It lists the **availability notes** for those marginal volunteers (the verbatim
-note from the data) so you can judge whether to dispatch or call the Game
-Commission instead. No volunteer names or phone numbers are shown here.
-
-### Coordinator line
-In County mode the area coordinator's **name** is shown (name only, never a phone),
-so you know who oversees that WIN area.
-
-You can dismiss the County-mode recommendation box with the **Dismiss** button.
+That button switches you into address mode so you can search by a real location.
 
 ---
 
-## 8. Nearest rehabbers (on-demand)
+## 4. Dispatch Helper — By Animal Address
 
-After an Address-mode lookup, a **"Show nearest rehabbers"** button may appear.
-Rehabbers are **not** shown automatically — click the button to reveal them. The
-list is already prepared (clicking only shows/hides it; it does not re-run the
-lookup). Click again to **Hide nearest rehabbers**.
+Use **By Animal Address** when you have the animal’s location and want a more exact
+search.
 
-When revealed, you see up to the **top 3 closest rehabbers**, nearest first. Each
-row shows:
+### How it works
 
-- **Name**
-- **Distance** in miles (the header notes whether distance is measured from the
-  animal location or, as a fallback, from the county center)
-- **County**
-- **Phone** as a tap-to-call link. If the rehabber has **no phone on file**, the
-  row shows **`----`** instead of a number.
-- **Availability text** — the verbatim note from the rehabber's record (line breaks
-  preserved).
-- **Website** link — only when a website is on file.
+1. Enter the animal address.
+2. Pick a suggestion if one appears.
+3. Set the **Search Radius (miles)**.
+4. Click **Find Help Nearby**.
+
+The page uses an address lookup service and does **not** store the entered address.
+
+### What the results mean
+
+Address results can show:
+
+- **Volunteers in range**
+- the same three role cards:
+  - **C&T**
+  - **RVS C&T**
+  - **Courier**
+- **WIN areas covered**
+- a resolved location line showing the animal’s county and WIN area, when available
+- **Recommended Actions**
+- a list of **qualified volunteers within the selected radius**
+- an on-demand **nearest rehabbers** section
+- an optional **map**
+
+### Qualified volunteer list
+
+The helper list in address mode shows **qualified volunteers only** for the animal
+you described. Each line may show:
+
+- role badges
+- distance from the animal
+- WIN area
+- county
+- an availability note, if one exists
+
+Some volunteer rows may appear dimmed when the person’s availability note suggests
+they are not currently available.
+
+If the search radius is very broad, the page may show only the nearest results and
+tell you to narrow the radius for a complete list.
+
+### Driving distances
+
+When available, the tool uses **real driving distance and travel time** for helpers
+and rehabbers.
+
+You may see either:
+
+- **`X.X mi driving / ~Y min`** in the list views, or
+- **`X.X miles / Y min`** in map popups
+
+If live driving time is not available, the map falls back to an estimate:
+
+- **`X.X miles / ~Y min (est.)`**
+
+### Map
+
+The address results can include a **Show map / Hide map** toggle.
+
+The inline map shows three marker types:
+
+- **animal location** — red diamond
+- **rehabbers** — blue markers
+- **volunteers** — amber markers
+
+Volunteer markers are shown at the **center of the volunteer’s home county**, not
+at an exact address. This is intentional for privacy.
+
+The map includes a legend and is meant for quick orientation, not for exact routing.
+
+### Nearest rehabbers
+
+The rehabber list stays hidden until you click **Show nearest rehabbers**.
+
+When opened, it shows up to the **three closest rehabbers** and may include:
+
+- name
+- county
+- phone
+- stored availability note
+- website
+- distance from the animal
+
+If live driving data is available, the rehabber list is re-ranked by **road
+distance**, not just straight-line distance.
 
 ---
 
-## 9. PA Game Commission fallback
+## 5. Stale results
 
-The console always keeps the PA Game Commission dispatch line in front of you.
-Under the **Get Recommendation** button you will always see:
+If you change **RVS Animal?** or **Issue** after a result is already on the page,
+the tool does **not** silently recalculate.
 
-> If no Volunteer contacts FINDER within 2 hours FINDER should call PA Game
-> Commission: **(833) 742-4868 or (833) 742-9453**
+Instead it:
 
-Whenever a recommendation says to **Call PA Game Commission** (no qualified
-volunteer available), this is the number to use.
+- dims the old result
+- shows a warning that inputs changed
+- asks you to run the lookup again
+
+Re-run by clicking:
+
+- **Get Recommendation** in county mode, or
+- **Find Help Nearby** in address mode
+
+In address mode, making the result stale also collapses the rehabber panel so you
+do not keep using stale supporting information.
 
 ---
 
-## 10. Beta caveats — read this
+## 6. Rehab Facility Status
 
-This is a preview build. A few things you must keep in mind:
+Use this page to quickly check which licensed wildlife facilities may be accepting
+animals.
 
-- **Rehabber OPEN/CLOSED status is NOT shown here and is NOT kept current.** Do
-  **not** assume a rehabber is open just because they appear in the nearest-rehabber
-  list. Open/closed lives in a **separate (beta) rehab-status app on the winstat
-  site** — check there or call before sending an animal.
-- **Availability text is verbatim.** The availability note shown for a rehabber (and
-  in the marginal-volunteer roster) is the exact note from the data — it may be out
-  of date. Treat it as a hint, not a guarantee.
-- This build is labeled **Under Construction** and is **not yet ready for production
-  use**.
+### Important reminder
 
-When in doubt, call ahead and fall back to the PA Game Commission number in
-Section 9.
+At the top of the page there is an advisory banner:
+
+> This volunteer-maintained status may be out of date — always contact the facility
+> directly to confirm before bringing an animal in for care.
+
+Treat the page as a **guide**, not a guarantee.
+
+### What the data comes from
+
+This page combines two sources at read time:
+
+- **base facility details** from the WIN/Monday facility dataset
+- **status and alert details** from a published Google Sheet
+
+That means contact details and status notes may come from different sources that are
+joined together when the page loads.
+
+### What you can do on this page
+
+You can:
+
+- search by **facility name**, **county**, or **alert text**
+- filter by **county**
+- filter by status:
+  - **Open**
+  - **Limited**
+  - **Closed**
+  - **Call**
+- open the **Animal code legend**
+- expand any facility card for details
+
+Each facility card may show:
+
+- facility name
+- county
+- animal code tags
+- status badge
+- last updated date
+- alert text
+- address and map link
+- phone number
+- website
+- contact person
+- expected reopen date
+
+### Animal codes
+
+The legend explains the species shorthand used on cards:
+
+- **M** — Mammals
+- **P** — Passerines / Songbirds
+- **R** — Raptors
+- **RVS** — Rabies Vector Species
+- **END** — Endangered / Threatened
+- **RA** — Reptiles & Amphibians
+
+The codes are visible on the page, but there is **not currently a dedicated species
+filter button**. Use the legend and card details when checking fit.
+
+### Status meanings
+
+- **Open** — currently shown as accepting
+- **Limited** — only some species or situations are being accepted
+- **Closed** — not currently taking animals
+- **Call** — call first for clarification
+
+Always call before transport.
+
+---
+
+## 7. Equipment Transfers
+
+Use this page to review the shared equipment transfer log.
+
+### What it does
+
+This page loads the live transfer sheet and shows a sortable table of transfer
+records.
+
+You can:
+
+- search across the table
+- filter by:
+  - **All**
+  - **Operational**
+  - **Not Operational**
+- sort by clicking any column header
+- use mobile sort controls on smaller screens
+- click any row to open a detail view
+
+### What appears in the table
+
+Columns may include:
+
+- submission date
+- ID
+- equipment
+- transfer from
+- transfer to
+- reason
+- operational status
+- transfer date
+- remarks
+- submitted by
+- other type
+
+The page also shows a **Last refreshed** time after loading.
+
+---
+
+## 8. PA Game Commission fallback
+
+The Dispatch Helper keeps the PA Game Commission fallback in view:
+
+**(833) 742-4868 or (833) 742-9453**
+
+Use that number when the tool tells you there is no qualified WIN help available,
+or when you need to escalate beyond WIN’s volunteer response.
+
+---
+
+## 9. Practical reminders
+
+- Use the **home page** to check which tools are live before you start.
+- In the **Dispatch Helper**, county mode is faster, but address mode is more exact.
+- In address mode, the map is a **visual aid**, not an exact volunteer location map.
+- In **Facility Status**, always call ahead even if a facility appears open.
+- In **Equipment Transfers**, click a row for the full details instead of relying on
+  the shortened table view.
+
+If something looks wrong or incomplete, treat the app as a guide and confirm by
+phone or through the usual WIN communication channels.
