@@ -17,6 +17,7 @@
 - **Worker** — A small JavaScript program that runs on Cloudflare's servers and
   responds to web requests; in this project it is the private layer that reads
   volunteer coordinates and returns only PII-free aggregate counts.
+  See: ![System overview showing the Cloudflare Worker + KV edge layer](images/system-overview.png)
 - **KV (KV store)** — Cloudflare "Key-Value" storage: a simple cloud database
   that stores values looked up by a key. Here it holds the private
   `volunteer_coords` data that the browser must never see.
@@ -39,6 +40,7 @@
 - **edge compute / edge function** — Running code (like a Worker) on servers
   geographically close to the user ("the edge") instead of one central data
   center, for lower latency.
+  See: ![System overview: external sources, the refresh pipeline, GitHub Pages, and the Cloudflare Worker + KV edge layer](images/system-overview.png)
 
 ## Monday.com terms
 
@@ -95,6 +97,7 @@
 - **Tier 1 / Tier 2** — The dispatcher's two search modes: **Tier 1** is the fast
   county-level capacity overview; **Tier 2** is the precise address + radius
   search that calls the Worker and draws the map.
+  See: ![Data path B: county mode (Tier 1) computes locally; address mode (Tier 2) calls the Worker aggregate](images/dispatcher-data-path-b.png)
 
 ## General web/technical terms
 
@@ -113,6 +116,7 @@
   fields it needs in one request, instead of hitting many fixed endpoints.
 - **Leaflet** — An open-source JavaScript library for interactive maps; used here
   to render the dispatcher volunteer map.
+  See: ![Leaflet map flow: renderTier2Map paints the animal, rehab, and volunteer layers and fits bounds](images/dispatcher-leaflet-map.png)
 - **npm (Node Package Manager)** — The JavaScript package manager used to install
   the project's dependencies and run its scripts.
 - **OSM (OpenStreetMap)** — Free, community-built map data used as the tile source
@@ -122,6 +126,7 @@
 - **haversine** — A formula for straight-line ("as the crow flies") distance
   between two lat/lon points; used as a fast first pass before ORS driving
   distances.
+  See: ![Data path C: a haversine top-N renders the top 3, then ORS Matrix re-ranks by driving distance](images/dispatcher-data-path-c.png)
 - **IIFE** — Immediately Invoked Function Expression; a JavaScript pattern that
   wraps all of a file's code in a function that runs at once, keeping variables
   private. `dispatcher.js` is one big IIFE.
@@ -151,15 +156,19 @@
 - **join-at-read** — The Facility Status pattern of fetching two independent data
   sources (Monday base + Google-Sheet status) and merging them **in the browser
   at render time**, instead of pre-joining them into one file.
+  See: ![Join-at-Read overview: facilities.html fetches both sources and merges by normalized name](images/facilities-join-at-read.png)
 - **normalizeName** — A helper that lowercases a facility name and strips
   punctuation/extra spaces so two spellings of the same facility match as one
   join key.
+  See: ![Merge pipeline: normalized-name maps drive the two-phase union merge into the status grid](images/facilities-join-pipeline.png)
 - **refresh pipeline** — The scheduled CI process (`refresh_monday.py` driven by
   `refresh.yml`) that pulls Monday data, geocodes it, commits public JSON, and
   pushes private coords to KV.
+  See: ![Data path A: refresh_monday.py reads Monday boards, commits public JSON, and pushes private coords to KV](images/dispatcher-data-path-a.png)
 - **sentinel / sentinel pattern** — A cheap pre-check that decides whether
   expensive work should run. Here `refresh_sentinel.py` checks if the
   VolDB_Status tracker's date advanced before doing a full board pull.
+  See: ![Refresh sentinel flow: the VolDB_Status gate either skips or runs the full board pull](images/system-refresh-sentinel.png)
 - **fail-safe (sentinel)** — The sentinel's rule that any error means "don't
   refresh" rather than crash — it never raises and never triggers an expensive,
   possibly-broken pull.
@@ -169,6 +178,7 @@
 - **the aggregate** — The PII-free summary (counts of qualifying volunteers in
   range, plus safe coordinates) the Worker returns; note there is no literal
   `/aggregate` URL path — it's the Worker root selected by query params.
+  See: ![Data path D: the Worker filters KV volunteer_coords by radius and returns a counts-only PII-free aggregate](images/dispatcher-data-path-d.png)
 - **defence-in-depth (PII guard)** — Layering multiple independent safeguards in
   CI (explicit allow-list, staged-diff assertion, PII-key scan) so no single
   mistake can leak private data.
