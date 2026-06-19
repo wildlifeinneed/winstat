@@ -11,6 +11,28 @@
     "hiatus"
   ],
   "counties": {
+    "Adams": {
+      "courier": {
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Wed, Thurs",
+            "connecteam_user": true
+          }
+        ],
+        "total": 1
+      },
+      "ct_no_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      },
+      "ct_rvs": {
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
+      }
+    },
     "Allegheny": {
       "courier": {
         "available": 10,
@@ -296,9 +318,14 @@
     },
     "Clinton": {
       "courier": {
-        "available": 0,
-        "marginal_volunteers": [],
-        "total": 0
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail after 5pm: Mon, Tues, Thurs, Fri; After 1pm Wed; Weekends. Varies",
+            "connecteam_user": true
+          }
+        ],
+        "total": 1
       },
       "ct_no_rvs": {
         "available": 1,
@@ -1121,7 +1148,7 @@
         "total": 1
       },
       "ct_rvs": {
-        "available": 1,
+        "available": 0,
         "marginal_volunteers": [
           {
             "availability_note": "Avail limited, Varies, Unavail 6/19-6/28",
@@ -1132,7 +1159,7 @@
       }
     }
   },
-  "generated_at": "2026-06-18T18:39:17Z",
+  "generated_at": "2026-06-19T17:31:21Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
