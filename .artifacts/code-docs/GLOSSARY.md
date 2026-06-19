@@ -98,6 +98,8 @@
 
 ## General web/technical terms
 
+- **CI (Continuous Integration)** — An automated build/test/deploy pipeline that
+  runs whenever code changes, so checks and refreshes happen without manual steps.
 - **CORS (Cross-Origin Resource Sharing)** — Browser security rules that block a
   web page from calling a different domain unless that domain explicitly allows
   it. The Worker proxies third-party services so the browser only ever talks to
@@ -109,6 +111,12 @@
   **vendoring** Leaflet locally.
 - **GraphQL** — A query language for APIs where the client specifies exactly which
   fields it needs in one request, instead of hitting many fixed endpoints.
+- **Leaflet** — An open-source JavaScript library for interactive maps; used here
+  to render the dispatcher volunteer map.
+- **npm (Node Package Manager)** — The JavaScript package manager used to install
+  the project's dependencies and run its scripts.
+- **OSM (OpenStreetMap)** — Free, community-built map data used as the tile source
+  for the dispatcher map.
 - **geocode** — Convert a street address into latitude/longitude coordinates
   (done server-side via the US Census geocoder).
 - **haversine** — A formula for straight-line ("as the crow flies") distance
@@ -123,10 +131,17 @@
   (e.g. whether the map panel is open) across page loads.
 - **choropleth** — A map that shades regions by a value; here the WIN-area county
   map is an inline SVG choropleth (separate from the Leaflet map).
+- **SVG choropleth** — A shaded map where geographic regions (like counties) are
+  colored by their data values using SVG vector graphics.
 - **GeoJSON** — A standard JSON format for geographic shapes (county polygons)
   used both by the frontend map and the Worker.
 - **BOM (UTF-8 BOM)** — A few invisible bytes some tools prepend to a text file;
   the CSV parsers strip it so it doesn't corrupt the first column.
+- **RFC-4180-ish parser** — A CSV parser that loosely follows RFC 4180 (the formal
+  spec for the CSV file format), handling quoted fields, embedded commas, and
+  newlines.
+- **XSS-safe escaping** — Sanitizing user-supplied text before inserting it into
+  HTML so malicious scripts cannot execute (Cross-Site Scripting prevention).
 - **PII** — Personally Identifiable Information (e.g. a volunteer's exact home
   coordinates, phone, email); the architecture exists largely to keep PII out of
   the browser.
