@@ -71,24 +71,7 @@ and the modal: each row's click passes its index, and `openDetail` reads
 
 ## 4. Data flow (CSV → fetch → parse → render → search/filter/sort → modal)
 
-```mermaid
-flowchart TD
-    A["Google Form submission<br/>(volunteer)"] --> B["Google Sheet<br/>(data store)"]
-    B -->|"File ▸ Publish to web ▸ CSV"| C["Published CSV URL<br/>CSV_URL (line 762)"]
-
-    subgraph Browser["equipment-transfers.html (browser)"]
-        D["fetch(CSV_URL)<br/>every 5 min (REFRESH_INTERVAL_MS)"]
-        E["parseCSV() + splitCsvLine()<br/>→ array of row objects"]
-        F["in-memory rows<br/>(keyed by COLUMNS)"]
-        G["applyFilters / sort<br/>(search box + op-filter + column sort)"]
-        H["renderHeader() + renderRows()<br/>→ table DOM, currentRows[]"]
-        I["openDetail(idx)<br/>→ modal from currentRows[idx]"]
-    end
-
-    C --> D --> E --> F --> G --> H
-    H -->|"row click"| I
-    G -->|"search input / filter button / header click"| H
-```
+![Equipment data flow: Google Form to Sheet to published CSV, then in the browser fetch, parse, in-memory rows, filter/sort, render, and row-detail modal](images/equipment-data-flow.png)
 
 Step by step:
 

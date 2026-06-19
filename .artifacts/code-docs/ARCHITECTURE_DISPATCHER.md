@@ -16,34 +16,7 @@ volunteer coordinates or PII** — those live in Cloudflare KV behind a Worker,
 which only ever returns PII-free aggregate counts plus the *animal* coordinate
 (safe) and *public* rehabber coordinates.
 
-```mermaid
-flowchart LR
-    subgraph Client["dispatcher.html + dispatcher.js (browser)"]
-        UI["2-tier UI<br/>county mode / address mode"]
-        MAP["Leaflet locator map<br/>(lazy-init)"]
-    end
-
-    subgraph Edge["Cloudflare Worker — pa-wildlife-dispatcher.winstat.workers.dev"]
-        AGG["aggregate (root ?address / ?animal_lat)"]
-        REH["?mode=rehabber_distances"]
-        AC["?autocomplete="]
-        KV[("KV: VOLUNTEER_COORDS<br/>key volunteer_coords")]
-        CEN["US Census geocoder<br/>(no API key)"]
-        ORS["OpenRouteService<br/>Matrix API (driving)"]
-    end
-
-    LocalJSON[("docs/data/*.json<br/>public, PII-free")]
-
-    UI --> AGG
-    UI --> AC
-    MAP --> REH
-    UI --> LocalJSON
-    AGG --> KV
-    AGG --> CEN
-    REH --> ORS
-    AC --> CEN
-    MAP -->|OSM tiles| TILES["tile.openstreetmap.org"]
-```
+![Dispatcher big picture: the browser client (2-tier UI + Leaflet map) talks only to the Cloudflare Worker (aggregate, rehabber distances, autocomplete over KV, Census, and ORS) plus OSM tiles and local PII-free JSON](images/dispatcher-big-picture.png)
 
 **Golden rule:** the browser fetches only (a) the one Worker origin, (b) OSM map
 tiles, and (c) local `docs/data/*.json`. Every third-party provider (Census,
@@ -139,18 +112,7 @@ geocodes, and writes:
   (`VOLUNTEER_COORDS`, key `volunteer_coords`), never committed, never served to
   the browser.
 
-```mermaid
-flowchart TD
-    M1["Monday: Connecteam_Users<br/>board 9092079933 (volunteers)"] --> RM["refresh_monday.py (CI)"]
-    M2["Monday: RehabDB<br/>board 9092004762 (rehabbers)"] --> RM
-    M3["Monday: Area Coordinators<br/>board 18416913502"] --> RM
-    RM -->|geocode + aggregate| PUB["docs/data/county_capacity.json<br/>rehabbers.json / coordinators.json<br/>county_win.json (PUBLIC, committed)"]
-    RM -->|geocode volunteers| PRIV["data/volunteer_coords.json (PRIVATE)"]
-    PUB -->|GitHub Pages| Browser
-    PRIV -->|wrangler kv put| KV[("Cloudflare KV<br/>VOLUNTEER_COORDS")]
-    KV --> Worker
-    Worker --> Browser
-```
+![Data path A: refresh_monday.py reads three Monday boards, geocodes and aggregates public JSON to GitHub Pages and the browser, and pushes private volunteer coords to Cloudflare KV which only the Worker reads](images/dispatcher-data-path-a.png)
 
 `county_capacity.json` is loaded by `loadSnapshot()` (~2725) into
 `state.snapshot`; `rehabbers.json` by `loadRehabbers()` (~2715);
@@ -189,23 +151,7 @@ radius, and returns a **PII-free aggregate**:
 }
 ```
 
-```mermaid
-flowchart TD
-    subgraph CountyMode["County mode (Tier 1) — NO Worker call"]
-        CSel["#county select"] --> RCFC["renderCardsForCounty() (~292)<br/>reads state.snapshot.counties"]
-        RCFC --> Cards["3 cards: C&T / RVS C&T / Courier<br/>available of total + per-county breakdown + Marginal badge"]
-    end
-
-    subgraph AddrMode["Address mode (Tier 2) — Worker call"]
-        AInput["#animal-address or coord suggestion"] --> FA["fetchAggregateByAddress / ByCoord"]
-        FA -->|"GET WORKER_URL ?address or ?animal_lat + radius_mi + rvs + issue + qualify_roles"| W["Worker aggregate"]
-        W -->|PII-free JSON| RA["renderAggregate(agg,ctx) (~1637)"]
-        RA --> ATotal["#agg-total + role cards (renderAggCard)"]
-        RA --> AAreas["#agg-areas win_area chips"]
-        RA --> CtxList["renderContextList() (~911)<br/>out_of_county rows, nearest-first"]
-        RA --> Actions["Recommended actions + coordinator line + PGC escalation"]
-    end
-```
+![Data path B: county mode (Tier 1) computes role cards locally from the snapshot with no Worker call, while address mode (Tier 2) calls the Worker aggregate and renders totals, area chips, the context list, and recommended actions](images/dispatcher-data-path-b.png)
 
 - **County-mode counts** are computed **locally** from `county_capacity.json`
   (no Worker call). `renderCardsForCounty()` expands across the WIN area via
@@ -246,15 +192,7 @@ error, missing durations) is caught and the straight-line render is kept. Origin
 is chosen by `pickRehabberOrigin()` (~1313): the animal coords if present, else
 the selected county's **centroid** (`state.countyCentroids`).
 
-```mermaid
-flowchart TD
-    Origin["pickRehabberOrigin()<br/>animal coords OR county centroid"] --> H["nearestRehabbers() haversine top-N"]
-    H --> R3["render top 3 (straight line) immediately"]
-    R3 --> ENH["enhanceRehabDrivingDistances() POST<br/>WORKER_URL /?mode=rehabber_distances"]
-    ENH --> WK["Worker → ORS Matrix API"]
-    WK -->|"source=ors, durations"| RR["re-rank by driving distance + re-render"]
-    WK -.->|"any failure (.catch)"| KEEP["keep straight-line render (no-op)"]
-```
+![Data path C: pickRehabberOrigin feeds a haversine top-N that renders the top 3 immediately, then enhanceRehabDrivingDistances POSTs to the Worker (ORS Matrix) to re-rank by driving distance, falling back to the straight-line render on any failure](images/dispatcher-data-path-c.png)
 
 Rehabber coordinates are **public**, so sending them to ORS via the Worker is
 PII-safe.
@@ -271,17 +209,7 @@ aggregates only**, never per-volunteer rows. The browser supplies coordinates
 when an autocomplete suggestion already carries Photon-resolved lat/lon
 (`fetchAggregateByCoord`), bypassing the weaker Census exact-match path.
 
-```mermaid
-flowchart TD
-    A["address typed OR suggestion picked"] --> B{coords known?}
-    B -->|yes| C["fetchAggregateByCoord<br/>?animal_lat&animal_lon&radius_mi"]
-    B -->|no| D["fetchAggregateByAddress<br/>?address&radius_mi"]
-    C --> W["Worker"]
-    D --> W
-    W -->|"Census geocode (if address)"| W
-    W -->|"KV volunteer_coords + radius filter"| AGG["PII-free aggregate (counts only)"]
-    AGG --> R["renderAggregate()"]
-```
+![Data path D: if coords are known the browser calls fetchAggregateByCoord, otherwise fetchAggregateByAddress; the Worker geocodes (if address) via Census, filters KV volunteer_coords by radius, and returns a counts-only PII-free aggregate to renderAggregate](images/dispatcher-data-path-d.png)
 
 ---
 
@@ -295,13 +223,7 @@ and the Worker proxies Photon (with a Census fallback) and returns
 `{ suggestions: [{label, lat?, lon?}] }`. A sequence guard (`ac.seq`) drops stale
 responses.
 
-```mermaid
-flowchart LR
-    TY["user types ≥3 chars (debounced 280ms)"] --> ACF["acFetch → WORKER_URL ?autocomplete="]
-    ACF --> WPH["Worker → Photon (Census fallback)"]
-    WPH --> SUG["{ suggestions:[{label,lat,lon}] }"]
-    SUG --> PICK["acSelect → fetchAggregateByCoord (coords in hand)"]
-```
+![Data path E: user typing (debounced) triggers acFetch to the Worker autocomplete route, which proxies Photon with a Census fallback and returns label/lat/lon suggestions; picking one calls fetchAggregateByCoord with coords in hand](images/dispatcher-data-path-e.png)
 
 ---
 
@@ -339,18 +261,7 @@ Pages without a CDN; only map tiles need network.
   `invalidateSize()`. If there are no usable animal coords, `renderTier2Map`
   shows `#t2map-unavailable` instead of a broken map.
 
-```mermaid
-flowchart TD
-    RT["renderTier2Map(agg, origin)"] --> OPEN{map open?}
-    OPEN -->|no| STASH["stash payload in t2map.pending"]
-    OPEN -->|yes| PAINT["paintT2Map(payload)"]
-    TOG["#t2map-toggle click → wireT2MapToggle"] -->|first open| INIT["ensureT2Map() lazy build"]
-    INIT --> PAINT
-    PAINT --> A["animal layer (red diamond)"]
-    PAINT --> B["rehab layer (blue, public coords)"]
-    PAINT --> C["volunteer layer (amber @ county centroid, PII-safe)"]
-    PAINT --> FIT["fitBounds / setView + invalidateSize"]
-```
+![Leaflet map flow: renderTier2Map either stashes the payload when the map is closed or paints it; the first toggle open lazy-builds the map via ensureT2Map, then paintT2Map draws the animal, rehab, and volunteer layers and fits bounds](images/dispatcher-leaflet-map.png)
 
 > **There is a second, separate map**: the WIN-area SVG **choropleth** built from
 > `pa_counties.json` (`buildMap` ~2419, `geoCentroidLatLon` ~2386 which also

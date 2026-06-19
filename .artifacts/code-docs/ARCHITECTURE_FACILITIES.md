@@ -26,23 +26,7 @@ means a volunteer status edit shows up within ~5 minutes (CSV refresh) with no C
 run, and a Monday facility edit shows up on the next CI publish — the two cadences
 stay decoupled.
 
-```mermaid
-flowchart LR
-    subgraph BuildTime["CI (offline)"]
-        MON["Monday.com RehabDB<br/>board 9092004762"] --> RM["refresh_monday.py"]
-        RM --> FJSON["docs/data/facilities.json<br/>(base: name, address, city,<br/>state, zip, phone, website,<br/>lat, lon, county)"]
-    end
-
-    subgraph LiveEdits["Volunteers (online)"]
-        FORM["Apps Script form<br/>(password-protected)"] --> SHEET["Google Sheet"]
-        SHEET -->|Publish to web ▸ CSV| CSV["published CSV<br/>(status, alerts,<br/>expected reopen, last-updated)"]
-    end
-
-    FJSON --> PAGE["facilities.html<br/>fetch both in parallel"]
-    CSV --> PAGE
-    PAGE --> MERGE["mergeFacilities()<br/>join by normalized name"]
-    MERGE --> GRID["status grid (union render)"]
-```
+![Join-at-Read overview: CI publishes the Monday base to facilities.json while volunteers maintain status via Apps Script to a Google Sheet CSV; facilities.html fetches both and merges by normalized name into the status grid](images/facilities-join-at-read.png)
 
 ---
 
@@ -217,21 +201,7 @@ empty status) and Sheet-only names (rendered from Sheet base data).
 The merge emits Sheet-style column keys (`'Facility Name'`, `'Address'`, …) so
 `renderCards` is source-agnostic.
 
-```mermaid
-flowchart TD
-    CSV["Google Sheet CSV"] --> P["parseCSV() → status rows"]
-    JSON["facilities.json (Monday base)"] --> BL["base list"]
-    P --> SBN["statusByName = Map(normalizeName → first row)"]
-    BL --> BBN["baseByName = Map(normalizeName → base)"]
-    SBN --> M["mergeFacilities()"]
-    BBN --> M
-    M --> PH1["Phase 1: walk BASE<br/>BASE wins identity, SHEET wins status"]
-    M --> PH2["Phase 2: Sheet-only rows verbatim"]
-    PH1 --> OUT["merged rows (Sheet-style keys)"]
-    PH2 --> OUT
-    OUT --> IS["inferStatus() → _status"]
-    IS --> RC["renderCards() → status grid"]
-```
+![Merge pipeline: parse CSV status rows and the facilities.json base into two normalized-name maps, run the two-phase union merge, then inferStatus and renderCards to the status grid](images/facilities-join-pipeline.png)
 
 > **Caveat for maintainers:** `inferStatus()` (~1007) defaults a row with no
 > Status/Notes to `'open'`. So a **Monday-only** facility (no Sheet match)
@@ -302,13 +272,7 @@ In the footer (~897–903):
   untouched: this page only READS both sources."*).
 - `flags.js` can dim/disable the link via `data-panel-key="facilities-submit-form"`.
 
-```mermaid
-flowchart LR
-    V["volunteer"] --> A["Apps Script web app<br/>/macros/s/{id}/exec<br/>(password-protected)"]
-    A -->|write| S["Google Sheet (live)"]
-    S -->|Publish to web ▸ CSV| C["CSV feed"]
-    C --> F["facilities.html (read-only)"]
-```
+![Submit-form write path: a volunteer uses the password-protected Apps Script web app to write to the live Google Sheet, which publishes a CSV feed that the read-only facilities.html consumes](images/facilities-submit-form.png)
 
 ---
 

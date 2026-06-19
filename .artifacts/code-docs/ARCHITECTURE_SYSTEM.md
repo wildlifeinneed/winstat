@@ -11,42 +11,7 @@
 
 ## 1. System overview
 
-```mermaid
-flowchart TB
-    subgraph Sources["Data sources (external)"]
-        MON["Monday.com<br/>(GraphQL boards)"]
-        GS1["Google Sheet — Equipment CSV"]
-        GS2["Google Sheet — Facility Status CSV"]
-        ORS["OpenRouteService (routing)"]
-        CEN["US Census geocoder"]
-    end
-
-    subgraph CI["GitHub Actions — refresh.yml"]
-        SENT["VolDB_Status sentinel gate"]
-        RM["refresh_monday.py"]
-    end
-
-    subgraph Repo["Repo (GitHub Pages = production)"]
-        PUB["docs/data/*.json<br/>(public, PII-free)"]
-        PAGES["docs/*.html + assets/"]
-    end
-
-    subgraph Edge["Cloudflare"]
-        WK["Worker pa-wildlife-dispatcher"]
-        KV[("KV VOLUNTEER_COORDS")]
-    end
-
-    MON --> SENT --> RM
-    RM --> PUB
-    RM -->|private coords| KV
-    PUB --> PAGES
-    GS1 --> PAGES
-    GS2 --> PAGES
-    PAGES -->|browser| WK
-    WK --> KV
-    WK --> CEN
-    WK --> ORS
-```
+![System overview: external data sources, the GitHub Actions refresh pipeline, the GitHub Pages repo, and the Cloudflare Worker + KV edge layer](images/system-overview.png)
 
 Three independent static pages share one asset folder, one CI refresh pipeline,
 one Worker, and one flag system. Everything the public sees is static files on
@@ -169,17 +134,7 @@ A thin wrapper over `refresh_monday`'s Monday client. It answers one question:
   or older → skip. **Fail-safe:** any API/parse error → `False` (never refresh,
   never raise).
 
-```mermaid
-flowchart TD
-    CRON["cron 10:00 UTC / manual dispatch"] --> SENT["refresh_sentinel.needs_refresh()"]
-    SENT -->|"VolDB_Status Last_Updated > stored date?"| DEC{refresh?}
-    DEC -->|false / error| SKIP["skip (no board pull, run stays green)"]
-    DEC -->|true| RUN["refresh_monday.py: read boards + geocode"]
-    RUN --> PUBC["commit docs/data/*.json (public, PII-scanned)"]
-    RUN --> KVP["wrangler kv put volunteer_coords (private)"]
-    KVP --> STORE["save_stored_date() → last_refresh_date.json"]
-    PUBC --> STORE
-```
+![Refresh sentinel flow: cron or manual dispatch hits the VolDB_Status gate, which either skips or runs the full board pull, commits public JSON, pushes private coords to KV, and stores the new date](images/system-refresh-sentinel.png)
 
 ---
 
