@@ -1106,6 +1106,34 @@
       margin-top: 8px;
       line-height: 1.4;
     }
+    .btn-dma-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 40px;
+      margin-top: 12px;
+      padding: 9px 16px;
+      font-family: 'DM Sans', system-ui, sans-serif;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--green-deep);
+      background: var(--green-light);
+      border: 1px solid #bcdcc7;
+      border-radius: 8px;
+      text-decoration: none;
+      cursor: pointer;
+      transition: background var(--transition), border-color var(--transition);
+    }
+    .btn-dma-link:hover { background: #dcefe3; border-color: var(--green); }
+    .btn-dma-link:focus-visible {
+      outline: 2px solid var(--green);
+      outline-offset: 2px;
+    }
+    .btn-dma-link::after {
+      content: '↗';
+      font-size: 12px;
+      color: var(--text-muted);
+    }
     /* Custom DivIcon markers (no external sprite needed) */
     .t2-pin {
       display: block;
@@ -1370,6 +1398,11 @@
             locations are never sent to the browser). Shaded regions outline the
             WIN service area(s) covering this location.
           </p>
+          <a id="t2map-dma-link" class="btn-dma-link"
+             href="https://pagame.maps.arcgis.com/apps/dashboards/b3c0fd44cc5944ebbc2229ede897b2ae"
+             target="_blank" rel="noopener noreferrer">
+            View PA Game Commission DMA Map
+          </a>
         </div>
       </div>
 
