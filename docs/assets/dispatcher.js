@@ -86,6 +86,7 @@
     addressBusy: false,     // guard against concurrent address lookups
     widenCounty: null,      // Tier 1 county carried into Tier 2 as exclude_county
     mapBuilt: false,        // true once the SVG choropleth is drawn
+    geojson: null,          // parsed pa_counties.json (cached for the Leaflet WIN-area overlay)
     mapAreas: {},           // area-string -> array of county-path <path> nodes
     mapCounties: {},        // county name -> its county-path <path> node
     countyCentroids: {},    // county name -> { lat, lon } area-weighted centroid (from geojson)
@@ -1389,6 +1390,92 @@
     });
   }
 
+  // ── WIN-area boundaries (Tier-2 map overlay) ───────────────────────
+  // WIN areas are COUNTY-BASED regions (the Worker returns win_areas as an
+  // array of area names/numbers, NOT polygon coordinates). We draw each
+  // affected area as the union of its member-county polygons from the SAME
+  // committed pa_counties.json the choropleth uses (properties: {county,
+  // win_area, geoid}). Each area is one semi-transparent shaded group with a
+  // visible colored border, labeled with the area name at the area centroid.
+
+  // Convert a GeoJSON Polygon/MultiPolygon ring set into Leaflet latlng arrays.
+  // Leaflet wants [lat, lon]; GeoJSON stores [lon, lat].
+  function geojsonToLatLngs(geom) {
+    function ring(r) {
+      return r.map(function (pt) { return [pt[1], pt[0]]; });
+    }
+    if (!geom) return [];
+    if (geom.type === 'Polygon') {
+      return [geom.coordinates.map(ring)];
+    }
+    if (geom.type === 'MultiPolygon') {
+      return geom.coordinates.map(function (poly) { return poly.map(ring); });
+    }
+    return [];
+  }
+
+  // Draw boundaries for the given WIN areas onto t2map.layers.winArea. `areas`
+  // is the API's win_areas list (strings/numbers). Returns an array of [lat,lon]
+  // bound points so the caller can include the shaded regions in fitBounds.
+  function drawWinAreaBoundaries(areas) {
+    var pts = [];
+    if (!t2map.instance || !t2map.layers || !t2map.layers.winArea) return pts;
+    t2map.layers.winArea.clearLayers();
+
+    var geo = state.geojson;
+    var features = (geo && Array.isArray(geo.features)) ? geo.features : [];
+    if (!features.length) return pts;
+
+    var wanted = {};
+    (areas || []).forEach(function (a) {
+      if (a === null || a === undefined) return;
+      var key = String(a).trim();
+      if (key !== '') wanted[key] = true;
+    });
+    if (!Object.keys(wanted).length) return pts;
+
+    // Group member-county polygons by area so each area is one styled overlay
+    // with a single label.
+    var byArea = {};
+    features.forEach(function (f) {
+      var props = f.properties || {};
+      var area = (props.win_area === null || props.win_area === undefined)
+        ? '' : String(props.win_area).trim();
+      if (!area || !wanted[area]) return;
+      if (!byArea[area]) byArea[area] = { latlngs: [], pts: [] };
+      var multi = geojsonToLatLngs(f.geometry);
+      multi.forEach(function (polyRings) {
+        byArea[area].latlngs.push(polyRings);
+        polyRings.forEach(function (r) {
+          r.forEach(function (ll) { byArea[area].pts.push(ll); });
+        });
+      });
+    });
+
+    Object.keys(byArea).forEach(function (area) {
+      var color = areaColor(area);
+      var poly = L.polygon(byArea[area].latlngs, {
+        color: color,
+        weight: 2,
+        opacity: 0.9,
+        fillColor: color,
+        fillOpacity: 0.18,
+        interactive: false
+      }).addTo(t2map.layers.winArea);
+      poly.bindTooltip('WIN Area ' + escapeHtml(area), {
+        permanent: true,
+        direction: 'center',
+        className: 't2-area-label'
+      });
+      var b = poly.getBounds();
+      if (b && b.isValid()) {
+        pts.push([b.getSouth(), b.getWest()]);
+        pts.push([b.getNorth(), b.getEast()]);
+      }
+    });
+    return pts;
+  }
+
   // Create the Leaflet map once, on the first reveal (Leaflet needs a sized,
   // visible container). Returns true if a usable map instance exists.
   function ensureT2Map() {
@@ -1404,6 +1491,8 @@
     }).addTo(map);
     t2map.instance = map;
     t2map.layers = {
+      // WIN-area boundaries sit UNDER the markers so pins stay clickable.
+      winArea: L.layerGroup().addTo(map),
       animal: L.layerGroup().addTo(map),
       rehab: L.layerGroup().addTo(map),
       // === VOLUNTEER MARKERS START (layer) ===
@@ -1426,11 +1515,15 @@
 
     var bounds = [];
 
+    // ── WIN-area boundaries (drawn first, under the markers) ──
+    var areaPts = drawWinAreaBoundaries(payload.winAreas);
+    if (areaPts.length) bounds = bounds.concat(areaPts);
+
     // ── Animal location (most prominent) ──
     var a = payload.animal;
     if (a && isFinite(a.lat) && isFinite(a.lon)) {
       L_.marker([a.lat, a.lon], {
-        icon: t2DivIcon('t2-pin-animal', 22),
+        icon: t2DivIcon('t2-pin-animal', 14),
         zIndexOffset: 1000,
         title: 'Animal location'
       }).bindPopup('<strong>Animal location</strong><br>' +
@@ -1583,13 +1676,26 @@
                  state.selectedAnimalCoord.label)
       ? state.selectedAnimalCoord.label : '';
 
+    // WIN areas affected by this animal location (Worker returns these as area
+    // names/numbers). Drawn as county-based shaded boundaries on the map.
+    var winAreas = (agg && Array.isArray(agg.win_areas)) ? agg.win_areas.slice() : [];
+
     var payload = {
       animal: { lat: agg.animal_lat, lon: agg.animal_lon, label: label },
       rehabbers: rehabPool,
-      volunteers: volunteers
+      volunteers: volunteers,
+      winAreas: winAreas
     };
 
     t2map.pending = payload;
+    // The WIN-area overlay needs the county GeoJSON. The SVG choropleth panel
+    // loads it lazily, so it may not be present yet when the Tier-2 map paints.
+    // Ensure it's loaded, then re-paint if the map is open so boundaries appear.
+    if (winAreas.length && !state.geojson) {
+      loadMap().then(function () {
+        if (t2map.open && t2map.instance) paintT2Map(payload);
+      });
+    }
     if (t2map.open && ensureT2Map()) {
       paintT2Map(payload);
     }
@@ -2424,6 +2530,9 @@
       wrap.innerHTML = '<div class="map-note">Map data unavailable.</div>';
       return;
     }
+    // Cache the raw GeoJSON so the Tier-2 Leaflet map can draw WIN-area county
+    // boundaries from the SAME source without re-fetching.
+    state.geojson = geojson;
     var bbox = geoBbox(features);
     var proj = makeProjector(bbox);
 

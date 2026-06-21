@@ -1095,6 +1095,11 @@
     }
     .t2map-legend .leg-rehab { background: #1d6fb8; border-color: #14507f; }
     .t2map-legend .leg-vol { background: var(--amber); border-color: #9c540a; }
+    .t2map-legend .leg-area {
+      background: rgba(118,183,178,0.30);
+      border: 2px solid #76b7b2;
+      border-radius: 3px;
+    }
     .t2map-note {
       font-size: 11.5px;
       color: var(--text-muted);
@@ -1111,13 +1116,27 @@
     .t2-pin-rehab { width: 16px; height: 16px; background: #1d6fb8; }
     .t2-pin-vol   { width: 14px; height: 14px; background: var(--amber); }
     .t2-pin-animal {
-      width: 22px; height: 22px;
+      width: 14px; height: 14px;
       background: var(--red);
-      border: 3px solid #fff;
-      border-radius: 4px;
+      border: 2px solid #fff;
+      border-radius: 3px;
       transform: rotate(45deg);
       box-shadow: 0 2px 5px rgba(0,0,0,.45);
     }
+    /* Permanent WIN-area name label centered on each shaded region. */
+    .leaflet-tooltip.t2-area-label {
+      background: rgba(255,255,255,.78);
+      border: none;
+      box-shadow: none;
+      color: var(--green-deep);
+      font-family: 'Bitter', Georgia, serif;
+      font-weight: 700;
+      font-size: 12px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      white-space: nowrap;
+    }
+    .leaflet-tooltip.t2-area-label::before { display: none; }
     @media (max-width: 640px) {
       .t2map { height: 280px; }
       .btn-t2map-toggle { min-height: 44px; }
@@ -1343,11 +1362,13 @@
             <!-- === VOLUNTEER MARKERS START (legend entry) === -->
             <span class="leg-item" id="t2map-leg-vol"><span class="leg-dot leg-vol"></span>Volunteers</span>
             <!-- === VOLUNTEER MARKERS END (legend entry) === -->
+            <span class="leg-item"><span class="leg-dot leg-area"></span>WIN service area</span>
           </div>
           <p class="t2map-note">
-            Pins show the entered animal address (star), nearby rehabbers, and
+            Pins show the entered animal address (diamond), nearby rehabbers, and
             volunteer clusters placed at their home-county center (exact volunteer
-            locations are never sent to the browser).
+            locations are never sent to the browser). Shaded regions outline the
+            WIN service area(s) covering this location.
           </p>
         </div>
       </div>
