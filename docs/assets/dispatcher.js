@@ -1527,6 +1527,18 @@
     var bounds = [];
 
     // ── WIN-area boundaries (drawn first, under the markers) ──
+    // The overlay needs the county GeoJSON (state.geojson). It is normally
+    // loaded at init and again lazily in renderTier2Map, but the map may be
+    // painted (e.g. on the Show-map toggle) before that load has resolved. If
+    // the payload names WIN areas but the GeoJSON is not in yet, load it and
+    // re-paint so the boundaries appear instead of being silently skipped.
+    if (payload.winAreas && payload.winAreas.length && !state.geojson) {
+      loadMap().then(function () {
+        if (t2map.open && t2map.instance && t2map.pending === payload) {
+          paintT2Map(payload);
+        }
+      });
+    }
     var areaPts = drawWinAreaBoundaries(payload.winAreas);
     if (areaPts.length) bounds = bounds.concat(areaPts);
 
