@@ -11,24 +11,25 @@
 
 ---
 
-## 1. PGC DMA Dashboard (human-facing)
+## 1. PGC DMA Map (human-facing)
 
-**URL:** https://pagame.maps.arcgis.com/apps/dashboards/b3c0fd44cc5944ebbc2229ede897b2ae
+**URL:** https://pa-geo-data-pennmap.hub.arcgis.com/datasets/PAGame::cwd-disease-management-areas/
 
-This is an Esri/ArcGIS **Dashboard** — an interactive web map that shows the
-current Pennsylvania Disease Management Areas (DMAs), their boundaries, and
-related CWD information for the public. It is meant to be opened in a browser by
-a person, not consumed programmatically.
-
-**Important caveat about URL parameters:** ArcGIS dashboards *can* accept URL
-parameters (such as `geometry` or `extent`) to pre-zoom or filter the map — but
-**only if the dashboard owner explicitly configures URL parameters** for that
-dashboard. **This dashboard does not have them configured**, so appending
-`?geometry=...` / `?extent=...` to the URL has no effect. Do not rely on URL
-parameters to deep-link into a specific DMA on this dashboard.
+This is the **PA GeoData Hub** page for the CWD Disease Management Areas
+dataset — a mobile-friendly ArcGIS Hub page that shows the current Pennsylvania
+Disease Management Areas (DMAs), their boundaries, and related CWD information
+for the public. It is meant to be opened in a browser (or on a phone) by a
+person, not consumed programmatically. **This is the page the dispatcher links
+to** for a visual DMA map.
 
 If you need to programmatically determine which DMA a coordinate falls in, use
-the REST API in section 2 instead — the dashboard is for display only.
+the REST API in section 2 instead — this page is for display only.
+
+> **Legacy dashboard (secondary):** an older Esri/ArcGIS Dashboard also exists
+> at https://pagame.maps.arcgis.com/apps/dashboards/b3c0fd44cc5944ebbc2229ede897b2ae —
+> it is less mobile-friendly and is no longer the primary link. Note that this
+> dashboard does **not** have URL parameters configured, so appending
+> `?geometry=...` / `?extent=...` to deep-link into a specific DMA has no effect.
 
 ---
 
