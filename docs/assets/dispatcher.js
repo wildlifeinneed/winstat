@@ -1760,7 +1760,7 @@
   //  / parse failure fails SILENTLY (the banner is hidden) so it never blocks
   //  the rest of the Tier-2 result.
   // ════════════════════════════════════════════════════════════════════
-  var DMA_QUERY_URL = 'https://pgcmaps.pa.gov/arcgis/rest/services/PGC/NEW_PUBLIC/MapServer/28/query';
+  var DMA_QUERY_URL = 'https://services1.arcgis.com/k8yxvICm95iIFicb/arcgis/rest/services/CWD/FeatureServer/300/query';
 
   function setDmaStatus(cls, html) {
     var el = $('#dma-status');
@@ -1789,7 +1789,9 @@
       '&geometryType=esriGeometryPoint' +
       '&inSR=4326' +
       '&spatialRel=esriSpatialRelIntersects' +
-      '&outFields=' + encodeURIComponent('NAME,DMA') +
+      '&where=' + encodeURIComponent("dma_status='A'") +
+      '&outFields=' + encodeURIComponent('dma_name,dma,dma_status,start_date,end_date,area_sqmi') +
+      '&returnGeometry=false' +
       '&f=json';
 
     fetch(url).then(function (resp) {
@@ -1800,15 +1802,15 @@
       var features = (data && Array.isArray(data.features)) ? data.features : [];
       if (features.length) {
         var attrs = (features[0] && features[0].attributes) || {};
-        var dmaName = attrs.NAME || attrs.DMA || '';
+        var dmaName = attrs.dma_name || attrs.dma || '';
         dmaName = String(dmaName).trim();
         var nameTxt = dmaName ? (escapeHtml(dmaName) + ' ') : '';
         setDmaStatus('dma-warn',
           '<strong>Warning:</strong> This location is within ' + nameTxt +
-          '(Disease Management Area)');
+          '(active Disease Management Area)');
       } else {
         setDmaStatus('dma-clear',
-          'This location is not within a Disease Management Area.');
+          'This location is not within an active Disease Management Area.');
       }
     }).catch(function () {
       if (token !== dmaCheckToken) return;
