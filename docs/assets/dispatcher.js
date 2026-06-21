@@ -131,6 +131,12 @@
   // availability_note means the volunteer is currently unavailable.
   var DENY_WORDS = ['unavail', 'vacation', 'out', 'inactive', 'leave', 'away', 'on hold', 'extended', 'hiatus'];
 
+  // Token used to ignore stale/out-of-order live DMA-check responses: each new
+  // Tier-2 lookup (or result reset) bumps it so a slow earlier fetch can't
+  // overwrite a newer result. Declared up here so clearResolvedLocation() can
+  // bump it before checkDmaForLocation() is defined further below.
+  var dmaCheckToken = 0;
+
   function $(sel, root) { return (root || document).querySelector(sel); }
   function $$(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
 
@@ -862,6 +868,11 @@
   function clearResolvedLocation() {
     var el = $('#resolved-location');
     if (el) { el.innerHTML = ''; el.style.display = 'none'; }
+    // Drop any DMA banner from a prior lookup, and bump the token so a slow
+    // in-flight DMA fetch can't repopulate it after this reset.
+    dmaCheckToken++;
+    var dma = $('#dma-status');
+    if (dma) { dma.innerHTML = ''; dma.style.display = 'none'; dma.className = 'dma-status'; }
     if (typeof highlightAreas === 'function') highlightAreas([], []);
   }
 
@@ -1740,6 +1751,73 @@
     });
   }
 
+  // ════════════════════════════════════════════════════════════════════
+  //  LIVE DMA (Disease Management Area) CHECK — Tier-2 only
+  //  Queries the PA Game Commission public ArcGIS REST layer (CWD Disease
+  //  Management Areas) for the animal coordinate. Public endpoint, no auth.
+  //  A non-empty `features` array means the point is INSIDE a DMA → amber
+  //  warning banner; otherwise a subtle "not within a DMA" note. Any network
+  //  / parse failure fails SILENTLY (the banner is hidden) so it never blocks
+  //  the rest of the Tier-2 result.
+  // ════════════════════════════════════════════════════════════════════
+  var DMA_QUERY_URL = 'https://pgcmaps.pa.gov/arcgis/rest/services/PGC/NEW_PUBLIC/MapServer/28/query';
+
+  function setDmaStatus(cls, html) {
+    var el = $('#dma-status');
+    if (!el) return;
+    if (!cls) { el.style.display = 'none'; el.innerHTML = ''; el.className = 'dma-status'; return; }
+    el.className = 'dma-status ' + cls;
+    el.innerHTML = html;
+    el.style.display = 'block';
+  }
+
+  function checkDmaForLocation(agg) {
+    var el = $('#dma-status');
+    if (!el) return;
+
+    var hasCoords = agg && typeof agg.animal_lat === 'number' &&
+                    typeof agg.animal_lon === 'number' &&
+                    isFinite(agg.animal_lat) && isFinite(agg.animal_lon);
+    if (!hasCoords) { setDmaStatus(null); return; }
+    if (typeof fetch !== 'function') { setDmaStatus(null); return; }
+
+    var token = ++dmaCheckToken;
+    setDmaStatus('dma-checking', 'Checking Disease Management Area status…');
+
+    var url = DMA_QUERY_URL +
+      '?geometry=' + encodeURIComponent(agg.animal_lon + ',' + agg.animal_lat) +
+      '&geometryType=esriGeometryPoint' +
+      '&inSR=4326' +
+      '&spatialRel=esriSpatialRelIntersects' +
+      '&outFields=' + encodeURIComponent('NAME,DMA') +
+      '&f=json';
+
+    fetch(url).then(function (resp) {
+      if (!resp.ok) throw new Error('DMA query HTTP ' + resp.status);
+      return resp.json();
+    }).then(function (data) {
+      if (token !== dmaCheckToken) return; // a newer lookup superseded this one
+      var features = (data && Array.isArray(data.features)) ? data.features : [];
+      if (features.length) {
+        var attrs = (features[0] && features[0].attributes) || {};
+        var dmaName = attrs.NAME || attrs.DMA || '';
+        dmaName = String(dmaName).trim();
+        var nameTxt = dmaName ? (escapeHtml(dmaName) + ' ') : '';
+        setDmaStatus('dma-warn',
+          '<strong>Warning:</strong> This location is within ' + nameTxt +
+          '(Disease Management Area)');
+      } else {
+        setDmaStatus('dma-clear',
+          'This location is not within a Disease Management Area.');
+      }
+    }).catch(function () {
+      if (token !== dmaCheckToken) return;
+      // Fail silently: hide the banner rather than show a scary error. The DMA
+      // check is advisory and must never block the rest of the Tier-2 result.
+      setDmaStatus(null);
+    });
+  }
+
   function renderAggregate(agg, ctx) {
     // DECONFLICTION: a geocoded address now governs. Rebind the active location
     // to 'address' and clear the county-mode coordinator line so the dropdown
@@ -2035,6 +2113,7 @@
     renderContextList(agg, ctx);
     renderNearestRehabbers(pickRehabberOrigin(agg, ctx));
     renderTier2Map(agg, pickRehabberOrigin(agg, ctx));
+    checkDmaForLocation(agg);
     $('#address-result').style.display = 'block';
   }
 
