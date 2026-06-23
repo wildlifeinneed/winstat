@@ -137,6 +137,11 @@
   // bump it before checkDmaForLocation() is defined further below.
   var dmaCheckToken = 0;
 
+  // Token used to ignore stale/out-of-order Tier-1 volunteer-list responses:
+  // each new By-County recommendation (or county reset) bumps it so a slow
+  // earlier county's fetch can't overwrite a newer county's rendered list.
+  var t1VolToken = 0;
+
   function $(sel, root) { return (root || document).querySelector(sel); }
   function $$(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
 
@@ -318,6 +323,10 @@
       emptyMsg.style.display = 'none';
       emptyMsg.textContent = '';
       renderCoordLine('');
+      // Drop any Tier 1 volunteer list (and ignore in-flight fetches) so stale
+      // rows from a previously selected county never linger after deselect.
+      t1VolToken += 1;
+      hideTier1Volunteers();
       return;
     }
 
@@ -549,6 +558,7 @@
       if (d) d.addEventListener('click', function () {
         out.classList.remove('show'); out.innerHTML = '';
       });
+      hideTier1Volunteers();
       return;
     }
 
@@ -570,6 +580,11 @@
     var resolved = resolveForCounty(state.config, county);
     var rec = window.WildlifeDecision.recommend(capacity, base.rvs, base.issue, resolved);
     renderRecommendation(rec, base);
+
+    // Tier 1 qualified-volunteer list: fetch the per-volunteer rows from the
+    // Worker (county centroid origin) and render them with the SAME availability
+    // dimming Tier 2 uses. Best-effort — never blocks the recommendation above.
+    loadTier1Volunteers(county, base);
   }
 
   // ─── Address-mode: geocode → Worker → render aggregate ─────────────
@@ -1056,6 +1071,163 @@
     if (listEl) listEl.innerHTML = html;
     block.style.display = 'block';
     highlightFromContext(rows, agg.animal_area);
+  }
+
+  // ─── Tier 1 (By-County) qualified-volunteer list ───────────────────
+  // Replicates the Tier 2 #ctx-list rendering for the By-County panel. Each row
+  // shows: role badges, County + WIN Area context, and the availability note —
+  // and is DIMMED via the SAME .ctx-row.unavail treatment Tier 2 uses when the
+  // volunteer is not currently available. `rows` are the Worker context rows
+  // (out_of_county shape: {roles, distance_mi, win_area, county, availability_note,
+  // available}); `ctx` carries { county, rvs, issue } for the header + the
+  // defensive qualified-only filter. Hidden entirely when there is no list.
+  function hideTier1Volunteers() {
+    var section = $('#t1-vol-section');
+    var listEl = $('#t1-vol-list');
+    var emptyEl = $('#t1-vol-empty');
+    if (section) section.style.display = 'none';
+    if (listEl) listEl.innerHTML = '';
+    if (emptyEl) { emptyEl.style.display = 'none'; emptyEl.textContent = ''; }
+  }
+
+  function renderTier1Volunteers(rows, ctx) {
+    var section = $('#t1-vol-section');
+    var listEl = $('#t1-vol-list');
+    var emptyEl = $('#t1-vol-empty');
+    var headerEl = $('#t1-vol-header');
+    if (!section) return;
+
+    var T2 = MSG.tier2Aggregate;
+    var county = (ctx && ctx.county) ? ctx.county : '';
+    if (headerEl) {
+      headerEl.textContent = county
+        ? fmt(T2.tier1VolHeader, { county: county })
+        : T2.tier1VolHeader.replace('{county}', '').replace(/\s+$/, '');
+    }
+
+    // Defensive qualified-only filter via the SHARED decision.js predicate (the
+    // SAME rule Tier 2 applies). The Worker already filtered by qualify_roles,
+    // but re-apply here so an unqualified row can never render. Skipped when the
+    // base info is absent (backward compat).
+    var qualifyFn = (window.WildlifeDecision &&
+                     typeof window.WildlifeDecision.qualifiesForAnimal === 'function')
+      ? window.WildlifeDecision.qualifiesForAnimal : null;
+    var hasBase = ctx && typeof ctx.issue === 'string' && ctx.issue !== '';
+    var list = Array.isArray(rows) ? rows : [];
+    if (qualifyFn && hasBase) {
+      list = list.filter(function (row) {
+        var roleList = Array.isArray(row.roles) ? row.roles : [];
+        return qualifyFn(roleList, !!ctx.rvs, ctx.issue);
+      });
+    }
+
+    if (!list.length) {
+      if (listEl) listEl.innerHTML = '';
+      if (emptyEl) {
+        emptyEl.textContent = county
+          ? fmt(T2.tier1VolEmpty, { county: county })
+          : T2.tier1VolEmpty.replace('{county}', '').replace(/\s+$/, '');
+        emptyEl.style.display = 'block';
+      }
+      section.style.display = 'block';
+      return;
+    }
+    if (emptyEl) { emptyEl.style.display = 'none'; emptyEl.textContent = ''; }
+
+    var html = list.map(function (row) {
+      var roleList = Array.isArray(row.roles) ? row.roles : [];
+      var badges = roleList.map(function (r) {
+        var cls = roleBadgeClass(r);
+        return '<span class="role-badge' + (cls ? ' ' + cls : '') + '">' +
+               escapeHtml(r) + '</span>';
+      }).join('');
+
+      // Distance is secondary (shown only when the Worker supplied it). The
+      // driving label is used when a per-volunteer driving time is present;
+      // otherwise the straight-line label. Never fabricates a time.
+      var dist = (typeof row.distance_mi === 'number') ? row.distance_mi : Number(row.distance_mi);
+      var driveMi = (typeof row.driving_miles === 'number') ? row.driving_miles : Number(row.driving_miles);
+      var distHtml = '';
+      if (Number.isFinite(dist)) {
+        var distTxt;
+        if (typeof row.duration_min === 'number') {
+          var shownMi = Number.isFinite(driveMi) ? driveMi : dist;
+          distTxt = fmt(T2.ctxDistanceDriving, { dist: shownMi.toFixed(1), mins: String(row.duration_min) });
+        } else {
+          distTxt = fmt(T2.ctxDistance, { dist: dist.toFixed(1) });
+        }
+        distHtml = '<span class="ctx-dist">' + escapeHtml(distTxt) + '</span>';
+      }
+
+      // County + WIN Area context (the four required fields are: County, WIN
+      // Area, role badges, availability note).
+      var ctxBits = [];
+      if (row.win_area) ctxBits.push(fmt(T2.areaChip, { area: escapeHtml(String(row.win_area)) }));
+      if (row.county) ctxBits.push(escapeHtml(String(row.county)));
+      var ctxTxt = ctxBits.length ? ' <span class="ctx-ctx">· ' + ctxBits.join(' · ') + '</span>' : '';
+
+      // Availability note + dimming: unavailable when available===false OR the
+      // note carries a deny keyword (mirrors Tier 2 renderContextList).
+      var vNote = row.availability_note ? String(row.availability_note).trim() : '';
+      var unavail = (row.available === false) || isUnavailNote(vNote);
+      var rowClass = 'ctx-row' + (unavail ? ' unavail' : '');
+      var noteHtml = vNote
+        ? '<div class="ctx-avail-note">' + escapeHtml(vNote) + '</div>'
+        : '';
+
+      return '<li class="' + rowClass + '">' +
+             '<div class="ctx-row-top">' +
+             '<span class="role-badges">' + badges + '</span>' +
+             distHtml +
+             ctxTxt +
+             '</div>' +
+             noteHtml +
+             '</li>';
+    }).join('');
+
+    if (listEl) listEl.innerHTML = html;
+    section.style.display = 'block';
+  }
+
+  // Fetch + render the Tier 1 qualified-volunteer list for the selected county.
+  // Best-effort: the Worker is queried with the county CENTROID as origin (Tier 1
+  // has no animal coordinate) and context=1, returning the PII-safe per-volunteer
+  // rows. ANY failure leaves the existing recommendation intact and hides the
+  // list. A stale-token guard ignores out-of-order responses.
+  function loadTier1Volunteers(county, base) {
+    if (!county) { hideTier1Volunteers(); return; }
+    var token = ++t1VolToken;
+
+    function withCentroid() {
+      if (token !== t1VolToken) return; // a newer lookup superseded us
+      var centroid = state.countyCentroids && state.countyCentroids[county];
+      if (!centroid || typeof centroid.lat !== 'number' || typeof centroid.lon !== 'number') {
+        hideTier1Volunteers();
+        return;
+      }
+      fetchAggregateByCoord(centroid.lat, centroid.lon, RADIUS_DEFAULT,
+        { context: true, base: base, tier1County: county })
+        .then(function (agg) {
+          if (token !== t1VolToken) return; // stale response — ignore
+          var rows = (agg && Array.isArray(agg.out_of_county)) ? agg.out_of_county : [];
+          renderTier1Volunteers(rows, { county: county, rvs: base.rvs, issue: base.issue });
+        })
+        .catch(function () {
+          if (token !== t1VolToken) return;
+          hideTier1Volunteers();
+        });
+    }
+
+    // Centroids come from the county GeoJSON (loaded at init). If they are not
+    // in yet, load the map data first, then proceed — same lazy pattern the
+    // Tier-2 map uses (paintT2Map → loadMap).
+    if (state.countyCentroids && state.countyCentroids[county]) {
+      withCentroid();
+    } else {
+      loadMap().then(withCentroid).catch(function () {
+        if (token === t1VolToken) hideTier1Volunteers();
+      });
+    }
   }
 
   // Tier 2 highlight: emphasize the ANIMAL's OWN resolved WIN area (green) PLUS

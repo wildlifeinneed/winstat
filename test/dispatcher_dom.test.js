@@ -3238,6 +3238,121 @@ async function runTier2AvailNote() {
   console.log('PASS: Tier 2 avail note — empty note no indicator; deny keyword dims + shows note; non-deny note shown without dimming; no-field backward compat; available=false blank-note dimming (Bug 2 fix).');
 }
 
+// Drive a Tier 1 (By-County) recommendation: select a county, optionally set the
+// shared base info, click "Get Recommendation", and return the document. The
+// mock Worker returns the supplied `agg` (carrying the out_of_county rows that
+// the new Tier-1 qualified-volunteer list renders). Allegheny is used so its
+// centroid resolves from the real committed GeoJSON.
+async function driveTier1Recommend(agg, county, base) {
+  const { window, opts } = loadDom({
+    workerAgg: agg,
+    data: { 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS },
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  const countySel = doc.getElementById('county');
+  countySel.value = county;
+  countySel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+
+  if (base) {
+    const rvsVal = base.rvs ? 'yes' : 'no';
+    const rvsEl = doc.querySelector('input[name="rvs"][value="' + rvsVal + '"]');
+    if (rvsEl) rvsEl.checked = true;
+    const issueEl = doc.querySelector('input[name="issue"][value="' + base.issue + '"]');
+    if (issueEl) issueEl.checked = true;
+  }
+
+  doc.getElementById('recommend-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  // The volunteer-list fetch is async (centroid -> Worker); flush extra turns.
+  await flush(window);
+  await flush(window);
+  await flush(window);
+  return { window, doc, opts };
+}
+
+// ── Tier 1: By-County recommendation also renders a qualified-volunteer list
+//    (#t1-vol-list) — one .ctx-row per volunteer with role badges + County +
+//    WIN Area + availability note — and DIMS unavailable volunteers via the
+//    SAME .ctx-row.unavail treatment Tier 2 uses. ───────────────────────────
+async function runTier1VolunteerList() {
+  const agg = {
+    total_in_range: 4,
+    role_counts: { 'C&T': 2, 'RVS C&T': 1, 'COURIER': 1 },
+    win_areas: ['10'],
+    out_of_county: [
+      // Available (empty note) — normal row, no dimming.
+      { roles: ['C&T'], distance_mi: 3.0, win_area: '10', county: 'Allegheny', availability_note: '' },
+      // Deny keyword 'unavail' — dimmed + note shown.
+      { roles: ['RVS C&T'], distance_mi: 6.0, win_area: '10', county: 'Beaver', availability_note: 'Unavail this week' },
+      // available:false with blank note — must still dim (parity with Tier 2 Bug 2 fix).
+      { roles: ['C&T'], distance_mi: 9.0, win_area: '11', county: 'Butler', available: false, availability_note: '' },
+      // Non-deny note — note shown, NOT dimmed.
+      { roles: ['COURIER'], distance_mi: 12.0, win_area: '5', county: 'Westmoreland', availability_note: 'Avail evenings' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc, opts } = await driveTier1Recommend(agg, 'Allegheny', { rvs: false, issue: 'transport' });
+
+  // The recommendation surface itself still rendered (list is purely additive).
+  const recOut = doc.getElementById('rec-output');
+  assert.ok(recOut && /show/.test(recOut.className),
+    'Tier 1 recommendation still renders alongside the volunteer list');
+
+  // The Tier 1 list section is visible and fired a context=1 Worker call using
+  // the county centroid (animal_lat/animal_lon), NOT exclude_county.
+  const section = doc.getElementById('t1-vol-section');
+  assert.ok(section && section.style.display === 'block',
+    'Tier 1 volunteer-list section is visible after recommendation');
+  const t1Url = opts.aggCalls[opts.aggCalls.length - 1] || '';
+  assert.ok(/[?&]context=1(&|$)/.test(t1Url), 'Tier 1 list request opts into context=1 (url: ' + t1Url + ')');
+  assert.ok(/[?&]animal_lat=/.test(t1Url) && /[?&]animal_lon=/.test(t1Url),
+    'Tier 1 list request carries the county-centroid coordinate (url: ' + t1Url + ')');
+  assert.ok(!/[?&]exclude_county=/.test(t1Url),
+    'Tier 1 list must NOT exclude the county (wants in-area volunteers) (url: ' + t1Url + ')');
+
+  const rows = Array.prototype.slice.call(doc.querySelectorAll('#t1-vol-list .ctx-row'));
+  assert.strictEqual(rows.length, 4, 'all 4 transport-qualified volunteers render (got ' + rows.length + ')');
+
+  // Each row carries the four required fields: role badge(s), County + WIN Area
+  // context (.ctx-ctx), and the availability note when present.
+  rows.forEach(function (r, i) {
+    assert.ok(r.querySelector('.role-badge'), 'row ' + i + ' has a role badge');
+    assert.ok(r.querySelector('.ctx-ctx'), 'row ' + i + ' has the County/WIN-Area context span');
+  });
+  // WIN Area + County text present on row 0.
+  const ctx0 = rows[0].querySelector('.ctx-ctx').textContent;
+  assert.ok(/Area 10/.test(ctx0), 'row 0 shows "Area 10" (got: "' + ctx0 + '")');
+  assert.ok(/Allegheny/.test(ctx0), 'row 0 shows county "Allegheny" (got: "' + ctx0 + '")');
+
+  // Row 0: available, empty note -> no dimming, no note element.
+  assert.ok(!rows[0].classList.contains('unavail'), 'row 0 (available) is NOT dimmed');
+  assert.strictEqual(rows[0].querySelectorAll('.ctx-avail-note').length, 0,
+    'row 0 (empty note) has no .ctx-avail-note');
+
+  // Row 1: deny keyword -> dimmed + note text.
+  assert.ok(rows[1].classList.contains('unavail'), 'row 1 ("Unavail this week") is dimmed');
+  const note1 = rows[1].querySelector('.ctx-avail-note');
+  assert.ok(note1 && /Unavail this week/.test(note1.textContent),
+    'row 1 shows the availability note text');
+
+  // Row 2: available:false with blank note -> dimmed (parity with Tier 2).
+  assert.ok(rows[2].classList.contains('unavail'),
+    'row 2 (available=false, blank note) is dimmed');
+
+  // Row 3: non-deny note -> NOT dimmed, note shown.
+  assert.ok(!rows[3].classList.contains('unavail'),
+    'row 3 ("Avail evenings") is NOT dimmed');
+  const note3 = rows[3].querySelector('.ctx-avail-note');
+  assert.ok(note3 && /Avail evenings/.test(note3.textContent),
+    'row 3 shows the non-deny availability note');
+
+  console.log('PASS: Tier 1 volunteer list — renders role + County + WIN Area + availability note per volunteer; dims unavailable (deny keyword + available=false) like Tier 2; uses county-centroid context=1 call without exclude_county.');
+}
+
 // ── COUNTY BREAKDOWN: per-role county list inside each role card's .sub. ────
 //    Each card shows only the counties relevant to THAT role (not aggregate).
 //    With county_by_role: C&T box: Blair 2, Centre 1.  RVS C&T box: Centre 1.  COURIER: Clearfield 1.
@@ -3426,8 +3541,9 @@ async function run() {
   await runTier2NonConnecteamNotice();
   await runRegressionConnecteamTriState();
   await runTier2AvailNote();
+  await runTier1VolunteerList();
   await runTier2CountyBreakdown();
-  console.log('\nALL DOM TESTS PASSED (49 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (50 scenarios).');
 }
 
 run().then(function () {

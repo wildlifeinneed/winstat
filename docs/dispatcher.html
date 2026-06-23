@@ -1352,6 +1352,19 @@
 
     <div id="rec-output" class="rec-output" role="status" aria-live="polite"></div>
   </section>
+
+  <!-- ─── Tier 1 qualified-volunteer list (mirrors the Tier 2 #ctx-list) ───
+       Populated by renderTier1Volunteers() in dispatcher.js after a By-County
+       recommendation. Each row shows County, WIN Area, role badges, and the
+       availability note; unavailable volunteers are dimmed via .ctx-row.unavail
+       (the SAME visual treatment Tier 2 uses). -->
+  <section class="panel" id="t1-vol-section" style="display:none;">
+    <div id="t1-vol-block">
+      <div class="ctx-header" id="t1-vol-header">Qualified volunteers</div>
+      <div id="t1-vol-empty" class="ctx-empty" style="display:none;"></div>
+      <ul id="t1-vol-list" class="ctx-list"></ul>
+    </div>
+  </section>
   </div><!-- /#county-mode -->
 
   <div id="address-mode" class="mode-panel" hidden data-panel-key="dispatcher-address-mode">

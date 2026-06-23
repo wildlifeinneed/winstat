@@ -218,6 +218,10 @@
       // Standalone Address lookup (no county excluded): ALL qualifying
       // volunteers in range. {radius}.
       ctxHeader: 'Qualified volunteers within {radius} mi',
+      // Tier 1 (By-County) qualified-volunteer list header + empty state.
+      // {county} = the selected county name.
+      tier1VolHeader: 'Qualified volunteers near {county}',
+      tier1VolEmpty: 'No qualified volunteers found near {county}.',
       // {count} = rows shown.
       ctxOverflowNotice: 'Radius too large — showing the {count} nearest. Narrow the radius for a complete list.',
       // {radius}.
