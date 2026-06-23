@@ -389,10 +389,10 @@
     },
     "Cumberland": {
       "courier": {
-        "available": 1,
+        "available": 0,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail Mon after 4PM, Fri after 4PM, Weekends",
+            "availability_note": "Avail Mon after 4PM, Fri after 4PM, Weekends, Unavail until 7/3",
             "connecteam_user": true
           }
         ],
@@ -735,7 +735,7 @@
     },
     "Lycoming": {
       "courier": {
-        "available": 5,
+        "available": 3,
         "marginal_volunteers": [],
         "total": 5
       },
@@ -1159,7 +1159,7 @@
       }
     }
   },
-  "generated_at": "2026-06-22T20:25:33Z",
+  "generated_at": "2026-06-23T17:25:43Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
