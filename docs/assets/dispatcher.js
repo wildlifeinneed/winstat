@@ -688,6 +688,12 @@
     if (opts && opts.tier1County) {
       url += '&animal_county=' + encodeURIComponent(opts.tier1County);
     }
+    // Tier 1 WIN-area scope: confine the By-County list to the selected county's
+    // WIN area (matches the summary cards' county_capacity scope). The Worker
+    // filters out_of_county rows to this win_area. Only Tier 1 sends it.
+    if (opts && opts.tier1Area) {
+      url += '&win_area=' + encodeURIComponent(opts.tier1Area);
+    }
     url = appendAggregateOpts(url, opts);
     return fetchAggregate(url);
   }
@@ -1256,8 +1262,18 @@
       // returns ONLY the role-matched volunteers for the CURRENT scenario, the
       // SAME way Tier 2 (address/widen) queries. Tier 1 differs only in origin:
       // the county CENTROID instead of an address coordinate.
+      //
+      // SCOPE: also send the county's WIN AREA so the Worker scopes the list to
+      // that WIN area (the SAME set the summary cards aggregate from
+      // county_capacity.json) instead of every volunteer within a centroid
+      // radius — otherwise the radius bleeds into NEIGHBORING areas (e.g. an
+      // Area-13 Cumberland volunteer surfacing for an Area-12 Adams query).
+      var tier1Area = (state.countyWin && state.countyWin[county] !== undefined &&
+                       state.countyWin[county] !== null)
+        ? String(state.countyWin[county]).trim()
+        : null;
       fetchAggregateByCoord(centroid.lat, centroid.lon, RADIUS_DEFAULT,
-        { context: true, base: base, tier1County: county })
+        { context: true, base: base, tier1County: county, tier1Area: tier1Area })
         .then(function (agg) {
           if (token !== t1VolToken) return; // stale response — ignore
           var rows = (agg && Array.isArray(agg.out_of_county)) ? agg.out_of_county : [];

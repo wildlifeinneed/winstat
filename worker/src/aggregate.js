@@ -286,9 +286,10 @@ const MODE_STRAIGHT_LINE = 'straight_line';
  * @returns {{records:Object[], coords:Array<{lat:number,lon:number}>,
  *            haversineMiles:number[], radius:number}}
  */
-function prescreenByHaversine(animalLat, animalLon, radiusMi, coordsDataset, includeCounty) {
+function prescreenByHaversine(animalLat, animalLon, radiusMi, coordsDataset, includeCounty, filterWinArea) {
   const radius = clampRadius(radiusMi);
   const includeNorm = normalizeCounty(includeCounty);
+  const areaNorm = normalizeWinArea(filterWinArea);
   const records = [];
   const coords = [];
   const haversineMiles = [];
@@ -308,6 +309,18 @@ function prescreenByHaversine(animalLat, animalLon, radiusMi, coordsDataset, inc
     try {
       d = haversineMi(animalLat, animalLon, nLat, nLon);
     } catch (e) {
+      continue;
+    }
+    // Tier 1 By-County WIN-area scope: when filterWinArea is set, ONLY records in
+    // that WIN area survive (this is the authoritative membership, matching the
+    // by-area summary cards) and they survive REGARDLESS of distance.
+    if (areaNorm !== '') {
+      if (normalizeWinArea(rec.win_area) !== areaNorm || !Number.isFinite(d)) {
+        continue;
+      }
+      records.push(rec);
+      coords.push({ lat: nLat, lon: nLon });
+      haversineMiles.push(d);
       continue;
     }
     const inCounty =
@@ -435,12 +448,13 @@ async function findVolunteersInRadiusDriving(
  * @returns {Promise<{rows:Array, distance_mode:'straight_line'}>}
  */
 async function findContextRowsDriving(
-  animalLat, animalLon, radiusMi, coordsDataset, excludeCounty, drivingFn, apiKey, fetchFn, opts, qualifyRoles, includeCounty
+  animalLat, animalLon, radiusMi, coordsDataset, excludeCounty, drivingFn, apiKey, fetchFn, opts, qualifyRoles, includeCounty, filterWinArea
 ) {
-  const pre = prescreenByHaversine(animalLat, animalLon, radiusMi, coordsDataset, includeCounty);
+  const pre = prescreenByHaversine(animalLat, animalLon, radiusMi, coordsDataset, includeCounty, filterWinArea);
   const origin = { lat: Number(animalLat), lon: Number(animalLon) };
   const excludeNorm = normalizeCounty(excludeCounty);
   const includeNorm = normalizeCounty(includeCounty);
+  const areaNorm = normalizeWinArea(filterWinArea);
   const qualifyKeys = parseQualifyRoles(qualifyRoles);
 
   // PHASE 1 -- MEMBERSHIP: STRAIGHT-LINE (haversine) ONLY. Who is "in range" is
@@ -452,13 +466,19 @@ async function findContextRowsDriving(
   for (let i = 0; i < pre.records.length; i += 1) {
     const rec = pre.records[i];
     const miles = pre.haversineMiles[i];
-    // In-county membership (Tier 1 By-County list): a volunteer whose home_county
-    // matches includeCounty is ALWAYS in the list regardless of distance, so the
-    // list stays in sync with the by-county summary cards (which count by
-    // home_county, not by a centroid radius). All others stay radius-gated.
+    // Tier 1 By-County WIN-area scope: when areaNorm is set the prescreen already
+    // restricted survivors to that WIN area (the authoritative membership,
+    // matching the by-area summary cards), so members survive regardless of
+    // distance and the radius re-cut is skipped here.
+    const inArea = areaNorm !== '';
+    // In-county membership (Tier 1 By-County, no win_area): a volunteer whose
+    // home_county matches includeCounty is ALWAYS in the list regardless of
+    // distance, so the list stays in sync with the by-county summary cards
+    // (which count by home_county, not by a centroid radius). All others stay
+    // radius-gated.
     const inCounty =
       includeNorm !== '' && normalizeCounty(rec.home_county) === includeNorm;
-    if (!Number.isFinite(miles) || (miles > pre.radius && !inCounty)) {
+    if (!Number.isFinite(miles) || (miles > pre.radius && !inCounty && !inArea)) {
       continue;
     }
     // Out-of-county filter (Tier 1 already covers the in-county set).
@@ -555,6 +575,19 @@ function normalizeCounty(name) {
 }
 
 /**
+ * Normalize a WIN-area value for equality comparison. WIN areas arrive as
+ * strings or numbers ("12", 12); normalize to a trimmed string so the Tier 1
+ * By-County WIN-area scope filter compares apples to apples. Empty / null ->
+ * '' (treated as "no filter" by callers).
+ */
+function normalizeWinArea(area) {
+  if (area === null || area === undefined) {
+    return '';
+  }
+  return String(area).trim();
+}
+
+/**
  * Build a normalized Set of QUALIFYING role keys from a caller-supplied role
  * spec, or return null when no spec is given (=> no qualification filtering,
  * preserving the historical behavior for backward compat / county mode).
@@ -627,11 +660,12 @@ function rowQualifies(matchedRoles, qualifyKeys) {
  *
  * @returns {Array<{roles:string[], distance_mi:number, win_area:(string|null), county:(string|null)}>}
  */
-function findContextRows(animalLat, animalLon, radiusMi, coordsDataset, excludeCounty, distanceFn, qualifyRoles, includeCounty) {
+function findContextRows(animalLat, animalLon, radiusMi, coordsDataset, excludeCounty, distanceFn, qualifyRoles, includeCounty, filterWinArea) {
   const dist = distanceFn || haversineMi;
   const radius = clampRadius(radiusMi);
   const excludeNorm = normalizeCounty(excludeCounty);
   const includeNorm = normalizeCounty(includeCounty);
+  const areaNorm = normalizeWinArea(filterWinArea);
   const qualifyKeys = parseQualifyRoles(qualifyRoles);
 
   const rows = [];
@@ -651,13 +685,23 @@ function findContextRows(animalLat, animalLon, radiusMi, coordsDataset, excludeC
     } catch (e) {
       continue;
     }
-    // In-county membership (Tier 1 By-County list): a volunteer whose home_county
-    // matches includeCounty is ALWAYS retained regardless of distance so the
-    // list matches the by-county summary cards. All others stay radius-gated.
-    const inCounty =
-      includeNorm !== '' && normalizeCounty(rec.home_county) === includeNorm;
-    if (!Number.isFinite(d) || (d > radius && !inCounty)) {
-      continue;
+    // Tier 1 By-County WIN-area scope: when filterWinArea is set, ONLY records
+    // whose win_area matches survive (the authoritative membership, matching the
+    // by-area summary cards) and they survive REGARDLESS of distance.
+    if (areaNorm !== '') {
+      if (normalizeWinArea(rec.win_area) !== areaNorm || !Number.isFinite(d)) {
+        continue;
+      }
+    } else {
+      // In-county membership (Tier 1 By-County list): a volunteer whose
+      // home_county matches includeCounty is ALWAYS retained regardless of
+      // distance so the list matches the by-county summary cards. All others
+      // stay radius-gated.
+      const inCounty =
+        includeNorm !== '' && normalizeCounty(rec.home_county) === includeNorm;
+      if (!Number.isFinite(d) || (d > radius && !inCounty)) {
+        continue;
+      }
     }
 
     // Out-of-county filter: skip records whose home_county matches excludeCounty.

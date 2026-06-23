@@ -3327,6 +3327,11 @@ async function runTier1VolunteerList() {
     'Tier 1 list request carries the county-centroid coordinate (url: ' + t1Url + ')');
   assert.ok(!/[?&]exclude_county=/.test(t1Url),
     'Tier 1 list must NOT exclude the county (wants in-area volunteers) (url: ' + t1Url + ')');
+  // WIN-AREA SCOPE: the request carries win_area = the selected county's area
+  // (Allegheny -> 10) so the Worker confines the list to that WIN area (matching
+  // the summary cards) instead of every volunteer within the centroid radius.
+  assert.ok(/[?&]win_area=10(&|$)/.test(t1Url),
+    'Tier 1 list request carries win_area=10 (Allegheny area) for WIN-area scope (url: ' + t1Url + ')');
 
   const rows = Array.prototype.slice.call(doc.querySelectorAll('#t1-vol-list .ctx-row'));
   assert.strictEqual(rows.length, 4, 'all 4 transport-qualified volunteers render (got ' + rows.length + ')');

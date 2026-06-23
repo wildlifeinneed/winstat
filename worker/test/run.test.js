@@ -2546,6 +2546,47 @@ async function main() {
     assert.strictEqual(ctx.rows[0].available, false, 'unavailable flag preserved through the driving path');
   });
 
+  // (4c) TIER 1 BY-COUNTY WIN-AREA SCOPE. The By-County list must match the
+  //      summary cards, which aggregate county_capacity across the selected
+  //      county's WIN AREA (county/area membership) -- NOT geographic proximity.
+  //      A centroid+radius query bleeds into NEIGHBORING areas (e.g. an Area-13
+  //      Cumberland volunteer surfacing for an Area-12 Adams query). The win_area
+  //      filter scopes the list to that area: sibling-county volunteers in the
+  //      SAME area are kept (even beyond the radius), neighboring-area volunteers
+  //      within the radius are dropped. ───────────────────────────────────────
+  await test('REGRESSION (Tier 1 By-County): win_area scope keeps same-area, drops neighboring-area-within-radius', () => {
+    const origin = { lat: 39.87, lon: -77.22 }; // Adams centroid-ish (Area 12)
+    const farLat = 39.87 + (30 / 69.0); // ~30 mi north -> beyond a 20mi radius
+    const dataset = [
+      // Adams (Area 12), far from centroid, unavailable -> KEPT (same area, dist-exempt).
+      { lat: farLat, lon: -77.22, roles: ['RVS C&T'], home_county: 'Adams', win_area: '12', available: false },
+      // York (Area 12) sibling county, near -> KEPT (same area, matches card aggregation).
+      { lat: 39.86, lon: -77.21, roles: ['C&T'], home_county: 'York', win_area: '12', available: true },
+      // Cumberland (Area 13) neighboring area, NEAR (within radius) -> DROPPED (wrong area).
+      { lat: 39.88, lon: -77.23, roles: ['C&T'], home_county: 'Cumberland', win_area: '13', available: true },
+    ];
+    const rows = findContextRows(origin.lat, origin.lon, 20, dataset, '', null, 'RVS C&T,C&T', 'Adams', '12');
+    const areas = rows.map((r) => r.win_area).sort();
+    assert.strictEqual(rows.length, 2, 'only the two Area-12 volunteers survive the win_area scope');
+    assert.deepStrictEqual(areas, ['12', '12'], 'every surviving row is in WIN area 12');
+    const counties = rows.map((r) => r.county).sort();
+    assert.deepStrictEqual(counties, ['Adams', 'York'], 'Adams (far) + York (sibling) kept; Cumberland (Area 13) dropped');
+  });
+
+  await test('REGRESSION (Tier 1 By-County): findContextRowsDriving win_area scope drops the wrong-area volunteer', async () => {
+    const origin = { lat: 39.87, lon: -77.22 };
+    const dataset = [
+      { lat: 39.86, lon: -77.21, roles: ['C&T'], home_county: 'York', win_area: '12', available: true },
+      { lat: 39.88, lon: -77.23, roles: ['C&T'], home_county: 'Cumberland', win_area: '13', available: true },
+    ];
+    const ctx = await findContextRowsDriving(
+      origin.lat, origin.lon, 20, dataset, '', null, null, null, undefined, 'C&T', 'Adams', '12'
+    );
+    assert.strictEqual(ctx.rows.length, 1, 'only the Area-12 volunteer survives the driving-path win_area scope');
+    assert.strictEqual(ctx.rows[0].win_area, '12', 'surviving row is in WIN area 12');
+    assert.strictEqual(ctx.rows[0].county, 'York', 'Cumberland (Area 13) excluded despite being within radius');
+  });
+
   // (5) CORS allowlist resolution -- widened ALLOWED_ORIGIN (*.pages.dev). -----
   await test('CORS: legacy single-origin config with no request Origin -> that origin', () => {
     assert.strictEqual(

@@ -115,6 +115,7 @@ async function readParams(request) {
     context: null,
     qualify_roles: null,
     animal_county: null,
+    win_area: null,
   };
 
   let url;
@@ -542,6 +543,16 @@ async function handleRequest(request, deps) {
     // (address/widen) sends exclude_county and must NOT include-by-county.
     const includeCounty =
       (params.animal_county && !params.exclude_county) ? params.animal_county : null;
+    // TIER 1 BY-COUNTY WIN-AREA SCOPE. The By-County list must match the summary
+    // cards, which aggregate the pre-computed county_capacity snapshot across the
+    // selected county's WIN AREA (county/area membership) -- NOT geographic
+    // proximity. Without this filter the centroid+radius query bleeds into
+    // NEIGHBORING areas (e.g. an Area-13 Cumberland volunteer surfacing for an
+    // Area-12 Adams query). When win_area is supplied (Tier 1 only) the list is
+    // scoped to that WIN area; Tier 2 (address/widen) sends no win_area and is
+    // unaffected.
+    const filterWinArea =
+      (params.animal_county && !params.exclude_county) ? params.win_area : null;
     const ctx = await findContextRowsDriving(
       coord.lat,
       coord.lon,
@@ -553,7 +564,8 @@ async function handleRequest(request, deps) {
       deps.fetchFn,
       undefined,
       params.qualify_roles,
-      includeCounty
+      includeCounty,
+      filterWinArea
     );
     // Single serialization seam: only buildTier2Response constructs the JSON,
     // whitelisting keys so no raw KV datum can leak. distance_mode (a single
