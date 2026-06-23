@@ -3367,6 +3367,55 @@ async function runTier1VolunteerList() {
   console.log('PASS: Tier 1 volunteer list — renders role + County + WIN Area + availability note per volunteer; dims unavailable (deny keyword + available=false) like Tier 2; uses county-centroid context=1 call without exclude_county.');
 }
 
+// ── Tier 1 (Capture): the volunteer list shows ALL volunteers the Worker
+//    returns — including COURIER-only rows that the issue-narrowed
+//    qualify_roles set would exclude — and the request OMITS qualify_roles so
+//    the Worker returns the SAME superset the summary cards count. Unavailable
+//    volunteers still render (dimmed), never filtered out. ─────────────────
+async function runTier1VolunteerListCaptureAllRoles() {
+  const agg = {
+    total_in_range: 4,
+    role_counts: { 'C&T': 1, 'RVS C&T': 1, 'COURIER': 2 },
+    win_areas: ['10'],
+    out_of_county: [
+      { roles: ['RVS C&T'], distance_mi: 4.0, win_area: '10', county: 'Allegheny', availability_note: '' },
+      { roles: ['C&T'], distance_mi: 7.0, win_area: '10', county: 'Allegheny', availability_note: '' },
+      // COURIER-only: would be dropped by the issue-narrowed qualify predicate
+      // on a Capture animal — must STILL render now.
+      { roles: ['COURIER'], distance_mi: 10.0, win_area: '11', county: 'Beaver', availability_note: '' },
+      // COURIER-only AND unavailable: still rendered, just dimmed.
+      { roles: ['COURIER'], distance_mi: 13.0, win_area: '5', county: 'Butler', available: false, availability_note: '' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc, opts } = await driveTier1Recommend(agg, 'Allegheny', { rvs: false, issue: 'capture' });
+
+  const t1Url = opts.aggCalls[opts.aggCalls.length - 1] || '';
+  assert.ok(/[?&]context=1(&|$)/.test(t1Url), 'Capture Tier 1 list request opts into context=1 (url: ' + t1Url + ')');
+  // The core fix: the Tier 1 list request must NOT narrow by qualify_roles, so
+  // the Worker returns ALL qualifying-role volunteers (incl. COURIER).
+  assert.ok(!/[?&]qualify_roles=/.test(t1Url),
+    'Tier 1 list request must OMIT qualify_roles so all roles return (url: ' + t1Url + ')');
+
+  const rows = Array.prototype.slice.call(doc.querySelectorAll('#t1-vol-list .ctx-row'));
+  assert.strictEqual(rows.length, 4,
+    'ALL 4 volunteers render on a Capture animal incl. COURIER-only (got ' + rows.length + ')');
+
+  // The two COURIER-only rows are present (not dropped by an issue filter).
+  const courierRows = rows.filter(function (r) {
+    return /COURIER/.test(r.textContent);
+  });
+  assert.strictEqual(courierRows.length, 2,
+    'both COURIER-only rows render on a Capture animal (got ' + courierRows.length + ')');
+
+  // The unavailable COURIER-only row is dimmed, not filtered out.
+  assert.ok(rows[3].classList.contains('unavail'),
+    'unavailable COURIER-only row is dimmed (kept, not filtered)');
+
+  console.log('PASS: Tier 1 volunteer list (Capture) — shows ALL Worker-returned volunteers incl. COURIER-only; request omits qualify_roles; unavailable rows kept + dimmed.');
+}
+
 // ── COUNTY BREAKDOWN: per-role county list inside each role card's .sub. ────
 //    Each card shows only the counties relevant to THAT role (not aggregate).
 //    With county_by_role: C&T box: Blair 2, Centre 1.  RVS C&T box: Centre 1.  COURIER: Clearfield 1.
@@ -3556,8 +3605,9 @@ async function run() {
   await runRegressionConnecteamTriState();
   await runTier2AvailNote();
   await runTier1VolunteerList();
+  await runTier1VolunteerListCaptureAllRoles();
   await runTier2CountyBreakdown();
-  console.log('\nALL DOM TESTS PASSED (50 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (51 scenarios).');
 }
 
 run().then(function () {
