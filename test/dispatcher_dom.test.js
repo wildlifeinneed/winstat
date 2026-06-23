@@ -3367,23 +3367,24 @@ async function runTier1VolunteerList() {
   console.log('PASS: Tier 1 volunteer list — renders role + County + WIN Area + availability note per volunteer; dims unavailable (deny keyword + available=false) like Tier 2; uses county-centroid context=1 call without exclude_county.');
 }
 
-// ── Tier 1 (Capture): the volunteer list shows ALL volunteers the Worker
-//    returns — including COURIER-only rows that the issue-narrowed
-//    qualify_roles set would exclude — and the request OMITS qualify_roles so
-//    the Worker returns the SAME superset the summary cards count. Unavailable
-//    volunteers still render (dimmed), never filtered out. ─────────────────
-async function runTier1VolunteerListCaptureAllRoles() {
+// ── Tier 1 (Capture): the volunteer list shows ONLY the volunteers QUALIFIED
+//    for the CURRENT scenario — the SAME behavior as Tier 2's renderContextList
+//    — so COURIER-only rows are dropped on a Capture animal (they don't
+//    qualify), the request SENDS qualify_roles, but a qualified-but-unavailable
+//    C&T volunteer still renders (DIMMED, never hidden). This was the original
+//    complaint: the unavailable C&T volunteer being filtered out entirely. ───
+async function runTier1VolunteerListCaptureQualified() {
   const agg = {
     total_in_range: 4,
     role_counts: { 'C&T': 1, 'RVS C&T': 1, 'COURIER': 2 },
     win_areas: ['10'],
     out_of_county: [
       { roles: ['RVS C&T'], distance_mi: 4.0, win_area: '10', county: 'Allegheny', availability_note: '' },
-      { roles: ['C&T'], distance_mi: 7.0, win_area: '10', county: 'Allegheny', availability_note: '' },
-      // COURIER-only: would be dropped by the issue-narrowed qualify predicate
-      // on a Capture animal — must STILL render now.
+      // Qualified C&T AND unavailable: must STILL render, just dimmed.
+      { roles: ['C&T'], distance_mi: 7.0, win_area: '10', county: 'Allegheny', available: false, availability_note: '' },
+      // COURIER-only: does NOT qualify for a Capture animal — must be DROPPED.
       { roles: ['COURIER'], distance_mi: 10.0, win_area: '11', county: 'Beaver', availability_note: '' },
-      // COURIER-only AND unavailable: still rendered, just dimmed.
+      // COURIER-only AND unavailable: also dropped (not a qualifying role).
       { roles: ['COURIER'], distance_mi: 13.0, win_area: '5', county: 'Butler', available: false, availability_note: '' },
     ],
     out_of_county_truncated: false,
@@ -3393,27 +3394,33 @@ async function runTier1VolunteerListCaptureAllRoles() {
 
   const t1Url = opts.aggCalls[opts.aggCalls.length - 1] || '';
   assert.ok(/[?&]context=1(&|$)/.test(t1Url), 'Capture Tier 1 list request opts into context=1 (url: ' + t1Url + ')');
-  // The core fix: the Tier 1 list request must NOT narrow by qualify_roles, so
-  // the Worker returns ALL qualifying-role volunteers (incl. COURIER).
-  assert.ok(!/[?&]qualify_roles=/.test(t1Url),
-    'Tier 1 list request must OMIT qualify_roles so all roles return (url: ' + t1Url + ')');
+  // The fix: the Tier 1 list request SENDS qualify_roles (same as Tier 2) so the
+  // Worker returns ONLY the role-matched volunteers for the current scenario.
+  assert.ok(/[?&]qualify_roles=/.test(t1Url),
+    'Tier 1 list request must SEND qualify_roles (qualified-only, like Tier 2) (url: ' + t1Url + ')');
 
   const rows = Array.prototype.slice.call(doc.querySelectorAll('#t1-vol-list .ctx-row'));
-  assert.strictEqual(rows.length, 4,
-    'ALL 4 volunteers render on a Capture animal incl. COURIER-only (got ' + rows.length + ')');
+  // Only the 2 C&T-family rows qualify on a Capture animal; both COURIER-only
+  // rows are filtered out by the qualifiesForAnimal predicate.
+  assert.strictEqual(rows.length, 2,
+    'only the 2 qualified (C&T-family) volunteers render on a Capture animal (got ' + rows.length + ')');
 
-  // The two COURIER-only rows are present (not dropped by an issue filter).
+  // No COURIER-only row survives the qualified-only filter.
   const courierRows = rows.filter(function (r) {
     return /COURIER/.test(r.textContent);
   });
-  assert.strictEqual(courierRows.length, 2,
-    'both COURIER-only rows render on a Capture animal (got ' + courierRows.length + ')');
+  assert.strictEqual(courierRows.length, 0,
+    'COURIER-only rows are dropped on a Capture animal (not a qualifying role)');
 
-  // The unavailable COURIER-only row is dimmed, not filtered out.
-  assert.ok(rows[3].classList.contains('unavail'),
-    'unavailable COURIER-only row is dimmed (kept, not filtered)');
+  // The qualified-but-unavailable C&T row is KEPT and dimmed (the original
+  // complaint: an unavailable C&T volunteer must not be hidden).
+  const unavailRows = rows.filter(function (r) {
+    return r.classList.contains('unavail');
+  });
+  assert.strictEqual(unavailRows.length, 1,
+    'the qualified-but-unavailable C&T row is kept + dimmed (not filtered)');
 
-  console.log('PASS: Tier 1 volunteer list (Capture) — shows ALL Worker-returned volunteers incl. COURIER-only; request omits qualify_roles; unavailable rows kept + dimmed.');
+  console.log('PASS: Tier 1 volunteer list (Capture) — qualified-only like Tier 2 (COURIER-only dropped); request sends qualify_roles; qualified-but-unavailable row kept + dimmed.');
 }
 
 // ── COUNTY BREAKDOWN: per-role county list inside each role card's .sub. ────
@@ -3605,7 +3612,7 @@ async function run() {
   await runRegressionConnecteamTriState();
   await runTier2AvailNote();
   await runTier1VolunteerList();
-  await runTier1VolunteerListCaptureAllRoles();
+  await runTier1VolunteerListCaptureQualified();
   await runTier2CountyBreakdown();
   console.log('\nALL DOM TESTS PASSED (51 scenarios).');
 }

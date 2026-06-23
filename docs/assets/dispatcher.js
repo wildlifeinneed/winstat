@@ -695,24 +695,22 @@
   // Append the shared rvs/issue + derived qualify_roles params (see
   // fetchAggregateByAddress for the rationale). Pure string builder.
   //
-  // qualify_roles is OMITTED when opts.allRoles is set. The Tier 1 By-County
-  // volunteer list uses this so the Worker returns ALL qualifying-role
-  // volunteers (C&T, RVS C&T, COURIER) for the county — the SAME superset the
-  // summary cards count — instead of the issue-narrowed subset. Tier 2 (address
-  // / widen) still sends qualify_roles to keep its list to taskable rows only.
+  // qualify_roles is ALWAYS sent (for both Tier 2 address/widen AND the Tier 1
+  // By-County volunteer list) so the Worker returns ONLY the volunteers whose
+  // roles qualify for the CURRENT scenario (derived from rvs/issue via
+  // decision.js qualifyingRoles). Tier 1 = Tier 2 behavior: qualified-only,
+  // with unavailable volunteers dimmed (not dropped) downstream.
   function appendAggregateOpts(url, opts) {
     if (opts && opts.base) {
       url += '&rvs=' + encodeURIComponent(opts.base.rvs ? 'yes' : 'no') +
              '&issue=' + encodeURIComponent(opts.base.issue);
-      if (!(opts && opts.allRoles)) {
-        var qfn = (window.WildlifeDecision &&
-                   typeof window.WildlifeDecision.qualifyingRoles === 'function')
-          ? window.WildlifeDecision.qualifyingRoles : null;
-        if (qfn) {
-          var qroles = qfn(opts.base.rvs, opts.base.issue);
-          if (qroles && qroles.length) {
-            url += '&qualify_roles=' + encodeURIComponent(qroles.join(','));
-          }
+      var qfn = (window.WildlifeDecision &&
+                 typeof window.WildlifeDecision.qualifyingRoles === 'function')
+        ? window.WildlifeDecision.qualifyingRoles : null;
+      if (qfn) {
+        var qroles = qfn(opts.base.rvs, opts.base.issue);
+        if (qroles && qroles.length) {
+          url += '&qualify_roles=' + encodeURIComponent(qroles.join(','));
         }
       }
     }
@@ -1168,15 +1166,25 @@
         : T2.tier1VolHeader.replace('{county}', '').replace(/\s+$/, '');
     }
 
-    // NO client-side role/availability filtering: the Worker already returns
-    // ALL qualifying-role volunteers for the county centroid (it was queried
-    // WITHOUT qualify_roles via loadTier1Volunteers' allRoles flag), which is
-    // the SAME superset the summary cards count. Re-applying the issue-narrowed
-    // qualifiesForAnimal predicate here previously dropped most rows (e.g. every
-    // COURIER on a Capture animal), so the list showed far fewer volunteers than
-    // the cards. Unavailable volunteers are kept too (dimmed below), never
-    // filtered out.
+    // QUALIFIED-ONLY list (SAME rule Tier 2's renderContextList applies). The
+    // Worker already returns role-matched rows (it filtered by the qualify_roles
+    // param we sent), but re-apply a DEFENSIVE frontend filter via the SHARED
+    // decision.js predicate (qualifiesForAnimal — the SAME rule, no
+    // re-derivation) so an unqualified row can never render. Skipped when base
+    // info is absent (backward compat). Availability is NOT filtered here:
+    // unavailable volunteers are KEPT and dimmed below (the original complaint
+    // was an unavailable C&T volunteer being hidden entirely).
+    var qualifyFn = (window.WildlifeDecision &&
+                     typeof window.WildlifeDecision.qualifiesForAnimal === 'function')
+      ? window.WildlifeDecision.qualifiesForAnimal : null;
+    var hasBase = ctx && typeof ctx.issue === 'string' && ctx.issue !== '';
     var list = Array.isArray(rows) ? rows : [];
+    if (qualifyFn && hasBase) {
+      list = list.filter(function (row) {
+        var roleList = Array.isArray(row.roles) ? row.roles : [];
+        return qualifyFn(roleList, !!ctx.rvs, ctx.issue);
+      });
+    }
 
     if (!list.length) {
       if (listEl) listEl.innerHTML = '';
@@ -1244,12 +1252,12 @@
         hideTier1Volunteers();
         return;
       }
-      // allRoles: omit qualify_roles so the Worker returns ALL qualifying-role
-      // volunteers (C&T, RVS C&T, COURIER) for the county — the SAME superset
-      // the summary cards count — not the issue-narrowed subset. This is the
-      // core fix for the list showing far fewer volunteers than the cards.
+      // Send qualify_roles (the default — no allRoles flag) so the Worker
+      // returns ONLY the role-matched volunteers for the CURRENT scenario, the
+      // SAME way Tier 2 (address/widen) queries. Tier 1 differs only in origin:
+      // the county CENTROID instead of an address coordinate.
       fetchAggregateByCoord(centroid.lat, centroid.lon, RADIUS_DEFAULT,
-        { context: true, base: base, tier1County: county, allRoles: true })
+        { context: true, base: base, tier1County: county })
         .then(function (agg) {
           if (token !== t1VolToken) return; // stale response — ignore
           var rows = (agg && Array.isArray(agg.out_of_county)) ? agg.out_of_county : [];
