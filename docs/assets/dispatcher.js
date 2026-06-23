@@ -116,13 +116,6 @@
   var WORKER_URL = 'https://pa-wildlife-dispatcher.winstat.workers.dev';
   var RADIUS_DEFAULT = 20;
   var RADIUS_MAX = 100;
-  // Widest animal base for the Tier 1 "By County" volunteer list. The list is
-  // meant to show the county's ENTIRE qualified roster (every C&T / RVS C&T /
-  // COURIER volunteer), independent of any specific animal issue — which may
-  // not be chosen yet when a county is selected. A non-RVS TRANSPORT base makes
-  // qualifyingRoles() return the full canonical role set, so no qualified
-  // volunteer is filtered out by a transient/default issue selection.
-  var TIER1_ALL_ROLES_BASE = { rvs: false, issue: 'transport' };
   // Address autocomplete (typeahead) tuning. The Worker proxies a GENERIC
   // public address provider (Photon) server-side via ?autocomplete=&limit= and
   // returns { suggestions: [{label, lat?, lon?}] }. NO PII ever reaches here.
@@ -541,6 +534,25 @@
   function markResultsStale() {
     markRecOutputStale();
     markAddressResultStale();
+  }
+
+  // Re-fetch + re-render the Tier 1 (By County) qualified-volunteer list so it
+  // ALWAYS reflects the CURRENT county + CURRENT animal inputs (RVS toggle +
+  // Issue/Transport radios). Unlike the recommendation cards (approach B: dim +
+  // require a re-click), the volunteer list refreshes immediately on any change
+  // that affects WHO qualifies — county selection AND the RVS/Issue inputs that
+  // feed qualifyingRoles(). No county selected -> bump the stale-guard token and
+  // hide the list so stale rows never linger. Best-effort: loadTier1Volunteers
+  // never throws and leaves the rest of the UI untouched on failure.
+  function refreshTier1Volunteers() {
+    var countyEl = document.getElementById('county');
+    var county = countyEl ? countyEl.value : '';
+    if (!county) {
+      t1VolToken += 1;
+      hideTier1Volunteers();
+      return;
+    }
+    loadTier1Volunteers(county, readAnimalBaseInfo());
   }
 
   // Called when the County dropdown changes. The new county governs the
@@ -3173,33 +3185,29 @@
       // the PREVIOUS "Get Recommendation" run, so flag the cards as stale (dim +
       // banner). Re-clicking "Get Recommendation" recomputes and clears them.
       markCountyChangeStale();
-      // The Tier 1 qualified-volunteer list, by contrast, loads AUTOMATICALLY on
-      // county selection — no button click needed. A selected county fetches a
-      // fresh list (the t1VolToken stale guard inside loadTier1Volunteers ignores
-      // out-of-order responses when the county changes rapidly); clearing the
-      // county hides the list (renderCardsForCounty bumps the token + hides it).
-      //
-      // The list shows EVERY qualified volunteer in the county, NOT just those
-      // taskable for one specific animal issue. Since this fires on county
-      // change (before the RVS/Issue radios are necessarily set), using the
-      // transient readAnimalBaseInfo() would default to issue='capture' and
-      // wrongly drop COURIER-only volunteers. We instead pass the WIDEST base
-      // (non-RVS transport) so qualifyingRoles yields the full canonical set
-      // (C&T, RVS C&T, COURIER) and the county's complete qualified roster —
-      // available AND unavailable — renders (availability dimming preserved).
-      if (county) {
-        loadTier1Volunteers(county, TIER1_ALL_ROLES_BASE);
-      }
+      // The Tier 1 qualified-volunteer list, by contrast, refreshes
+      // AUTOMATICALLY — no "Get Recommendation" click needed. It always reflects
+      // the CURRENT county + CURRENT animal inputs (RVS + Issue/Transport), so a
+      // county change re-fetches against the new county using the current input
+      // state (the t1VolToken stale guard inside loadTier1Volunteers ignores
+      // out-of-order responses on rapid changes). Clearing the county hides the
+      // list (refreshTier1Volunteers bumps the token + hides it). Unavailable
+      // qualified volunteers still render, dimmed (availability preserved).
+      refreshTier1Volunteers();
     });
     $('#recommend-btn').addEventListener('click', onRecommendClick);
 
-    // Approach B stale-flag wiring: the RVS toggle and the Issue (C&T) radios
-    // feed BOTH result surfaces (readAnimalBaseInfo) but trigger no render. So
-    // changing one after a result is shown would silently leave misleading
-    // stale numbers. We do NOT auto-recompute — we flag the shown result(s) as
-    // stale and require a re-click of the existing lookup/submit button.
+    // The RVS toggle and the Issue (Capture/Transport) radios feed
+    // readAnimalBaseInfo(), which drives WHO qualifies. Two effects on change:
+    //   1) Recommendation/address surfaces use approach B — flag stale (dim +
+    //      require a re-click), never auto-recompute (markResultsStale).
+    //   2) The Tier 1 By-County volunteer list refreshes IMMEDIATELY so it
+    //      always reflects the current input state (refreshTier1Volunteers).
     $$('input[name="rvs"], input[name="issue"]').forEach(function (radio) {
-      radio.addEventListener('change', markResultsStale);
+      radio.addEventListener('change', function () {
+        markResultsStale();
+        refreshTier1Volunteers();
+      });
     });
 
     // Address-mode wiring (Phase G).
