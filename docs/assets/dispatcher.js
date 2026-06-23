@@ -2131,7 +2131,7 @@
     // Update DMA map link with animal coordinates for find parameter
     var dmaLink = document.getElementById('dma-map-link');
     if (dmaLink && agg.animal_lat && agg.animal_lon) {
-      dmaLink.href = 'https://pagame.maps.arcgis.com/apps/webappviewer/index.html?id=c9c7c8912356450fa77fc34d30b131fb&find=' + agg.animal_lat + ' ' + agg.animal_lon;
+      dmaLink.href = 'https://pagame.maps.arcgis.com/apps/webappviewer/index.html?id=c9c7c8912356450fa77fc34d30b131fb&marker=' + agg.animal_lon + ',' + agg.animal_lat + '&level=12';
     }
     $('#address-result').style.display = 'block';
   }
