@@ -278,11 +278,14 @@
     .rec-output.show { display: block; }
 
     /* ─── Stale-results flag (Approach B) ───────────────────────
-       When a relevant animal input (RVS / Issue) changes after a result is
-       on screen, the result surface is marked .is-stale: its contents are
-       dimmed + de-saturated so the numbers read as "do not trust", and a
-       #*-stale-notice banner is shown on top instructing the dispatcher to
-       re-run the lookup. Re-clicking the lookup button clears .is-stale. */
+       When a relevant input changes after a result is on screen — an
+       animal input (RVS / Issue) OR the County dropdown — the affected
+       surface is marked .is-stale: its contents are dimmed + de-saturated
+       so the numbers read as "do not trust", and a #*-stale-notice banner
+       is shown on top instructing the dispatcher to re-run the lookup.
+       County changes flag both the recommendation (#rec-output) and the
+       Tier 1 volunteer list (#t1-vol-section). Re-clicking the lookup
+       button clears .is-stale. */
     .is-stale { position: relative; }
     .is-stale > *:not(.stale-notice) {
       opacity: 0.4;

@@ -529,11 +529,34 @@
     if (toggle) setRehabToggleLabel(toggle, false);
   }
 
+  // County-mode companion to markRecOutputStale: the Tier 1 qualified-volunteer
+  // list (#t1-vol-section) is rendered alongside the recommendation by the same
+  // "Get Recommendation" run, so when the governing county changes it is just as
+  // stale as the cards above it. Flag it only while it is actually SHOWING rows
+  // (display:block). Re-running the lookup re-renders the list, which clears the
+  // flag (see renderTier1Volunteers / hideTier1Volunteers).
+  function markTier1VolStale() {
+    var section = document.getElementById('t1-vol-section');
+    if (!section || section.style.display !== 'block') return;
+    section.classList.add('is-stale');
+    staleNoticeEl(section, 'rerunRecommend');
+  }
+
   // Called on every relevant input change (RVS / Issue). Flags whichever
   // surface is currently showing results. Never recomputes (approach B).
   function markResultsStale() {
     markRecOutputStale();
     markAddressResultStale();
+  }
+
+  // Called when the County dropdown changes. The new county governs BOTH the
+  // recommendation cards (#rec-output) and the Tier 1 volunteer list
+  // (#t1-vol-section) from the previous "Get Recommendation" run, so flag both
+  // as stale — same approach-B treatment as an RVS/Issue change. Never
+  // recomputes; re-clicking "Get Recommendation" clears the flags.
+  function markCountyChangeStale() {
+    markRecOutputStale();
+    markTier1VolStale();
   }
 
   // Re-running a lookup clears the stale flag for that surface. Called at the
@@ -549,6 +572,10 @@
     var out = $('#rec-output');
     // Re-running the lookup clears any stale flag on this surface.
     clearStale(out);
+    // ...and on the Tier 1 volunteer list, which is rebuilt below. Clearing it
+    // synchronously (the rebuild is async via loadTier1Volunteers) removes the
+    // dim/banner immediately on click rather than only once rows return.
+    clearStale($('#t1-vol-section'));
     var county = $('#county').value;
     if (!county) {
       out.className = 'rec-output show tone-unknown';
@@ -1085,6 +1112,9 @@
     var section = $('#t1-vol-section');
     var listEl = $('#t1-vol-list');
     var emptyEl = $('#t1-vol-empty');
+    // Clear any stale flag so a hidden (or about-to-be-rebuilt) section never
+    // carries a dim/banner over from a previous county selection.
+    clearStale(section);
     if (section) section.style.display = 'none';
     if (listEl) listEl.innerHTML = '';
     if (emptyEl) { emptyEl.style.display = 'none'; emptyEl.textContent = ''; }
@@ -1096,6 +1126,11 @@
     var emptyEl = $('#t1-vol-empty');
     var headerEl = $('#t1-vol-header');
     if (!section) return;
+
+    // Re-rendering the list (driven by a fresh "Get Recommendation" run) clears
+    // any stale flag carried over from a county change, so the refreshed rows
+    // never show under the dim/banner treatment.
+    clearStale(section);
 
     var T2 = MSG.tier2Aggregate;
     var county = (ctx && ctx.county) ? ctx.county : '';
@@ -3143,6 +3178,11 @@
       // as the governing active location (the badge + coordinator follow).
       state.activeLocation = 'county';
       renderCardsForCounty(e.target.value);
+      // Approach B: the new county governs the recommendation + Tier 1
+      // volunteer list shown from the PREVIOUS "Get Recommendation" run, so
+      // flag both as stale (dim + banner) rather than silently leaving the old
+      // output. Re-clicking "Get Recommendation" recomputes and clears them.
+      markCountyChangeStale();
     });
     $('#recommend-btn').addEventListener('click', onRecommendClick);
 
