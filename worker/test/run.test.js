@@ -2497,6 +2497,55 @@ async function main() {
     assert.ok(Array.isArray(tier2.out_of_county), 'Tier-2 out_of_county is an array (rows rendered without error)');
   });
 
+  // (4b) TIER 1 BY-COUNTY include-by-county membership. The By-County volunteer
+  //      list must include EVERY volunteer whose home_county matches the selected
+  //      county REGARDLESS of distance from the county centroid, so it stays in
+  //      sync with the summary cards (which count by home_county, not radius).
+  //      Bug: an in-county volunteer living beyond the radius was counted by the
+  //      card but HIDDEN from the list ("0 of 1 avail" card + "No qualified
+  //      volunteers" list). Unavailable in-county volunteers are KEPT (the
+  //      frontend dims them). ────────────────────────────────────────────────
+  await test('REGRESSION (Tier 1 By-County): in-county volunteer beyond radius is INCLUDED via includeCounty', () => {
+    const origin = { lat: 39.87, lon: -77.22 }; // Adams centroid-ish
+    const farLat = 39.87 + (30 / 69.0); // ~30 miles north -> beyond a 20mi radius
+    const dataset = [
+      // Single RVS C&T volunteer, home_county Adams, UNAVAILABLE, far from centroid.
+      { lat: farLat, lon: -77.22, roles: ['RVS C&T'], home_county: 'Adams', win_area: '12', available: false },
+    ];
+    // Without includeCounty (old behavior): the radius gate drops it.
+    const before = findContextRows(origin.lat, origin.lon, 20, dataset, '', null, 'RVS C&T');
+    assert.strictEqual(before.length, 0, 'old radius-only behavior hides the far in-county volunteer');
+    // With includeCounty='Adams': the volunteer is retained (and stays unavailable).
+    const after = findContextRows(origin.lat, origin.lon, 20, dataset, '', null, 'RVS C&T', 'Adams');
+    assert.strictEqual(after.length, 1, 'includeCounty keeps the far in-county volunteer');
+    assert.strictEqual(after[0].available, false, 'unavailable flag preserved (frontend dims it)');
+    assert.strictEqual(after[0].county, 'Adams', 'county echoed for the in-county row');
+  });
+
+  await test('REGRESSION (Tier 1 By-County): includeCounty does NOT pull in OUT-of-county far volunteers', () => {
+    const origin = { lat: 39.87, lon: -77.22 };
+    const farLat = 39.87 + (30 / 69.0);
+    const dataset = [
+      // Far volunteer whose home_county is NOT the selected county -> still radius-gated out.
+      { lat: farLat, lon: -77.22, roles: ['RVS C&T'], home_county: 'York', win_area: '12', available: true },
+    ];
+    const rows = findContextRows(origin.lat, origin.lon, 20, dataset, '', null, 'RVS C&T', 'Adams');
+    assert.strictEqual(rows.length, 0, 'a far OUT-of-county volunteer is still excluded by the radius gate');
+  });
+
+  await test('REGRESSION (Tier 1 By-County): findContextRowsDriving honors includeCounty (membership before driving annotation)', async () => {
+    const origin = { lat: 39.87, lon: -77.22 };
+    const farLat = 39.87 + (30 / 69.0);
+    const dataset = [
+      { lat: farLat, lon: -77.22, roles: ['RVS C&T'], home_county: 'Adams', win_area: '12', available: false },
+    ];
+    const ctx = await findContextRowsDriving(
+      origin.lat, origin.lon, 20, dataset, '', null, null, null, undefined, 'RVS C&T', 'Adams'
+    );
+    assert.strictEqual(ctx.rows.length, 1, 'driving variant also includes the far in-county volunteer');
+    assert.strictEqual(ctx.rows[0].available, false, 'unavailable flag preserved through the driving path');
+  });
+
   // (5) CORS allowlist resolution -- widened ALLOWED_ORIGIN (*.pages.dev). -----
   await test('CORS: legacy single-origin config with no request Origin -> that origin', () => {
     assert.strictEqual(

@@ -531,6 +531,17 @@ async function handleRequest(request, deps) {
   // AFTER membership); it never gates membership. Approved per the 2026-06-09
   // PII amendment: only bare {lat,lon} of the small surviving set reach ORS.
   if (isContextOn(params.context)) {
+    // TIER 1 BY-COUNTY list vs TIER 2 address/widen list. The Tier 1 By-County
+    // panel queries the county CENTROID + a default radius and supplies
+    // animal_county WITHOUT exclude_county. For that path the list must include
+    // EVERY volunteer whose home_county matches the selected county REGARDLESS of
+    // distance, so it stays in sync with the by-county summary cards (which count
+    // by home_county, not by a centroid radius) -- otherwise an in-county
+    // volunteer living beyond the radius is counted by the card but hidden from
+    // the list ("0 of 1 avail" card + "No qualified volunteers" list). Tier 2
+    // (address/widen) sends exclude_county and must NOT include-by-county.
+    const includeCounty =
+      (params.animal_county && !params.exclude_county) ? params.animal_county : null;
     const ctx = await findContextRowsDriving(
       coord.lat,
       coord.lon,
@@ -541,7 +552,8 @@ async function handleRequest(request, deps) {
       deps.orsApiKey,
       deps.fetchFn,
       undefined,
-      params.qualify_roles
+      params.qualify_roles,
+      includeCounty
     );
     // Single serialization seam: only buildTier2Response constructs the JSON,
     // whitelisting keys so no raw KV datum can leak. distance_mode (a single
