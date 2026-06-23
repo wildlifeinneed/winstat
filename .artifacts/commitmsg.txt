@@ -1,0 +1,23 @@
+feat(flags): per-panel maintenance flag system + 3-state UI
+
+Add docs/assets/flags.js -- a single hostname-aware config (mirrors the
+messages.js pattern) giving every panel across the 5 docs/ pages a stable
+key and a per-env { prod, dev } state: live / maintenance / hidden.
+
+- applyPanelFlags() runs on DOMContentLoaded: resolves env from hostname
+  (*.pages.dev -> dev, else prod), then live=no-op,
+  maintenance=add .is-under-maintenance + inject "Down for Maintenance,
+  check back later." banner (.status-strip.construction palette),
+  hidden=display:none. Idempotent + fail-open (unknown keys stay live).
+- Tag all panels with data-panel-key (18 keys) and wire flags.js into
+  index, dispatcher, facilities, equipment-transfers, help.
+- Add shared .is-under-maintenance CSS reusing the dispatcher .is-stale
+  dim (opacity .4 + grayscale .85 + no pointer events) under a NEW class
+  so it never collides with the dispatcher dynamic .is-stale toggling.
+- worker: widen ALLOWED_ORIGIN to a comma allowlist incl https://*.pages.dev
+  and add resolveAllowedOrigin() that echoes a matching prod/preview origin
+  (falls back to prod when Origin is absent/unknown) so dev preview CORS
+  works while production is unchanged.
+- Tests: new test/flags_dom.test.js (29 asserts: env/state/banner/hidden/
+  wiring) + 7 worker CORS tests. ALL panels default to live in both envs,
+  so this commit is a production visual no-op.
