@@ -3265,6 +3265,20 @@ async function driveTier1Recommend(agg, county, base) {
     if (issueEl) issueEl.checked = true;
   }
 
+  // Fire change on the RVS + Issue radios so the Tier 1 volunteer list refreshes
+  // to the CURRENT input state (it reflects the live RVS/Issue selection rather
+  // than a fixed role set). Mirrors a dispatcher toggling inputs after picking a
+  // county.
+  if (base) {
+    const rvsVal = base.rvs ? 'yes' : 'no';
+    const rvsEl2 = doc.querySelector('input[name="rvs"][value="' + rvsVal + '"]');
+    if (rvsEl2) rvsEl2.dispatchEvent(new window.Event('change', { bubbles: true }));
+    const issueEl2 = doc.querySelector('input[name="issue"][value="' + base.issue + '"]');
+    if (issueEl2) issueEl2.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await flush(window);
+    await flush(window);
+  }
+
   doc.getElementById('recommend-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
   // The volunteer-list fetch is async (centroid -> Worker); flush extra turns.
   await flush(window);
