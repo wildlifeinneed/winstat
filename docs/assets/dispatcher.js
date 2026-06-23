@@ -116,6 +116,13 @@
   var WORKER_URL = 'https://pa-wildlife-dispatcher.winstat.workers.dev';
   var RADIUS_DEFAULT = 20;
   var RADIUS_MAX = 100;
+  // Widest animal base for the Tier 1 "By County" volunteer list. The list is
+  // meant to show the county's ENTIRE qualified roster (every C&T / RVS C&T /
+  // COURIER volunteer), independent of any specific animal issue — which may
+  // not be chosen yet when a county is selected. A non-RVS TRANSPORT base makes
+  // qualifyingRoles() return the full canonical role set, so no qualified
+  // volunteer is filtered out by a transient/default issue selection.
+  var TIER1_ALL_ROLES_BASE = { rvs: false, issue: 'transport' };
   // Address autocomplete (typeahead) tuning. The Worker proxies a GENERIC
   // public address provider (Photon) server-side via ?autocomplete=&limit= and
   // returns { suggestions: [{label, lat?, lon?}] }. NO PII ever reaches here.
@@ -3171,8 +3178,17 @@
       // fresh list (the t1VolToken stale guard inside loadTier1Volunteers ignores
       // out-of-order responses when the county changes rapidly); clearing the
       // county hides the list (renderCardsForCounty bumps the token + hides it).
+      //
+      // The list shows EVERY qualified volunteer in the county, NOT just those
+      // taskable for one specific animal issue. Since this fires on county
+      // change (before the RVS/Issue radios are necessarily set), using the
+      // transient readAnimalBaseInfo() would default to issue='capture' and
+      // wrongly drop COURIER-only volunteers. We instead pass the WIDEST base
+      // (non-RVS transport) so qualifyingRoles yields the full canonical set
+      // (C&T, RVS C&T, COURIER) and the county's complete qualified roster —
+      // available AND unavailable — renders (availability dimming preserved).
       if (county) {
-        loadTier1Volunteers(county, readAnimalBaseInfo());
+        loadTier1Volunteers(county, TIER1_ALL_ROLES_BASE);
       }
     });
     $('#recommend-btn').addEventListener('click', onRecommendClick);
