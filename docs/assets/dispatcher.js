@@ -1112,12 +1112,21 @@
     var section = $('#t1-vol-section');
     var listEl = $('#t1-vol-list');
     var emptyEl = $('#t1-vol-empty');
+    var blockEl = $('#t1-vol-block');
+    var toggleEl = $('#t1-vol-toggle');
     // Clear any stale flag so a hidden (or about-to-be-rebuilt) section never
     // carries a dim/banner over from a previous county selection.
     clearStale(section);
     if (section) section.style.display = 'none';
     if (listEl) listEl.innerHTML = '';
     if (emptyEl) { emptyEl.style.display = 'none'; emptyEl.textContent = ''; }
+    // Collapse the list and reset the toggle so the next recommendation starts
+    // hidden again ("Show qualified volunteers").
+    if (blockEl) blockEl.style.display = 'none';
+    if (toggleEl) {
+      toggleEl.textContent = 'Show qualified volunteers';
+      toggleEl.setAttribute('aria-expanded', 'false');
+    }
   }
 
   function renderTier1Volunteers(rows, ctx) {
@@ -1125,7 +1134,18 @@
     var listEl = $('#t1-vol-list');
     var emptyEl = $('#t1-vol-empty');
     var headerEl = $('#t1-vol-header');
+    var blockEl = $('#t1-vol-block');
+    var toggleEl = $('#t1-vol-toggle');
     if (!section) return;
+
+    // A fresh recommendation always starts collapsed: the section (with its
+    // toggle button) becomes visible, but the list itself stays hidden behind
+    // the "Show qualified volunteers" button until the dispatcher expands it.
+    if (blockEl) blockEl.style.display = 'none';
+    if (toggleEl) {
+      toggleEl.textContent = 'Show qualified volunteers';
+      toggleEl.setAttribute('aria-expanded', 'false');
+    }
 
     // Re-rendering the list (driven by a fresh "Get Recommendation" run) clears
     // any stale flag carried over from a county change, so the refreshed rows
@@ -1177,23 +1197,6 @@
                escapeHtml(r) + '</span>';
       }).join('');
 
-      // Distance is secondary (shown only when the Worker supplied it). The
-      // driving label is used when a per-volunteer driving time is present;
-      // otherwise the straight-line label. Never fabricates a time.
-      var dist = (typeof row.distance_mi === 'number') ? row.distance_mi : Number(row.distance_mi);
-      var driveMi = (typeof row.driving_miles === 'number') ? row.driving_miles : Number(row.driving_miles);
-      var distHtml = '';
-      if (Number.isFinite(dist)) {
-        var distTxt;
-        if (typeof row.duration_min === 'number') {
-          var shownMi = Number.isFinite(driveMi) ? driveMi : dist;
-          distTxt = fmt(T2.ctxDistanceDriving, { dist: shownMi.toFixed(1), mins: String(row.duration_min) });
-        } else {
-          distTxt = fmt(T2.ctxDistance, { dist: dist.toFixed(1) });
-        }
-        distHtml = '<span class="ctx-dist">' + escapeHtml(distTxt) + '</span>';
-      }
-
       // County + WIN Area context (the four required fields are: County, WIN
       // Area, role badges, availability note).
       var ctxBits = [];
@@ -1213,7 +1216,6 @@
       return '<li class="' + rowClass + '">' +
              '<div class="ctx-row-top">' +
              '<span class="role-badges">' + badges + '</span>' +
-             distHtml +
              ctxTxt +
              '</div>' +
              noteHtml +
@@ -3208,6 +3210,23 @@
     });
     var widenBtn = $('#widen-btn');
     if (widenBtn) widenBtn.addEventListener('click', widenFromCounty);
+    var t1VolToggle = $('#t1-vol-toggle');
+    if (t1VolToggle) {
+      t1VolToggle.addEventListener('click', function () {
+        var blockEl = $('#t1-vol-block');
+        if (!blockEl) return;
+        var expanded = blockEl.style.display !== 'none';
+        if (expanded) {
+          blockEl.style.display = 'none';
+          t1VolToggle.textContent = 'Show qualified volunteers';
+          t1VolToggle.setAttribute('aria-expanded', 'false');
+        } else {
+          blockEl.style.display = 'block';
+          t1VolToggle.textContent = 'Hide qualified volunteers';
+          t1VolToggle.setAttribute('aria-expanded', 'true');
+        }
+      });
+    }
     var addrBtn = $('#address-btn');
     if (addrBtn) addrBtn.addEventListener('click', onAddressSubmit);
     wireT2MapToggle();
