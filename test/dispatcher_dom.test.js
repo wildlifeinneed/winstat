@@ -3428,6 +3428,115 @@ async function runTier1VolunteerListCaptureQualified() {
   console.log('PASS: Tier 1 volunteer list (Capture) — qualified-only like Tier 2 (COURIER-only dropped); request sends qualify_roles; qualified-but-unavailable row kept + dimmed.');
 }
 
+// ── Tier 1 (Transport): when ALL volunteers qualify (Issue=Transport ->
+//    qualifyingRoles returns all 3: C&T + RVS C&T + COURIER) AND the list is
+//    long (> 2 per role), the list is CAPPED to ≤2 per role category, with the
+//    SELECTED county's volunteers prioritized over sibling counties in the same
+//    WIN area, an "all volunteers are qualified" banner, and a "Show all X"
+//    expand link that reveals the full list. ─────────────────────────────────
+async function runTier1VolunteerListAllQualifiedCap() {
+  // 10 transport-qualified rows: 4 C&T, 3 RVS C&T, 3 COURIER. Both Allegheny
+  // (selected) and Beaver are WIN area 10. Each role has BOTH a Beaver (sibling)
+  // row listed BEFORE the Allegheny (selected) rows, so the county-priority
+  // ordering must surface the Allegheny rows into the per-role cap.
+  const agg = {
+    total_in_range: 10,
+    role_counts: { 'C&T': 4, 'RVS C&T': 3, 'COURIER': 3 },
+    win_areas: ['10'],
+    out_of_county: [
+      { roles: ['C&T'], distance_mi: 1.0, win_area: '10', county: 'Beaver', availability_note: '' },
+      { roles: ['C&T'], distance_mi: 2.0, win_area: '10', county: 'Allegheny', availability_note: '' },
+      { roles: ['C&T'], distance_mi: 3.0, win_area: '10', county: 'Allegheny', availability_note: '' },
+      { roles: ['C&T'], distance_mi: 4.0, win_area: '10', county: 'Allegheny', availability_note: '' },
+      { roles: ['RVS C&T'], distance_mi: 5.0, win_area: '10', county: 'Beaver', availability_note: '' },
+      { roles: ['RVS C&T'], distance_mi: 6.0, win_area: '10', county: 'Allegheny', availability_note: '' },
+      { roles: ['RVS C&T'], distance_mi: 7.0, win_area: '10', county: 'Allegheny', availability_note: '' },
+      { roles: ['COURIER'], distance_mi: 8.0, win_area: '10', county: 'Beaver', availability_note: '' },
+      { roles: ['COURIER'], distance_mi: 9.0, win_area: '10', county: 'Allegheny', availability_note: '' },
+      { roles: ['COURIER'], distance_mi: 10.0, win_area: '10', county: 'Allegheny', availability_note: '' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { window, doc } = await driveTier1Recommend(agg, 'Allegheny', { rvs: false, issue: 'transport' });
+
+  // Banner: "All volunteers in this area are qualified" note is present.
+  const banner = doc.querySelector('#t1-vol-block .t1-vol-all-qualified');
+  assert.ok(banner && /All volunteers in this area are qualified/i.test(banner.textContent),
+    'capped list shows the "all volunteers are qualified" banner');
+
+  // Capped to ≤2 per role category -> 6 rows total (2 C&T + 2 RVS C&T + 2 COURIER).
+  const rows = Array.prototype.slice.call(doc.querySelectorAll('#t1-vol-list .ctx-row'));
+  assert.strictEqual(rows.length, 6,
+    'capped list shows ≤2 per role = 6 rows (got ' + rows.length + ')');
+
+  // Each role category contributes exactly 2 rows.
+  function countRole(label) {
+    return rows.filter(function (r) {
+      const b = r.querySelector('.role-badge');
+      return b && b.textContent.trim() === label;
+    }).length;
+  }
+  assert.strictEqual(countRole('C&T'), 2, 'exactly 2 C&T rows in the capped list');
+  assert.strictEqual(countRole('RVS C&T'), 2, 'exactly 2 RVS C&T rows in the capped list');
+  assert.strictEqual(countRole('COURIER'), 2, 'exactly 2 COURIER rows in the capped list');
+
+  // County priority: every capped row is from the SELECTED county (Allegheny),
+  // because each role has ≥2 Allegheny rows that float ahead of the Beaver ones.
+  const beaverInCap = rows.filter(function (r) {
+    const c = r.querySelector('.ctx-ctx');
+    return c && /Beaver/.test(c.textContent);
+  }).length;
+  assert.strictEqual(beaverInCap, 0,
+    'sibling-county (Beaver) rows are de-prioritized out of the capped list (got ' + beaverInCap + ')');
+
+  // Expand link present, labelled with the FULL count.
+  const moreBtn = doc.querySelector('#t1-vol-block .t1-vol-show-all');
+  assert.ok(moreBtn && /Show all 10 volunteers/i.test(moreBtn.textContent),
+    'capped list shows a "Show all 10 volunteers" expand link');
+
+  // Clicking it reveals the FULL list (all 10 rows) and removes the banner+link.
+  moreBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
+  const rowsAfter = Array.prototype.slice.call(doc.querySelectorAll('#t1-vol-list .ctx-row'));
+  assert.strictEqual(rowsAfter.length, 10,
+    'expand link reveals all 10 volunteers (got ' + rowsAfter.length + ')');
+  assert.ok(!doc.querySelector('#t1-vol-block .t1-vol-all-qualified'),
+    'banner is removed after expanding');
+  assert.ok(!doc.querySelector('#t1-vol-block .t1-vol-show-all'),
+    'expand link is removed after expanding');
+
+  console.log('PASS: Tier 1 volunteer list (Transport, all qualify) — capped to ≤2 per role, selected-county prioritized over siblings, banner shown, "Show all X" link reveals full list.');
+}
+
+// ── Tier 1 (Transport, short list): when all roles qualify but the list is
+//    SHORT (≤ 2 per role), no cap/banner/expand-link is applied — the full
+//    list renders as-is. Guards against capping tiny lists. ──────────────────
+async function runTier1VolunteerListAllQualifiedNoCap() {
+  // 3 transport rows (1 per role) — all qualify but list is short, so NOT capped.
+  const agg = {
+    total_in_range: 3,
+    role_counts: { 'C&T': 1, 'RVS C&T': 1, 'COURIER': 1 },
+    win_areas: ['10'],
+    out_of_county: [
+      { roles: ['C&T'], distance_mi: 1.0, win_area: '10', county: 'Allegheny', availability_note: '' },
+      { roles: ['RVS C&T'], distance_mi: 2.0, win_area: '10', county: 'Beaver', availability_note: '' },
+      { roles: ['COURIER'], distance_mi: 3.0, win_area: '10', county: 'Allegheny', availability_note: '' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc } = await driveTier1Recommend(agg, 'Allegheny', { rvs: false, issue: 'transport' });
+
+  const rows = Array.prototype.slice.call(doc.querySelectorAll('#t1-vol-list .ctx-row'));
+  assert.strictEqual(rows.length, 3, 'short all-qualified list renders in full (got ' + rows.length + ')');
+  assert.ok(!doc.querySelector('#t1-vol-block .t1-vol-all-qualified'),
+    'no banner on a short list (not capped)');
+  assert.ok(!doc.querySelector('#t1-vol-block .t1-vol-show-all'),
+    'no expand link on a short list (not capped)');
+
+  console.log('PASS: Tier 1 volunteer list (Transport, short) — all roles qualify but ≤2 per role, so renders in full with no cap/banner/expand link.');
+}
+
 // ── COUNTY BREAKDOWN: per-role county list inside each role card's .sub. ────
 //    Each card shows only the counties relevant to THAT role (not aggregate).
 //    With county_by_role: C&T box: Blair 2, Centre 1.  RVS C&T box: Centre 1.  COURIER: Clearfield 1.
@@ -3618,8 +3727,10 @@ async function run() {
   await runTier2AvailNote();
   await runTier1VolunteerList();
   await runTier1VolunteerListCaptureQualified();
+  await runTier1VolunteerListAllQualifiedCap();
+  await runTier1VolunteerListAllQualifiedNoCap();
   await runTier2CountyBreakdown();
-  console.log('\nALL DOM TESTS PASSED (51 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (53 scenarios).');
 }
 
 run().then(function () {

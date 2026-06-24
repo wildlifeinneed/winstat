@@ -222,6 +222,12 @@
       // {county} = the selected county name.
       tier1VolHeader: 'Qualified volunteers near {county}',
       tier1VolEmpty: 'No qualified volunteers found near {county}.',
+      // Shown above the Tier 1 list when EVERY volunteer in the area qualifies
+      // (all 3 role types are taskable, e.g. Issue=Transport) and the list is
+      // capped to a few per role category.
+      tier1VolAllQualified: 'All volunteers in this area are qualified — showing a few per role.',
+      // Expand link to reveal the full (uncapped) list. {count} = total rows.
+      tier1VolShowAll: 'Show all {count} volunteers',
       // {count} = rows shown.
       ctxOverflowNotice: 'Radius too large — showing the {count} nearest. Narrow the radius for a complete list.',
       // {radius}.

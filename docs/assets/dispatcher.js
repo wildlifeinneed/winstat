@@ -1205,7 +1205,10 @@
     }
     if (emptyEl) { emptyEl.style.display = 'none'; emptyEl.textContent = ''; }
 
-    var html = list.map(function (row) {
+    // Build the <li> markup for a single volunteer row (role badges + County +
+    // WIN Area context + availability note, with the SAME dim treatment Tier 2
+    // uses). Extracted so both the full list and the capped list reuse it.
+    function rowHtml(row) {
       var roleList = Array.isArray(row.roles) ? row.roles : [];
       var badges = roleList.map(function (r) {
         var cls = roleBadgeClass(r);
@@ -1236,9 +1239,97 @@
              '</div>' +
              noteHtml +
              '</li>';
-    }).join('');
+    }
+
+    // ── CAP: when EVERY volunteer in the area qualifies (all 3 role types are
+    //    taskable — i.e. qualifyingRoles returns C&T + RVS C&T + COURIER, which
+    //    happens on Issue=Transport), the list can be very long (19+ for
+    //    Allegheny). Show only 1-2 per role category, prioritizing the SELECTED
+    //    county over sibling counties in the same WIN area, with a banner + a
+    //    "Show all X volunteers" expand link. Other scenarios (smaller lists)
+    //    render in full as before. ─────────────────────────────────────────
+    var PER_ROLE_CAP = 2;
+    var qfn = (window.WildlifeDecision &&
+               typeof window.WildlifeDecision.qualifyingRoles === 'function')
+      ? window.WildlifeDecision.qualifyingRoles : null;
+    var qroles = (qfn && hasBase) ? qfn(!!ctx.rvs, ctx.issue) : [];
+    var allRolesQualify = Array.isArray(qroles) && qroles.length >= 3;
+
+    // Primary role for a row = its first canonical role badge (rows are
+    // single-role from the Worker, but stay defensive). Used to bucket by
+    // category for the per-role cap.
+    function primaryRole(row) {
+      var roleList = Array.isArray(row.roles) ? row.roles : [];
+      return roleList.length ? String(roleList[0]) : '';
+    }
+
+    var capped = false;
+    var displayList = list;
+    if (allRolesQualify && list.length > qroles.length * PER_ROLE_CAP) {
+      // Stable selected-county-first ordering: in-county rows keep their order
+      // and float ahead of sibling-county rows (which also keep their order).
+      var inCounty = [];
+      var siblings = [];
+      list.forEach(function (row) {
+        if (county && row.county && String(row.county) === county) inCounty.push(row);
+        else siblings.push(row);
+      });
+      var ordered = inCounty.concat(siblings);
+
+      // Take up to PER_ROLE_CAP per role category, walking the county-priority
+      // order so selected-county volunteers fill each bucket first.
+      var perRoleCount = {};
+      var picked = [];
+      ordered.forEach(function (row) {
+        var role = primaryRole(row);
+        var n = perRoleCount[role] || 0;
+        if (n < PER_ROLE_CAP) {
+          perRoleCount[role] = n + 1;
+          picked.push(row);
+        }
+      });
+      if (picked.length < list.length) {
+        capped = true;
+        displayList = picked;
+      }
+    }
+
+    var html = displayList.map(rowHtml).join('');
+
+    // Remove any banner / expand-link left over from a previous render so a
+    // fresh (e.g. non-capped) render never carries stale UI.
+    var prevBanner = blockEl ? blockEl.querySelector('.t1-vol-all-qualified') : null;
+    if (prevBanner) prevBanner.parentNode.removeChild(prevBanner);
+    var prevMore = blockEl ? blockEl.querySelector('.t1-vol-show-all') : null;
+    if (prevMore) prevMore.parentNode.removeChild(prevMore);
 
     if (listEl) listEl.innerHTML = html;
+
+    // Banner + expand link only in the capped state, injected as SIBLINGS of the
+    // <ul> (never nested inside it) so the list stays valid <ul><li> markup. The
+    // expand link swaps the capped rows for the FULL list and removes itself +
+    // the banner so the dispatcher can see every qualified volunteer on demand.
+    if (capped && listEl && blockEl) {
+      var bannerEl = document.createElement('div');
+      bannerEl.className = 't1-vol-all-qualified';
+      bannerEl.setAttribute('role', 'note');
+      bannerEl.textContent = T2.tier1VolAllQualified;
+      listEl.parentNode.insertBefore(bannerEl, listEl);
+
+      var fullHtml = list.map(rowHtml).join('');
+      var moreBtn = document.createElement('button');
+      moreBtn.type = 'button';
+      moreBtn.className = 't1-vol-show-all link-btn';
+      moreBtn.textContent = fmt(T2.tier1VolShowAll, { count: list.length });
+      if (listEl.nextSibling) listEl.parentNode.insertBefore(moreBtn, listEl.nextSibling);
+      else listEl.parentNode.appendChild(moreBtn);
+      moreBtn.addEventListener('click', function () {
+        listEl.innerHTML = fullHtml;
+        if (bannerEl.parentNode) bannerEl.parentNode.removeChild(bannerEl);
+        if (moreBtn.parentNode) moreBtn.parentNode.removeChild(moreBtn);
+      });
+    }
+
     section.style.display = 'block';
   }
 
