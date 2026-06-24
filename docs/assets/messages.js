@@ -213,11 +213,11 @@
       rehabNone: 'No rehabber locations available to rank.',
       // No data at all. {phone}.
       noVolunteersNoData: 'No volunteers in range and no rehabber data available — ask the finder to call <strong>PA Game Commission</strong>: {phone}.',
-      // Context list (out-of-county). {radius}, {county}.
-      ctxHeaderBeyond: 'Out-of-county helpers within {radius} mi (beyond {county})',
+      // Context list (out-of-county). {radius}, {county}, {count} = qualified rows shown.
+      ctxHeaderBeyond: 'Out-of-county helpers within {radius} mi (beyond {county}): {count}',
       // Standalone Address lookup (no county excluded): ALL qualifying
-      // volunteers in range. {radius}.
-      ctxHeader: 'Qualified volunteers within {radius} mi',
+      // volunteers in range. {radius}, {count} = qualified rows shown.
+      ctxHeader: 'Qualified volunteers within {radius} mi: {count}',
       // Tier 1 (By-County) qualified-volunteer list header + empty state.
       // {county} = the selected county name.
       tier1VolHeader: 'Qualified volunteers near {county}',

@@ -1006,11 +1006,6 @@
     var radius = (ctx && ctx.radius) ? ctx.radius : '';
     var county = (ctx && ctx.excludeCounty) ? ctx.excludeCounty : '';
     var T2 = MSG.tier2Aggregate;
-    if (headerEl) {
-      headerEl.textContent = county
-        ? fmt(T2.ctxHeaderBeyond, { radius: radius, county: county })
-        : fmt(T2.ctxHeader, { radius: radius });
-    }
 
     // QUALIFIED-ONLY list (product decision 2026-06-09): the Tier 2 address
     // list shows ONLY taskable volunteers for THIS animal. The Worker already
@@ -1029,6 +1024,14 @@
         var roleList = Array.isArray(row.roles) ? row.roles : [];
         return qualifyFn(roleList, !!ctx.rvs, ctx.issue);
       });
+    }
+
+    // Header carries the COUNT of qualified volunteers shown (rows.length is the
+    // post-filter qualified set), e.g. "Qualified volunteers within 20 mi: 6".
+    if (headerEl) {
+      headerEl.textContent = county
+        ? fmt(T2.ctxHeaderBeyond, { radius: radius, county: county, count: rows.length })
+        : fmt(T2.ctxHeader, { radius: radius, count: rows.length });
     }
     // Truncation reflects the QUALIFIED set: the Worker flags overflow only when
     // the qualified set itself exceeds the cap (it filtered before capping).
