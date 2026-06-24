@@ -38,6 +38,8 @@ const {
   normalizeRole,
   parseQualifyRoles,
   rowQualifies,
+  coarseCentroid,
+  COARSE_GRID_DEG,
   DEFAULT_RADIUS_MI,
   MAX_RADIUS_MI,
   DEFAULT_MARGINAL_THRESHOLD,
@@ -1140,7 +1142,7 @@ async function main() {
     'phone', 'email', 'address', 'street', 'city', 'zip', 'home_county',
     'monday_item_id', 'coords', 'coordinates',
   ];
-  const TIER2_ROW_KEYS = ['availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'name', 'roles', 'win_area'];
+  const TIER2_ROW_KEYS = ['approx_lat', 'approx_lon', 'availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'name', 'roles', 'win_area'];
 
   // Deep-walk every key in an object/array tree, collecting key names.
   function collectKeys(node, out) {
@@ -1367,6 +1369,99 @@ async function main() {
     for (const k of TIER2_FORBIDDEN_KEYS) {
       assert.strictEqual(allKeys.indexOf(k), -1, 'PII key leaked at some depth: ' + k);
     }
+  });
+
+  // (i10..i13) ZIP-SCALE COARSE CENTROID for PII-safe map pins ----------
+  await test('(i10) coarseCentroid: snaps to grid-cell center; null on bad input', () => {
+    assert.strictEqual(COARSE_GRID_DEG, 0.05, 'grid step is the documented ~3-mile cell');
+    // 40.36 falls in cell [40.35, 40.40) -> center 40.375; -76.78 in
+    // [-76.80, -76.75) -> center -76.775.
+    const a = coarseCentroid(40.36, -76.78);
+    assert.ok(a && Math.abs(a.lat - 40.375) < 1e-9, 'lat snapped to cell center');
+    assert.ok(a && Math.abs(a.lon - (-76.775)) < 1e-9, 'lon snapped to cell center');
+    // The snapped point is NEVER the exact input (privacy): differs unless the
+    // input already sat exactly on a cell center.
+    assert.notStrictEqual(a.lat, 40.36, 'exact lat not echoed');
+    assert.notStrictEqual(a.lon, -76.78, 'exact lon not echoed');
+    // Coarse: any two inputs inside the same ~3mi cell map to the SAME point.
+    const b = coarseCentroid(40.36 + 0.01, -76.78 - 0.01);
+    assert.deepStrictEqual(b, a, 'nearby inputs in one cell collapse to one centroid');
+    // Bad / missing input -> null (frontend then falls back to county centroid).
+    assert.strictEqual(coarseCentroid(null, null), null);
+    assert.strictEqual(coarseCentroid(40, undefined), null);
+    assert.strictEqual(coarseCentroid('x', 'y'), null);
+    assert.strictEqual(coarseCentroid(NaN, NaN), null);
+  });
+
+  await test('(i11) findContextRows rows carry the COARSE centroid (not the exact coord)', () => {
+    const rows = findContextRows(ANIMAL.lat, ANIMAL.lon, 20, COORDS_PII, 'Dauphin');
+    assert.strictEqual(rows.length, 2, 'Lebanon + Lancaster');
+    const lebanon = rows.find((r) => r.county === 'Lebanon');
+    const expected = coarseCentroid(40.36, -76.78); // Bob's KV coord (Lebanon)
+    assert.deepStrictEqual(
+      { lat: lebanon.approx_lat, lon: lebanon.approx_lon },
+      { lat: expected.lat, lon: expected.lon },
+      'row carries the snapped coarse centroid'
+    );
+    // The exact KV coordinate must NOT survive on the row.
+    assert.notStrictEqual(lebanon.approx_lat, 40.36, 'exact lat not on row');
+    assert.notStrictEqual(lebanon.approx_lon, -76.78, 'exact lon not on row');
+    // Every row exposes ONLY the whitelisted keys (now including approx_*).
+    for (const r of rows) {
+      assert.deepStrictEqual(Object.keys(r).sort(), TIER2_ROW_KEYS);
+    }
+  });
+
+  await test('(i12) findContextRowsDriving rows also carry the COARSE centroid', () => {
+    // No drivingFn -> straight-line membership only (driving annotation skipped),
+    // which is all this test needs: the coarse centroid is attached in Phase 1,
+    // independent of the ORS annotation. Returns { rows, distance_mode }.
+    return findContextRowsDriving(ANIMAL.lat, ANIMAL.lon, 20, COORDS_PII, 'Dauphin')
+      .then((ctx) => {
+        const rows = ctx.rows;
+        assert.ok(rows.length >= 1, 'at least one driving row');
+        for (const r of rows) {
+          // approx_* present and finite for every record that had a coord.
+          assert.ok(Number.isFinite(r.approx_lat), 'driving row has approx_lat');
+          assert.ok(Number.isFinite(r.approx_lon), 'driving row has approx_lon');
+        }
+        const lebanon = rows.find((r) => r.county === 'Lebanon');
+        if (lebanon) {
+          const expected = coarseCentroid(40.36, -76.78);
+          assert.deepStrictEqual(
+            { lat: lebanon.approx_lat, lon: lebanon.approx_lon },
+            { lat: expected.lat, lon: expected.lon }
+          );
+        }
+      });
+  });
+
+  await test('(i13) buildTier2Response: approx_* surfaced; PII deep-walk still clean', () => {
+    const rows = findContextRows(ANIMAL.lat, ANIMAL.lon, 20, COORDS_PII, 'Dauphin');
+    const resp = buildTier2Response(
+      { total_in_range: 2, role_counts: { 'C&T': 0, 'RVS C&T': 1, 'COURIER': 1 }, win_areas: [] },
+      rows
+    );
+    assert.strictEqual(resp.out_of_county.length, 2);
+    for (const r of resp.out_of_county) {
+      assert.ok(Number.isFinite(r.approx_lat) && Number.isFinite(r.approx_lon),
+        'coarse centroid surfaced in the response payload');
+    }
+    // The PII deep-walk must STILL find no forbidden key (approx_* are safe and
+    // use distinct key names; raw lat/lon never appear).
+    const allKeys = collectKeys(resp, []);
+    for (const k of TIER2_FORBIDDEN_KEYS) {
+      assert.strictEqual(allKeys.indexOf(k), -1, 'PII key leaked: ' + k);
+    }
+    // A row built WITHOUT a coarse centroid omits approx_* entirely (frontend
+    // falls back to the county centroid).
+    const respNoCoord = buildTier2Response(
+      { total_in_range: 1, role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 0 }, win_areas: [] },
+      [{ roles: ['C&T'], distance_mi: 5, win_area: 'WIN-1', county: 'Perry',
+         name: 'NoCoord', availability_note: '', available: true, connecteam_user: null }]
+    );
+    assert.ok(!('approx_lat' in respNoCoord.out_of_county[0]), 'approx_lat omitted when absent');
+    assert.ok(!('approx_lon' in respNoCoord.out_of_county[0]), 'approx_lon omitted when absent');
   });
 
   // (q) QUALIFY_ROLES filter -- qualified-only context list before the cap ---
@@ -1994,7 +2089,7 @@ async function main() {
     assert.strictEqual(byCounty['Lancaster'].driving_miles, 60.0, 'Lancaster driving distance annotation');
     ctx.rows.forEach((r) => { assert.strictEqual(r.duration_min, 10, 'driving time annotation (min)'); });
     assert.deepStrictEqual(Object.keys(byCounty['Lebanon']).sort(),
-      ['availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'driving_miles', 'duration_min', 'name', 'roles', 'win_area']);
+      ['approx_lat', 'approx_lon', 'availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'driving_miles', 'duration_min', 'name', 'roles', 'win_area']);
     // Sorted ascending by STRAIGHT-LINE distance_mi (not driving).
     assert.ok(ctx.rows[0].distance_mi <= ctx.rows[1].distance_mi, 'sorted by straight-line distance');
 
@@ -2009,7 +2104,7 @@ async function main() {
       assert.ok(!('driving_miles' in r), 'straight_line row has NO driving distance');
     });
     assert.deepStrictEqual(Object.keys(fb.rows[0]).sort(),
-      ['availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'name', 'roles', 'win_area']);
+      ['approx_lat', 'approx_lon', 'availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'name', 'roles', 'win_area']);
   });
 
   await test('(l9b) findContextRowsDriving: ORS error => rows still render, membership unchanged, no driving tags', async () => {

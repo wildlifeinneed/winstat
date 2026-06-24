@@ -1922,22 +1922,33 @@
     });
 
     // === VOLUNTEER MARKERS START (markers) ===
-    // Volunteers are plotted at their HOME-COUNTY CENTROID because the Worker
-    // never sends exact volunteer coordinates to the browser (PII rule). Each
-    // county may hold several volunteers, so we offset stacked pins slightly so
-    // they don't fully overlap. This whole block is gated by the flag above.
+    // Volunteers are plotted at their ZIP-SCALE COARSE centroid (a ~3-mile grid
+    // cell center the Worker provides) when available, else at their HOME-COUNTY
+    // CENTROID fallback. The Worker never sends an exact volunteer coordinate
+    // (PII rule). County-centroid fallback pins share one point per county, so
+    // those are spread with a small spiral offset; coarse pins keep their own
+    // cell center. This whole block is gated by the flag above.
     if (SHOW_VOLUNTEER_MARKERS) {
       var perCounty = {};
       (payload.volunteers || []).forEach(function (v) {
         if (!v || !isFinite(v.lat) || !isFinite(v.lon)) return; // skip silently
-        var key = v.county || (v.lat + ',' + v.lon);
-        var n = perCounty[key] || 0;
-        perCounty[key] = n + 1;
-        // Tiny deterministic spiral offset (~0.01-0.03°) for stacked pins.
-        var ang = n * 2.399; // golden-angle radians
-        var rad = n === 0 ? 0 : 0.012 + 0.006 * n;
-        var lat = v.lat + rad * Math.cos(ang);
-        var lon = v.lon + rad * Math.sin(ang);
+        // Stacked-pin spiral offset applies ONLY to county-centroid FALLBACK
+        // pins (every volunteer in a county shares the one centroid point, so
+        // they would fully overlap). ZIP-scale coarse pins (v.exact) are placed
+        // at their own ~3-mile cell center and must NOT be nudged — offsetting
+        // would only degrade the improved accuracy.
+        var lat = v.lat;
+        var lon = v.lon;
+        if (!v.exact) {
+          var key = v.county || (v.lat + ',' + v.lon);
+          var n = perCounty[key] || 0;
+          perCounty[key] = n + 1;
+          // Tiny deterministic spiral offset (~0.01-0.03°) for stacked pins.
+          var ang = n * 2.399; // golden-angle radians
+          var rad = n === 0 ? 0 : 0.012 + 0.006 * n;
+          lat = v.lat + rad * Math.cos(ang);
+          lon = v.lon + rad * Math.sin(ang);
+        }
         // Popup content: ROLES · "X miles / Y min" · COUNTY. The distance/time
         // line uses the REAL ORS driving time (duration_min) when present,
         // otherwise the shared 40 mph estimate (marked "(est.)").
@@ -1947,7 +1958,13 @@
         }
         var vMin = (typeof v.duration_min === 'number' && isFinite(v.duration_min))
           ? v.duration_min : null;
-        var vLine = t2DistTimeLine(v.distance_mi, vMin);
+        // Distance shown in the popup must MATCH the list: prefer the REAL ORS
+        // driving distance (v.driving_miles) the list displays, falling back to
+        // the straight-line distance only when no driving annotation was
+        // surfaced. Never recalculate from the centroid pin position.
+        var vDist = (typeof v.driving_miles === 'number' && isFinite(v.driving_miles))
+          ? v.driving_miles : v.distance_mi;
+        var vLine = t2DistTimeLine(vDist, vMin);
         if (vLine) lines.push(escapeHtml(vLine));
         if (v.county) {
           lines.push('County: ' + escapeHtml(v.county));
@@ -2014,12 +2031,15 @@
       ? nearestRehabbers(origin.lat, origin.lon, 8) : [];
 
     // === VOLUNTEER MARKERS START (data prep) ===
-    // Map the PII-safe out_of_county rows to county-centroid points. Rows carry
-    // {roles, distance_mi, win_area, county, duration_min?} only — no coords —
-    // so we look up the county centroid (from pa_counties geojson). Rows with an
-    // unknown county are skipped silently. duration_min (whole-minute ORS
-    // driving time) is carried through when present so the popup can show a REAL
-    // travel time; otherwise the popup estimates one from distance_mi.
+    // Map the PII-safe out_of_county rows to map points. Rows carry
+    // {roles, distance_mi, win_area, county, approx_lat?, approx_lon?,
+    // driving_miles?, duration_min?} — never an exact home coord. We PREFER the
+    // ZIP-scale COARSE centroid (approx_lat/approx_lon: a ~3-mile grid cell
+    // center the Worker emits, finer than a county centroid yet still PII-safe)
+    // and FALL BACK to the county centroid (from pa_counties geojson) when the
+    // row has no coarse coordinate. Rows with neither are skipped silently.
+    // driving_miles/duration_min are carried through so the popup shows the SAME
+    // distance/time the list does (never recomputed from the pin position).
     //
     // QUALIFIED-ONLY pins (alignment with the list): apply the SAME
     // qualifiesForAnimal predicate renderContextList uses so the map plots the
@@ -2039,15 +2059,40 @@
         });
       }
       volRows.forEach(function (row) {
-        if (!row || !row.county) return;
-        var c = state.countyCentroids && state.countyCentroids[row.county];
-        if (!c || !isFinite(c.lat) || !isFinite(c.lon)) return; // skip silently
+        if (!row) return;
+        // Prefer the ZIP-scale coarse centroid the Worker provides; fall back to
+        // the county centroid when it is absent (older Worker / no coord).
+        var lat = NaN;
+        var lon = NaN;
+        var placed = false;
+        if (typeof row.approx_lat === 'number' && isFinite(row.approx_lat) &&
+            typeof row.approx_lon === 'number' && isFinite(row.approx_lon)) {
+          lat = row.approx_lat;
+          lon = row.approx_lon;
+          placed = true;
+        } else if (row.county) {
+          var c = state.countyCentroids && state.countyCentroids[row.county];
+          if (c && isFinite(c.lat) && isFinite(c.lon)) {
+            lat = c.lat;
+            lon = c.lon;
+            placed = true;
+          }
+        }
+        if (!placed) return; // no usable location — skip silently
         volunteers.push({
-          lat: c.lat,
-          lon: c.lon,
+          lat: lat,
+          lon: lon,
+          // True when the pin sits on the precise-ish ZIP-scale centroid (so the
+          // stacked-pin spiral offset below is NOT applied — coarse coords are
+          // already distinct per cell, and offsetting would degrade accuracy).
+          exact: !!(typeof row.approx_lat === 'number' && isFinite(row.approx_lat)),
           county: row.county,
           roles: Array.isArray(row.roles) ? row.roles : [],
           distance_mi: (typeof row.distance_mi === 'number') ? row.distance_mi : NaN,
+          // Real ORS driving distance (display-only annotation the list shows).
+          // Carried through so the popup shows the SAME "mi driving" number as
+          // the list instead of recalculating/using the straight-line metric.
+          driving_miles: (typeof row.driving_miles === 'number') ? row.driving_miles : NaN,
           duration_min: (typeof row.duration_min === 'number') ? row.duration_min : null
         });
       });

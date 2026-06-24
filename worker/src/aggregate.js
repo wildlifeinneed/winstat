@@ -506,11 +506,17 @@ async function findContextRowsDriving(
       rec.home_county !== null && rec.home_county !== undefined && String(rec.home_county).trim() !== ''
         ? String(rec.home_county).trim()
         : null;
+    // ZIP-scale COARSE centroid (PII-safe map pin). Derived from the precise
+    // coord but snapped to a ~3-mile grid cell; the precise coord is NEVER
+    // serialized. null when the record had no usable coordinate.
+    const approx = coarseCentroid(rec.lat, rec.lon);
     rows.push({
       roles: matchedRoles,
       distance_mi: round1(miles),
       win_area: winArea,
       county: county,
+      approx_lat: approx ? approx.lat : null,
+      approx_lon: approx ? approx.lon : null,
       name: (rec.name !== null && rec.name !== undefined) ? String(rec.name) : null,
       availability_note: (rec.availability_note !== null && rec.availability_note !== undefined)
         ? String(rec.availability_note) : '',
@@ -564,6 +570,43 @@ const OVERFLOW_NEAREST = 5;
 /** Round to 1 decimal place (mirror the response schema's distance_mi). */
 function round1(n) {
   return Math.round(n * 10) / 10;
+}
+
+// --- COARSE (ZIP-scale) centroid for PII-safe map pins ---------------------
+//
+// The browser map plots out-of-county volunteers. Sending the EXACT geocoded
+// home coordinate would breach the PII boundary, while the county centroid is
+// too coarse (a volunteer near a county edge lands at the county's geographic
+// center, often 10-20 mi off). The compromise approved with the user: SNAP the
+// exact coordinate to a coarse grid and emit only the CELL CENTER. A grid step
+// of 0.05° is ~3.5 mi of latitude (~2.6 mi of longitude in PA) -- comparable to
+// a ZIP/ZCTA footprint -- so the emitted point is a ZIP-SCALE coarse centroid
+// that reveals only which ~3-mile cell the volunteer falls in, never the exact
+// home. This is computed from the precise coord but the precise coord itself is
+// never serialized (see buildTier2Response's whitelist).
+const COARSE_GRID_DEG = 0.05;
+
+/**
+ * Snap a precise coordinate to the center of its COARSE_GRID_DEG cell. Returns
+ * null when lat/lon are missing or non-finite. The returned values are rounded
+ * to 4 decimals purely to avoid float noise in the JSON; the meaningful
+ * precision is the grid cell, not the 4th decimal.
+ */
+function coarseCentroid(lat, lon) {
+  // Reject anything that is not already a finite number. Note: Number(null)===0
+  // and Number('')===0, so we must guard the type BEFORE coercing or a missing
+  // coordinate would snap to (0,0) instead of yielding null.
+  if (typeof lat !== 'number' || typeof lon !== 'number' ||
+      !Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return null;
+  }
+  const cell = function (v) {
+    return (Math.floor(v / COARSE_GRID_DEG) + 0.5) * COARSE_GRID_DEG;
+  };
+  return {
+    lat: Math.round(cell(lat) * 1e4) / 1e4,
+    lon: Math.round(cell(lon) * 1e4) / 1e4,
+  };
 }
 
 /** Normalize a county name for comparison (mirror county_win._normalize). */
@@ -728,12 +771,16 @@ function findContextRows(animalLat, animalLon, radiusMi, coordsDataset, excludeC
       rec.home_county !== null && rec.home_county !== undefined && String(rec.home_county).trim() !== ''
         ? String(rec.home_county).trim()
         : null;
+    // ZIP-scale COARSE centroid (PII-safe map pin); see coarseCentroid above.
+    const approx = coarseCentroid(rec.lat, rec.lon);
 
     rows.push({
       roles: matchedRoles,
       distance_mi: round1(d),
       win_area: winArea,
       county: county,
+      approx_lat: approx ? approx.lat : null,
+      approx_lon: approx ? approx.lon : null,
       name: (rec.name !== null && rec.name !== undefined) ? String(rec.name) : null,
       availability_note: (rec.availability_note !== null && rec.availability_note !== undefined)
         ? String(rec.availability_note) : '',
@@ -788,8 +835,11 @@ function buildAggregateResponse(aggregate, distanceMode) {
  *   top-level: { total_in_range, role_counts, role_available, total_available,
  *                marginal_threshold, win_areas, out_of_county,
  *                out_of_county_truncated, radius_too_broad }
- *   per row:   { roles, distance_mi, win_area, county, duration_min? }
- *              (duration_min is the whole-minute driving time, present ONLY in
+ *   per row:   { roles, distance_mi, win_area, county, approx_lat?, approx_lon?,
+ *                duration_min? }
+ *              (approx_lat/approx_lon are the ZIP-scale COARSE centroid for the
+ *              map pin -- a ~3-mile grid cell center, never the exact home;
+ *              duration_min is the whole-minute driving time, present ONLY in
  *              driving mode; omitted on the straight_line fallback)
  *
  * It receives ALREADY-projected rows from findContextRows (which never copies
@@ -866,6 +916,13 @@ function buildTier2Response(aggregate, contextRows, distanceMode) {
       available: r.available !== false,
       connecteam_user: normalizeConnecteamUser(r.connecteam_user),
     };
+    // ZIP-scale COARSE centroid for the map pin (PII-safe: a ~3-mile grid cell
+    // center, NEVER the exact home coord). Emitted only when finite; the
+    // frontend falls back to the county centroid when these are absent.
+    if (Number.isFinite(r.approx_lat) && Number.isFinite(r.approx_lon)) {
+      o.approx_lat = r.approx_lat;
+      o.approx_lon = r.approx_lon;
+    }
     if (Number.isFinite(r.driving_miles)) {
       o.driving_miles = r.driving_miles;
     }
@@ -920,6 +977,7 @@ module.exports = {
   OVERFLOW_NEAREST,
   MODE_DRIVING,
   MODE_STRAIGHT_LINE,
+  COARSE_GRID_DEG,
   clampRadius,
   haversineMi,
   normalizeRole,
@@ -927,6 +985,7 @@ module.exports = {
   parseQualifyRoles,
   rowQualifies,
   round1,
+  coarseCentroid,
   rolesOf,
   isAvailableRecord,
   prescreenByHaversine,
