@@ -666,6 +666,10 @@
       display: block;
       padding: 9px 12px;
       border: 1px solid var(--border);
+      /* Role-colored accent on the left edge (default = C&T green). Both tiers
+         carry a role modifier class (.role-ct / .role-rvs / .role-courier) so
+         the Tier 1 By-County list and the Tier 2 address list look identical. */
+      border-left: 4px solid var(--green);
       border-radius: 8px;
       background: var(--surface);
       font-size: 14px;
@@ -673,6 +677,8 @@
          unbreakable token wraps INSIDE the viewport instead of overflowing. */
       min-width: 0;
     }
+    .ctx-row.role-rvs { border-left-color: #f0c070; }
+    .ctx-row.role-courier { border-left-color: #c8cfe0; }
     .ctx-row.unavail { opacity: 0.72; }
     .ctx-row-top {
       display: flex;

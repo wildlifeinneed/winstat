@@ -958,6 +958,16 @@
     return ''; // C&T (default green)
   }
 
+  // Role-colored left-border modifier for a volunteer .ctx-row (mirrors the
+  // role badge color). Derived from the row's FIRST role so the Tier 1 and
+  // Tier 2 lists get the SAME accent. Returns 'role-rvs' / 'role-courier' /
+  // 'role-ct' (default green). Used by both renderContextList and rowHtml.
+  function roleRowClass(roleList) {
+    var first = (Array.isArray(roleList) && roleList.length) ? roleList[0] : '';
+    var cls = roleBadgeClass(first);
+    return cls ? 'role-' + cls : 'role-ct';
+  }
+
   // Returns true when `note` contains any DENY_WORDS substring (case-insensitive),
   // meaning this volunteer is currently unavailable. Mirrors Python is_available().
   function isUnavailNote(note) {
@@ -1092,7 +1102,7 @@
       // This handles the case where available=false but availability_note is blank.
       var vNote = row.availability_note ? String(row.availability_note).trim() : '';
       var unavail = (row.available === false) || isUnavailNote(vNote);
-      var rowClass = 'ctx-row' + (unavail ? ' unavail' : '');
+      var rowClass = 'ctx-row ' + roleRowClass(roleList) + (unavail ? ' unavail' : '');
       var noteHtml = vNote
         ? '<div class="ctx-avail-note">' + escapeHtml(vNote) + '</div>'
         : '';
@@ -1227,7 +1237,7 @@
       // note carries a deny keyword (mirrors Tier 2 renderContextList).
       var vNote = row.availability_note ? String(row.availability_note).trim() : '';
       var unavail = (row.available === false) || isUnavailNote(vNote);
-      var rowClass = 'ctx-row' + (unavail ? ' unavail' : '');
+      var rowClass = 'ctx-row ' + roleRowClass(roleList) + (unavail ? ' unavail' : '');
       var noteHtml = vNote
         ? '<div class="ctx-avail-note">' + escapeHtml(vNote) + '</div>'
         : '';
