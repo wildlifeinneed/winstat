@@ -1962,7 +1962,7 @@
   // Public entry: gather the data shape for the map and either paint now (if
   // open) or stash for the first reveal. Shows a clear 'unavailable' state when
   // the animal has no usable coordinates.
-  function renderTier2Map(agg, origin) {
+  function renderTier2Map(agg, origin, ctx) {
     var block = document.getElementById('t2map-block');
     var unavailEl = document.getElementById('t2map-unavailable');
     var mapEl = document.getElementById('t2map');
@@ -2007,9 +2007,25 @@
     // unknown county are skipped silently. duration_min (whole-minute ORS
     // driving time) is carried through when present so the popup can show a REAL
     // travel time; otherwise the popup estimates one from distance_mi.
+    //
+    // QUALIFIED-ONLY pins (alignment with the list): apply the SAME
+    // qualifiesForAnimal predicate renderContextList uses so the map plots the
+    // SAME volunteer set as the qualified-only list. No map-side dimming for
+    // unavailable volunteers — every pin looks the same.
+    var qualifyFn = (window.WildlifeDecision &&
+                     typeof window.WildlifeDecision.qualifiesForAnimal === 'function')
+      ? window.WildlifeDecision.qualifiesForAnimal : null;
+    var hasBase = ctx && typeof ctx.issue === 'string' && ctx.issue !== '';
     var volunteers = [];
     if (SHOW_VOLUNTEER_MARKERS && agg && Array.isArray(agg.out_of_county)) {
-      agg.out_of_county.forEach(function (row) {
+      var volRows = agg.out_of_county;
+      if (qualifyFn && hasBase) {
+        volRows = volRows.filter(function (row) {
+          var roleList = Array.isArray(row.roles) ? row.roles : [];
+          return qualifyFn(roleList, !!ctx.rvs, ctx.issue);
+        });
+      }
+      volRows.forEach(function (row) {
         if (!row || !row.county) return;
         var c = state.countyCentroids && state.countyCentroids[row.county];
         if (!c || !isFinite(c.lat) || !isFinite(c.lon)) return; // skip silently
@@ -2456,7 +2472,7 @@
     $('#agg-actions').innerHTML = premiseHtml + actions.join('');
     renderContextList(agg, ctx);
     renderNearestRehabbers(pickRehabberOrigin(agg, ctx));
-    renderTier2Map(agg, pickRehabberOrigin(agg, ctx));
+    renderTier2Map(agg, pickRehabberOrigin(agg, ctx), ctx);
     checkDmaForLocation(agg);
     // Update DMA map link with animal coordinates for find parameter
     var dmaLink = document.getElementById('dma-map-link');
