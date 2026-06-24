@@ -120,8 +120,19 @@ path (mocked), POST body path, empty/malformed KV degradation.
 
 ## Redeploying
 
-On a Node 18+ environment with Wrangler installed and `CLOUDFLARE_API_TOKEN`
-exported:
+**Automatic (preferred).** The `deploy-worker` workflow
+(`.github/workflows/deploy-worker.yml`) redeploys the Worker on every push to
+`main` that touches `worker/src/**`, `worker/wrangler.toml`,
+`worker/package.json`, or the bundled `docs/data/pa_counties.json`. It runs the
+Worker test suite first, then `wrangler deploy`, authenticated with the same
+`CLOUDFLARE_API_TOKEN` repo secret the KV-push job uses (the token needs the
+"Workers Scripts: Edit" permission in addition to KV). This keeps the LIVE
+Worker in lock-step with `main` so a committed fix can never silently fail to
+reach production. It can also be run on demand via "Run workflow"
+(`workflow_dispatch`).
+
+**Manual.** On a Node 18+ environment with Wrangler installed and
+`CLOUDFLARE_API_TOKEN` exported:
 
 ```bash
 cd worker

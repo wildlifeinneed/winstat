@@ -1,0 +1,58 @@
+# Deploy the Dispatcher aggregate Cloudflare Worker.
+#
+# WHY THIS EXISTS: the Worker was originally deployed by hand (commit a2d8da7)
+# and there was NO CI step to redeploy it. Every later fix to worker/src/*
+# (e.g. the Tier 1 By-County win_area distance-exemption) was committed but
+# never deployed, so the LIVE worker drifted behind the repo and served stale
+# logic. This workflow keeps the deployed Worker in lock-step with main: any
+# push that touches the Worker code/config redeploys it automatically.
+#
+# AUTH: uses the SAME CLOUDFLARE_API_TOKEN repo secret the KV-push job already
+# uses (see refresh.yml). `wrangler deploy` needs the "Workers Scripts: Edit"
+# permission on that token in addition to the KV permission it already has.
+name: Deploy dispatcher worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'worker/src/**'
+      - 'worker/wrangler.toml'
+      - 'worker/package.json'
+      - 'docs/data/pa_counties.json'   # bundled into the Worker (handler.js require)
+      - '.github/workflows/deploy-worker.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never run two deploys at once; cancel an in-flight deploy when a newer push
+# lands so the latest main is always what ends up live.
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Run the Worker's local test suite BEFORE deploying so a broken build
+      # never reaches production. The tests need no install and no network.
+      - name: Run worker tests
+        run: node test/run.test.js
+        working-directory: worker
+
+      - name: Deploy with Wrangler
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 290463cfd0bc273076e8c62678f7c845
+        run: npx --yes wrangler@3 deploy
+        working-directory: worker
