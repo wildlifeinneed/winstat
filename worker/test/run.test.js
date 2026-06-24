@@ -38,8 +38,10 @@ const {
   normalizeRole,
   parseQualifyRoles,
   rowQualifies,
-  coarseCentroid,
-  COARSE_GRID_DEG,
+  jitterCoord,
+  jitterSeed,
+  hashString,
+  JITTER_MILES,
   DEFAULT_RADIUS_MI,
   MAX_RADIUS_MI,
   DEFAULT_MARGINAL_THRESHOLD,
@@ -1371,51 +1373,71 @@ async function main() {
     }
   });
 
-  // (i10..i13) ZIP-SCALE COARSE CENTROID for PII-safe map pins ----------
-  await test('(i10) coarseCentroid: snaps to grid-cell center; null on bad input', () => {
-    assert.strictEqual(COARSE_GRID_DEG, 0.05, 'grid step is the documented ~3-mile cell');
-    // 40.36 falls in cell [40.35, 40.40) -> center 40.375; -76.78 in
-    // [-76.80, -76.75) -> center -76.775.
-    const a = coarseCentroid(40.36, -76.78);
-    assert.ok(a && Math.abs(a.lat - 40.375) < 1e-9, 'lat snapped to cell center');
-    assert.ok(a && Math.abs(a.lon - (-76.775)) < 1e-9, 'lon snapped to cell center');
-    // The snapped point is NEVER the exact input (privacy): differs unless the
-    // input already sat exactly on a cell center.
-    assert.notStrictEqual(a.lat, 40.36, 'exact lat not echoed');
-    assert.notStrictEqual(a.lon, -76.78, 'exact lon not echoed');
-    // Coarse: any two inputs inside the same ~3mi cell map to the SAME point.
-    const b = coarseCentroid(40.36 + 0.01, -76.78 - 0.01);
-    assert.deepStrictEqual(b, a, 'nearby inputs in one cell collapse to one centroid');
+  // (i10..i13) ~1-MILE DETERMINISTIC JITTER for PII-safe map pins -------
+  await test('(i10) jitterCoord: ~1 mile offset, deterministic per seed, null on bad input', () => {
+    assert.strictEqual(JITTER_MILES, 1.0, 'jitter distance is the documented ~1 mile');
+    const LAT = 40.36;
+    const LON = -76.78;
+    const a = jitterCoord(LAT, LON, 'n:Alice');
+    assert.ok(a, 'returns a point for a finite coord');
+    // The jittered point is ~1 mile from the exact coord (allow small rounding +
+    // the lat/lon flat-earth approximation slack).
+    const d = haversineMi(LAT, LON, a.lat, a.lon);
+    assert.ok(Math.abs(d - 1.0) < 0.05, 'offset is ~1 mile, got ' + d);
+    // It is NEVER the exact input (privacy).
+    assert.notStrictEqual(a.lat, LAT, 'exact lat not echoed');
+    assert.notStrictEqual(a.lon, LON, 'exact lon not echoed');
+    // DETERMINISTIC: same seed -> byte-identical point across calls.
+    assert.deepStrictEqual(jitterCoord(LAT, LON, 'n:Alice'), a, 'same seed is stable');
+    // Different seeds -> a DIFFERENT direction (so two neighbors do not stack).
+    const b = jitterCoord(LAT, LON, 'n:Bob');
+    assert.notDeepStrictEqual(b, a, 'different seed -> different jittered point');
+    assert.ok(Math.abs(haversineMi(LAT, LON, b.lat, b.lon) - 1.0) < 0.05, 'Bob also ~1 mile');
     // Bad / missing input -> null (frontend then falls back to county centroid).
-    assert.strictEqual(coarseCentroid(null, null), null);
-    assert.strictEqual(coarseCentroid(40, undefined), null);
-    assert.strictEqual(coarseCentroid('x', 'y'), null);
-    assert.strictEqual(coarseCentroid(NaN, NaN), null);
+    assert.strictEqual(jitterCoord(null, null, 's'), null);
+    assert.strictEqual(jitterCoord(40, undefined, 's'), null);
+    assert.strictEqual(jitterCoord('x', 'y', 's'), null);
+    assert.strictEqual(jitterCoord(NaN, NaN, 's'), null);
   });
 
-  await test('(i11) findContextRows rows carry the COARSE centroid (not the exact coord)', () => {
+  await test('(i10b) hashString stable + jitterSeed prefers name then connecteam_user then win_area+county', () => {
+    // Stable, unsigned 32-bit.
+    const h = hashString('n:Alice');
+    assert.strictEqual(h, hashString('n:Alice'), 'hash is deterministic');
+    assert.ok(Number.isInteger(h) && h >= 0 && h <= 0xffffffff, 'unsigned 32-bit');
+    assert.notStrictEqual(hashString('n:Alice'), hashString('n:Bob'), 'distinct inputs differ');
+    // Seed precedence.
+    assert.strictEqual(jitterSeed({ name: 'Alice', connecteam_user: 'a@x', home_county: 'Dauphin' }), 'n:Alice');
+    assert.strictEqual(jitterSeed({ name: '  ', connecteam_user: 'a@x', home_county: 'Dauphin' }), 'c:a@x');
+    assert.strictEqual(jitterSeed({ win_area: 'WIN-1', home_county: 'Dauphin' }), 'wc:WIN-1|Dauphin');
+  });
+
+  await test('(i11) findContextRows rows carry the JITTERED coord (not the exact coord)', () => {
     const rows = findContextRows(ANIMAL.lat, ANIMAL.lon, 20, COORDS_PII, 'Dauphin');
     assert.strictEqual(rows.length, 2, 'Lebanon + Lancaster');
     const lebanon = rows.find((r) => r.county === 'Lebanon');
-    const expected = coarseCentroid(40.36, -76.78); // Bob's KV coord (Lebanon)
+    const expected = jitterCoord(40.36, -76.78, jitterSeed({ name: 'Bob', home_county: 'Lebanon' }));
     assert.deepStrictEqual(
       { lat: lebanon.approx_lat, lon: lebanon.approx_lon },
       { lat: expected.lat, lon: expected.lon },
-      'row carries the snapped coarse centroid'
+      'row carries the deterministic jittered coord'
     );
-    // The exact KV coordinate must NOT survive on the row.
+    // The exact KV coordinate must NOT survive on the row, and the jitter is
+    // ~1 mile from it.
     assert.notStrictEqual(lebanon.approx_lat, 40.36, 'exact lat not on row');
     assert.notStrictEqual(lebanon.approx_lon, -76.78, 'exact lon not on row');
+    assert.ok(Math.abs(haversineMi(40.36, -76.78, lebanon.approx_lat, lebanon.approx_lon) - 1.0) < 0.05,
+      'jitter ~1 mile from exact home');
     // Every row exposes ONLY the whitelisted keys (now including approx_*).
     for (const r of rows) {
       assert.deepStrictEqual(Object.keys(r).sort(), TIER2_ROW_KEYS);
     }
   });
 
-  await test('(i12) findContextRowsDriving rows also carry the COARSE centroid', () => {
+  await test('(i12) findContextRowsDriving rows also carry the JITTERED coord', () => {
     // No drivingFn -> straight-line membership only (driving annotation skipped),
-    // which is all this test needs: the coarse centroid is attached in Phase 1,
-    // independent of the ORS annotation. Returns { rows, distance_mode }.
+    // which is all this test needs: the jitter is applied in Phase 1, independent
+    // of the ORS annotation. Returns { rows, distance_mode }.
     return findContextRowsDriving(ANIMAL.lat, ANIMAL.lon, 20, COORDS_PII, 'Dauphin')
       .then((ctx) => {
         const rows = ctx.rows;
@@ -1427,7 +1449,7 @@ async function main() {
         }
         const lebanon = rows.find((r) => r.county === 'Lebanon');
         if (lebanon) {
-          const expected = coarseCentroid(40.36, -76.78);
+          const expected = jitterCoord(40.36, -76.78, jitterSeed({ name: 'Bob', home_county: 'Lebanon' }));
           assert.deepStrictEqual(
             { lat: lebanon.approx_lat, lon: lebanon.approx_lon },
             { lat: expected.lat, lon: expected.lon }
@@ -1445,7 +1467,7 @@ async function main() {
     assert.strictEqual(resp.out_of_county.length, 2);
     for (const r of resp.out_of_county) {
       assert.ok(Number.isFinite(r.approx_lat) && Number.isFinite(r.approx_lon),
-        'coarse centroid surfaced in the response payload');
+        'jittered coord surfaced in the response payload');
     }
     // The PII deep-walk must STILL find no forbidden key (approx_* are safe and
     // use distinct key names; raw lat/lon never appear).
@@ -1453,7 +1475,7 @@ async function main() {
     for (const k of TIER2_FORBIDDEN_KEYS) {
       assert.strictEqual(allKeys.indexOf(k), -1, 'PII key leaked: ' + k);
     }
-    // A row built WITHOUT a coarse centroid omits approx_* entirely (frontend
+    // A row built WITHOUT a jittered coord omits approx_* entirely (frontend
     // falls back to the county centroid).
     const respNoCoord = buildTier2Response(
       { total_in_range: 1, role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 0 }, win_areas: [] },

@@ -1922,21 +1922,20 @@
     });
 
     // === VOLUNTEER MARKERS START (markers) ===
-    // Volunteers are plotted at their ZIP-SCALE COARSE centroid (a ~3-mile grid
-    // cell center the Worker provides) when available, else at their HOME-COUNTY
-    // CENTROID fallback. The Worker never sends an exact volunteer coordinate
-    // (PII rule). County-centroid fallback pins share one point per county, so
-    // those are spread with a small spiral offset; coarse pins keep their own
-    // cell center. This whole block is gated by the flag above.
+    // Volunteers are plotted at their ~1-MILE JITTERED coord (the exact home
+    // nudged a fixed ~1 mi in a deterministic per-volunteer direction by the
+    // Worker) when available, else at their HOME-COUNTY CENTROID fallback. The
+    // Worker never sends an exact volunteer coordinate (PII rule). County-centroid
+    // fallback pins share one point per county, so those are spread with a small
+    // spiral offset; jittered pins keep their own point. Gated by the flag above.
     if (SHOW_VOLUNTEER_MARKERS) {
       var perCounty = {};
       (payload.volunteers || []).forEach(function (v) {
         if (!v || !isFinite(v.lat) || !isFinite(v.lon)) return; // skip silently
         // Stacked-pin spiral offset applies ONLY to county-centroid FALLBACK
         // pins (every volunteer in a county shares the one centroid point, so
-        // they would fully overlap). ZIP-scale coarse pins (v.exact) are placed
-        // at their own ~3-mile cell center and must NOT be nudged — offsetting
-        // would only degrade the improved accuracy.
+        // they would fully overlap). Jittered pins (v.exact) already sit at their
+        // own per-volunteer point and must NOT be nudged further.
         var lat = v.lat;
         var lon = v.lon;
         if (!v.exact) {
@@ -2034,10 +2033,11 @@
     // Map the PII-safe out_of_county rows to map points. Rows carry
     // {roles, distance_mi, win_area, county, approx_lat?, approx_lon?,
     // driving_miles?, duration_min?} — never an exact home coord. We PREFER the
-    // ZIP-scale COARSE centroid (approx_lat/approx_lon: a ~3-mile grid cell
-    // center the Worker emits, finer than a county centroid yet still PII-safe)
-    // and FALL BACK to the county centroid (from pa_counties geojson) when the
-    // row has no coarse coordinate. Rows with neither are skipped silently.
+    // JITTERED coord (approx_lat/approx_lon: the exact home nudged a fixed ~1 mi
+    // in a deterministic per-volunteer direction by the Worker — close to the
+    // real location yet never pointing at the actual house) and FALL BACK to the
+    // county centroid (from pa_counties geojson) when the row has no jittered
+    // coordinate. Rows with neither are skipped silently.
     // driving_miles/duration_min are carried through so the popup shows the SAME
     // distance/time the list does (never recomputed from the pin position).
     //
@@ -2060,8 +2060,8 @@
       }
       volRows.forEach(function (row) {
         if (!row) return;
-        // Prefer the ZIP-scale coarse centroid the Worker provides; fall back to
-        // the county centroid when it is absent (older Worker / no coord).
+        // Prefer the jittered coord the Worker provides; fall back to the county
+        // centroid when it is absent (older Worker / no coord).
         var lat = NaN;
         var lon = NaN;
         var placed = false;
@@ -2082,9 +2082,9 @@
         volunteers.push({
           lat: lat,
           lon: lon,
-          // True when the pin sits on the precise-ish ZIP-scale centroid (so the
-          // stacked-pin spiral offset below is NOT applied — coarse coords are
-          // already distinct per cell, and offsetting would degrade accuracy).
+          // True when the pin sits on the per-volunteer JITTERED coord (so the
+          // stacked-pin spiral offset below is NOT applied — jittered coords are
+          // already distinct per volunteer, and offsetting would only add noise).
           exact: !!(typeof row.approx_lat === 'number' && isFinite(row.approx_lat)),
           county: row.county,
           roles: Array.isArray(row.roles) ? row.roles : [],

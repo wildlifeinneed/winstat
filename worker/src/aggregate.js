@@ -506,10 +506,10 @@ async function findContextRowsDriving(
       rec.home_county !== null && rec.home_county !== undefined && String(rec.home_county).trim() !== ''
         ? String(rec.home_county).trim()
         : null;
-    // ZIP-scale COARSE centroid (PII-safe map pin). Derived from the precise
-    // coord but snapped to a ~3-mile grid cell; the precise coord is NEVER
-    // serialized. null when the record had no usable coordinate.
-    const approx = coarseCentroid(rec.lat, rec.lon);
+    // ~1-mile deterministic jitter of the EXACT coord (PII-safe map pin). The
+    // precise coord is NEVER serialized; only this nudged point is. null when
+    // the record had no usable coordinate.
+    const approx = jitterCoord(rec.lat, rec.lon, jitterSeed(rec));
     rows.push({
       roles: matchedRoles,
       distance_mi: round1(miles),
@@ -572,41 +572,79 @@ function round1(n) {
   return Math.round(n * 10) / 10;
 }
 
-// --- COARSE (ZIP-scale) centroid for PII-safe map pins ---------------------
+// --- DETERMINISTIC ~1-MILE JITTER for PII-safe map pins --------------------
 //
 // The browser map plots out-of-county volunteers. Sending the EXACT geocoded
-// home coordinate would breach the PII boundary, while the county centroid is
-// too coarse (a volunteer near a county edge lands at the county's geographic
-// center, often 10-20 mi off). The compromise approved with the user: SNAP the
-// exact coordinate to a coarse grid and emit only the CELL CENTER. A grid step
-// of 0.05° is ~3.5 mi of latitude (~2.6 mi of longitude in PA) -- comparable to
-// a ZIP/ZCTA footprint -- so the emitted point is a ZIP-SCALE coarse centroid
-// that reveals only which ~3-mile cell the volunteer falls in, never the exact
-// home. This is computed from the precise coord but the precise coord itself is
-// never serialized (see buildTier2Response's whitelist).
-const COARSE_GRID_DEG = 0.05;
+// home coordinate would breach the PII boundary; the county centroid is too
+// coarse (an edge-of-county volunteer lands at the county's geographic center,
+// often 10-20 mi off). The approved compromise: take the EXACT coordinate and
+// nudge it a FIXED ~1 mile in a per-volunteer RANDOM direction, emitting only
+// the nudged point. The pin sits ~1 mi from the real home -- close enough to be
+// useful, far enough that it never points at an actual house -- and the exact
+// coord itself is NEVER serialized (see buildTier2Response's whitelist).
+//
+// DETERMINISTIC: the direction is derived from a stable hash of the volunteer's
+// identity (name / connecteam_user / win_area+county fallback), so the same
+// volunteer always lands on the SAME jittered point across requests (the pin
+// does not jump around between refreshes).
+const JITTER_MILES = 1.0;
+const MILES_PER_DEG_LAT = 69.0; // ~69 statute miles per degree of latitude.
+
+/** Stable 32-bit FNV-1a hash of a string -> unsigned int. */
+function hashString(s) {
+  let h = 0x811c9dc5;
+  const str = String(s);
+  for (let i = 0; i < str.length; i += 1) {
+    h ^= str.charCodeAt(i);
+    // FNV prime 16777619, kept in 32-bit range via Math.imul.
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
 
 /**
- * Snap a precise coordinate to the center of its COARSE_GRID_DEG cell. Returns
- * null when lat/lon are missing or non-finite. The returned values are rounded
- * to 4 decimals purely to avoid float noise in the JSON; the meaningful
- * precision is the grid cell, not the 4th decimal.
+ * Offset a precise coordinate a FIXED ~1 mile in a deterministic direction
+ * derived from `seed`. Returns null when lat/lon are missing or non-finite.
+ * Values are rounded to 5 decimals purely to trim float noise from the JSON.
  */
-function coarseCentroid(lat, lon) {
+function jitterCoord(lat, lon, seed) {
   // Reject anything that is not already a finite number. Note: Number(null)===0
-  // and Number('')===0, so we must guard the type BEFORE coercing or a missing
-  // coordinate would snap to (0,0) instead of yielding null.
+  // and Number('')===0, so we must guard the TYPE before any coercion or a
+  // missing coordinate would jitter (0,0) instead of yielding null.
   if (typeof lat !== 'number' || typeof lon !== 'number' ||
       !Number.isFinite(lat) || !Number.isFinite(lon)) {
     return null;
   }
-  const cell = function (v) {
-    return (Math.floor(v / COARSE_GRID_DEG) + 0.5) * COARSE_GRID_DEG;
-  };
+  // Deterministic angle in [0, 2pi): map the hash onto a full turn.
+  const angle = (hashString(seed) / 0x100000000) * 2 * Math.PI;
+  const dLat = (JITTER_MILES / MILES_PER_DEG_LAT) * Math.cos(angle);
+  // Longitude degrees shrink with latitude; guard near the poles (never hit in
+  // PA, but keeps the math safe).
+  const cosLat = Math.cos((lat * Math.PI) / 180);
+  const milesPerDegLon = MILES_PER_DEG_LAT * (Math.abs(cosLat) < 1e-6 ? 1e-6 : cosLat);
+  const dLon = (JITTER_MILES / milesPerDegLon) * Math.sin(angle);
   return {
-    lat: Math.round(cell(lat) * 1e4) / 1e4,
-    lon: Math.round(cell(lon) * 1e4) / 1e4,
+    lat: Math.round((lat + dLat) * 1e5) / 1e5,
+    lon: Math.round((lon + dLon) * 1e5) / 1e5,
   };
+}
+
+/**
+ * Build the stable jitter seed for a KV record: prefer the volunteer's name,
+ * then connecteam_user, then a win_area+county composite. The seed only needs
+ * to be STABLE per volunteer, not unique, so this fallback chain is fine.
+ */
+function jitterSeed(rec) {
+  if (rec && rec.name !== null && rec.name !== undefined && String(rec.name).trim() !== '') {
+    return 'n:' + String(rec.name).trim();
+  }
+  if (rec && rec.connecteam_user !== null && rec.connecteam_user !== undefined &&
+      String(rec.connecteam_user).trim() !== '') {
+    return 'c:' + String(rec.connecteam_user).trim();
+  }
+  const wa = rec && rec.win_area !== null && rec.win_area !== undefined ? String(rec.win_area) : '';
+  const co = rec && rec.home_county !== null && rec.home_county !== undefined ? String(rec.home_county) : '';
+  return 'wc:' + wa + '|' + co;
 }
 
 /** Normalize a county name for comparison (mirror county_win._normalize). */
@@ -771,8 +809,9 @@ function findContextRows(animalLat, animalLon, radiusMi, coordsDataset, excludeC
       rec.home_county !== null && rec.home_county !== undefined && String(rec.home_county).trim() !== ''
         ? String(rec.home_county).trim()
         : null;
-    // ZIP-scale COARSE centroid (PII-safe map pin); see coarseCentroid above.
-    const approx = coarseCentroid(rec.lat, rec.lon);
+    // ~1-mile deterministic jitter of the EXACT coord (PII-safe map pin); see
+    // jitterCoord above.
+    const approx = jitterCoord(rec.lat, rec.lon, jitterSeed(rec));
 
     rows.push({
       roles: matchedRoles,
@@ -837,10 +876,11 @@ function buildAggregateResponse(aggregate, distanceMode) {
  *                out_of_county_truncated, radius_too_broad }
  *   per row:   { roles, distance_mi, win_area, county, approx_lat?, approx_lon?,
  *                duration_min? }
- *              (approx_lat/approx_lon are the ZIP-scale COARSE centroid for the
- *              map pin -- a ~3-mile grid cell center, never the exact home;
- *              duration_min is the whole-minute driving time, present ONLY in
- *              driving mode; omitted on the straight_line fallback)
+ *              (approx_lat/approx_lon are the ~1-mile JITTERED coord for the map
+ *              pin -- the exact home nudged a fixed ~1 mi in a deterministic
+ *              per-volunteer direction, never the exact home; duration_min is
+ *              the whole-minute driving time, present ONLY in driving mode;
+ *              omitted on the straight_line fallback)
  *
  * It receives ALREADY-projected rows from findContextRows (which never copies
  * lat/lon/_addr_sig/etc.), so raw KV objects are never passed here.
@@ -916,9 +956,10 @@ function buildTier2Response(aggregate, contextRows, distanceMode) {
       available: r.available !== false,
       connecteam_user: normalizeConnecteamUser(r.connecteam_user),
     };
-    // ZIP-scale COARSE centroid for the map pin (PII-safe: a ~3-mile grid cell
-    // center, NEVER the exact home coord). Emitted only when finite; the
-    // frontend falls back to the county centroid when these are absent.
+    // ~1-mile JITTERED coord for the map pin (PII-safe: the exact home is nudged
+    // a fixed ~1 mi in a deterministic per-volunteer direction, NEVER the exact
+    // coord). Emitted only when finite; the frontend falls back to the county
+    // centroid when these are absent.
     if (Number.isFinite(r.approx_lat) && Number.isFinite(r.approx_lon)) {
       o.approx_lat = r.approx_lat;
       o.approx_lon = r.approx_lon;
@@ -977,7 +1018,6 @@ module.exports = {
   OVERFLOW_NEAREST,
   MODE_DRIVING,
   MODE_STRAIGHT_LINE,
-  COARSE_GRID_DEG,
   clampRadius,
   haversineMi,
   normalizeRole,
@@ -985,7 +1025,10 @@ module.exports = {
   parseQualifyRoles,
   rowQualifies,
   round1,
-  coarseCentroid,
+  jitterCoord,
+  jitterSeed,
+  hashString,
+  JITTER_MILES,
   rolesOf,
   isAvailableRecord,
   prescreenByHaversine,
