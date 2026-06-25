@@ -528,6 +528,132 @@
     return inCty.concat(siblings);
   }
 
+  // ─── County adjacency (derived from the county GeoJSON) ──────────────────
+  // Two counties are NEIGHBORS when their polygons share at least one boundary
+  // vertex. Computed lazily from state.geojson (the SAME source the WIN-area map
+  // uses) and cached in _countyAdjacency so the build runs at most once. Returns
+  // {} when the GeoJSON has not loaded yet (callers degrade gracefully). Coords
+  // are rounded to 3 decimals (~110 m) so shared borders match despite tiny
+  // floating-point differences between adjacent polygon rings.
+  var _countyAdjacency = null;
+  function buildCountyAdjacency() {
+    if (_countyAdjacency) return _countyAdjacency;
+    var geo = state.geojson;
+    var features = (geo && Array.isArray(geo.features)) ? geo.features : null;
+    if (!features || !features.length) return {};
+    // 1) Per-county set of rounded boundary vertices.
+    var vsets = {};
+    function collect(coords, set) {
+      if (!coords) return;
+      if (typeof coords[0] === 'number') {
+        set[coords[0].toFixed(3) + ',' + coords[1].toFixed(3)] = true;
+        return;
+      }
+      for (var i = 0; i < coords.length; i++) collect(coords[i], set);
+    }
+    features.forEach(function (f) {
+      var props = (f && f.properties) || {};
+      var county = String(props.county || '').trim();
+      if (!county) return;
+      var set = vsets[county] || (vsets[county] = {});
+      if (f.geometry) collect(f.geometry.coordinates, set);
+    });
+    // 2) Invert the vertex sets into a vertex -> [counties] index, then mark
+    //    every pair sharing a vertex as adjacent. This is O(total vertices)
+    //    rather than O(counties^2 * vertices).
+    var vertexOwners = {};
+    Object.keys(vsets).forEach(function (county) {
+      Object.keys(vsets[county]).forEach(function (v) {
+        (vertexOwners[v] || (vertexOwners[v] = [])).push(county);
+      });
+    });
+    var adj = {};
+    Object.keys(vertexOwners).forEach(function (v) {
+      var owners = vertexOwners[v];
+      if (owners.length < 2) return;
+      for (var i = 0; i < owners.length; i++) {
+        for (var j = i + 1; j < owners.length; j++) {
+          var a = owners[i], b = owners[j];
+          if (a === b) continue;
+          (adj[a] || (adj[a] = {}))[b] = true;
+          (adj[b] || (adj[b] = {}))[a] = true;
+        }
+      }
+    });
+    _countyAdjacency = adj;
+    return adj;
+  }
+
+  // Return the WIN areas that NEIGHBOR the selected county's area, in order of
+  // likelihood (most adjacency contacts first, then numerically). An area is a
+  // neighbor when ANY of its counties borders ANY county in the selected
+  // county's own area. The selected county's own area is excluded. Each entry is
+  // { area, counties } where `counties` are that neighboring area's counties
+  // that actually touch the home area (the closest crossing points). Falls back
+  // to [] when adjacency/area data is unavailable (caller degrades gracefully).
+  function neighboringAreas(county) {
+    if (!county || !state.countyWin) return [];
+    var homeArea = state.countyWin[county];
+    if (homeArea === undefined || homeArea === null) return [];
+    var homeNorm = String(homeArea).trim().toLowerCase();
+    var adj = buildCountyAdjacency();
+    if (!adj || !Object.keys(adj).length) return [];
+    // Counties in the selected county's own WIN area.
+    var homeCounties = getWinAreaCounties(county);
+    var cw = state.countyWin;
+    // For each neighboring AREA, collect the bordering counties + a contact
+    // count (how many home-area borders it touches) used to rank likelihood.
+    var byArea = {};
+    homeCounties.forEach(function (hc) {
+      var neighbors = adj[hc];
+      if (!neighbors) return;
+      Object.keys(neighbors).forEach(function (nc) {
+        var ncArea = cw[nc];
+        if (ncArea === undefined || ncArea === null) return;
+        var ncNorm = String(ncArea).trim().toLowerCase();
+        if (ncNorm === homeNorm) return; // same area -> not a NEIGHBOR
+        var areaKey = String(ncArea).trim();
+        var bucket = byArea[areaKey] || (byArea[areaKey] = { area: areaKey, counties: {}, contacts: 0 });
+        bucket.counties[nc] = true;
+        bucket.contacts += 1;
+      });
+    });
+    var areas = Object.keys(byArea).map(function (k) {
+      var b = byArea[k];
+      return { area: b.area, counties: Object.keys(b.counties).sort(), contacts: b.contacts };
+    });
+    // Rank: most border contacts first (likeliest direction), then numeric area.
+    areas.sort(function (a, b) {
+      if (b.contacts !== a.contacts) return b.contacts - a.contacts;
+      var na = parseInt(a.area, 10), nb = parseInt(b.area, 10);
+      if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
+      return String(a.area).localeCompare(String(b.area));
+    });
+    return areas;
+  }
+
+  // Rehabbers located in ANY county of the given WIN `area` that ACCEPT the
+  // selected `animalType`. Used by the options panel to show, per neighboring
+  // area, who can take the animal in that direction. Returns [] when the area
+  // has no county map or no matching rehabber.
+  function rehabbersInArea(area, animalType) {
+    if (area === undefined || area === null || !state.countyWin) return [];
+    var norm = String(area).trim().toLowerCase();
+    var cw = state.countyWin;
+    var areaCounties = {};
+    Object.keys(cw).forEach(function (c) {
+      if (String(cw[c]).trim().toLowerCase() === norm) {
+        areaCounties[String(c).trim().toLowerCase()] = true;
+      }
+    });
+    var rehabbers = Array.isArray(state.rehabbers) ? state.rehabbers : [];
+    return rehabbers.filter(function (r) {
+      var rc = (r && r.county) ? String(r.county).trim().toLowerCase() : '';
+      if (!rc || !areaCounties[rc]) return false;
+      return rehabberAcceptsAnimal(r.availability, animalType);
+    });
+  }
+
   // ─── Rehabber accepted-animal CODES (display) ────────────────────────────
   // Extract the standard species abbreviations a rehabber accepts from its free
   // -text `availability` field so the dispatch summary can SHOW them after the
@@ -659,6 +785,174 @@
 
     html += '</div>';
     return html;
+  }
+
+  // Qualified-volunteer count for the selected county's WIN area, computed from
+  // the SAME cached Tier 1 rows + qualify predicate the dispatch summary and the
+  // In-County / WIN Area list buttons use, so the options panel never disagrees
+  // with them. Returns null when the rows have not loaded yet (caller shows a
+  // transient "loading" line instead of a misleading 0).
+  function qualifiedWinAreaCount(ctx) {
+    var rows = Array.isArray(state.t1VolRows) ? state.t1VolRows : null;
+    if (!rows || !ctx) return null;
+    var qualifyFn = (window.WildlifeDecision &&
+                     typeof window.WildlifeDecision.qualifiesForAnimal === 'function')
+      ? window.WildlifeDecision.qualifiesForAnimal : null;
+    var hasBase = typeof ctx.issue === 'string' && ctx.issue !== '';
+    if (qualifyFn && hasBase) {
+      return rows.filter(function (row) {
+        var roleList = Array.isArray(row.roles) ? row.roles : [];
+        return qualifyFn(roleList, !!ctx.rvs, ctx.issue);
+      }).length;
+    }
+    return rows.length;
+  }
+
+  // Decide whether the OPTIONS panel should be shown for this recommendation.
+  // TRIGGER: the recommendation would otherwise dead-end on "Call PGC":
+  //   • call_pa_game_comm  -> ALWAYS (the classic no-volunteer escalation).
+  //   • refer_out          -> only with THIN coverage, i.e. zero qualified
+  //                           WIN-area volunteers. A refer_out backed by real
+  //                           local volunteers is a deliberate policy routing,
+  //                           not a coverage gap, so it keeps the basic card.
+  // When the volunteer count has not loaded yet (null) we treat refer_out as
+  // NOT-thin (no panel) to avoid flashing options for a county that may in fact
+  // have coverage; call_pa_game_comm still always shows the panel.
+  function shouldShowOptionsPanel(rec, ctx) {
+    if (!rec) return false;
+    if (rec.action === 'call_pa_game_comm') return true;
+    if (rec.action === 'refer_out') {
+      var count = qualifiedWinAreaCount(ctx);
+      return count === 0;
+    }
+    return false;
+  }
+
+  // ─── OPTIONS panel (thin/no local coverage — guide, don't dead-end) ───────
+  // Built UNDER a call_pa_game_comm (or thin refer_out) recommendation. Per the
+  // design principle "don't close doors", it lays out EVERY option in order of
+  // likelihood so the dispatcher + finder decide what's feasible:
+  //   1) WIN-area volunteers (count + a button that opens the existing WIN Area
+  //      volunteer list).
+  //   2) Neighboring-area rehabbers — rehabbers in BORDERING WIN areas (all
+  //      directions, never pre-filtered to one) that accept the selected animal
+  //      type. An area with no matching rehabber is STILL listed (the dispatcher
+  //      should know the direction exists), just flagged empty.
+  //   3) Address search (Tier 2) for nearest-by-driving-distance; if transport,
+  //      a "meet partway" hint.
+  //   4) PGC fallback — the dispatch line, only if nothing else pans out.
+  // `county` is the selected county; `animalType` the dropdown category; `ctx`
+  // the cached {county, rvs, issue} render context for the volunteer count.
+  function recOptionsPanelHtml(county, animalType, ctx) {
+    if (!county) return '';
+    var OPT = (MSG.recommendation && MSG.recommendation.options) || null;
+    if (!OPT) return '';
+    var pgc = MSG.pgcPhone || '';
+    var animalLabels = (MSG.recommendation && MSG.recommendation.animalTypeLabels) || {};
+    var animalKey = animalType ? String(animalType).toLowerCase().trim() : '';
+    var animalLabel = animalLabels[animalKey] || OPT.neighborAnimalFallback;
+
+    var html = '<div class="rec-options">';
+    html += '<div class="rec-options-header">' + escapeHtml(OPT.header) + '</div>';
+    html += '<p class="rec-options-intro">' + escapeHtml(OPT.intro) + '</p>';
+
+    // 1) WIN-AREA VOLUNTEERS — count + a button that opens the existing WIN Area
+    //    volunteer list (the same #t1-vol-toggle-area control).
+    var area = (state.countyWin && state.countyWin[county] !== undefined &&
+                state.countyWin[county] !== null)
+      ? String(state.countyWin[county]).trim() : '';
+    html += '<div class="rec-options-sec">';
+    html += '<div class="rec-options-sec-header">' + escapeHtml(OPT.winVolHeader) + '</div>';
+    var count = qualifiedWinAreaCount(ctx);
+    if (count === null) {
+      html += '<p class="rec-options-pending">' + escapeHtml(OPT.winVolPending) + '</p>';
+    } else {
+      var countLine = area
+        ? fmt(OPT.winVolCount, { count: count, area: escapeHtml(area) })
+        : fmt(OPT.winVolCountUnknown, { count: count });
+      html += '<p class="rec-options-line">' + countLine + '</p>';
+    }
+    html += '<button type="button" class="rec-options-winvol-btn link-btn" id="rec-options-winvol">' +
+      escapeHtml(OPT.winVolButton) + '</button>';
+    html += '</div>';
+
+    // 2) NEIGHBORING-AREA REHABBERS — every bordering WIN area (all directions),
+    //    each filtered to rehabbers that accept the selected animal type, but the
+    //    area itself is never hidden (the dispatcher should know it's a direction).
+    html += '<div class="rec-options-sec">';
+    html += '<div class="rec-options-sec-header">' + escapeHtml(OPT.neighborHeader) + '</div>';
+    html += '<p class="rec-options-line">' + escapeHtml(OPT.neighborIntro) + '</p>';
+    var areas = neighboringAreas(county);
+    if (!areas.length) {
+      html += '<p class="rec-options-pending">' + escapeHtml(OPT.neighborUnavailable) + '</p>';
+    } else {
+      html += '<ul class="rec-options-areas">';
+      areas.forEach(function (a) {
+        var counties = Array.isArray(a.counties) ? a.counties : [];
+        var areaLabel = counties.length
+          ? fmt(OPT.neighborAreaLabel, { area: escapeHtml(a.area), counties: escapeHtml(counties.join(', ')) })
+          : fmt(OPT.neighborAreaLabelNoCounties, { area: escapeHtml(a.area) });
+        html += '<li class="rec-options-area">';
+        html += '<div class="rec-options-area-label">' + areaLabel + '</div>';
+        var list = rehabbersInArea(a.area, animalType);
+        if (list.length) {
+          html += '<ul class="rec-summary-list rec-options-rehab-list">';
+          list.forEach(function (r) {
+            html += rehabberRowHtml(r, 'rec-options-rehab');
+          });
+          html += '</ul>';
+        } else {
+          html += '<p class="rec-options-area-empty">' +
+            escapeHtml(fmt(OPT.neighborAreaEmpty, { animal: animalLabel })) + '</p>';
+        }
+        html += '</li>';
+      });
+      html += '</ul>';
+    }
+    html += '</div>';
+
+    // 3) ADDRESS SEARCH — nearest-by-driving-distance (Tier 2); transport hint.
+    html += '<div class="rec-options-sec">';
+    html += '<div class="rec-options-sec-header">' + escapeHtml(OPT.addressHeader) + '</div>';
+    html += '<p class="rec-options-line">' + escapeHtml(OPT.addressTip) + '</p>';
+    if (ctx && ctx.issue === 'transport') {
+      html += '<p class="rec-options-line">' + escapeHtml(OPT.addressTransportTip) + '</p>';
+    }
+    html += '</div>';
+
+    // 4) PGC FALLBACK — only if nothing else pans out.
+    html += '<div class="rec-options-sec rec-options-pgc">';
+    html += '<div class="rec-options-sec-header">' + escapeHtml(OPT.pgcHeader) + '</div>';
+    html += '<p class="rec-options-line">' + fmt(OPT.pgcFallback, { phone: escapeHtml(pgc) }) + '</p>';
+    html += '</div>';
+
+    html += '</div>';
+    return html;
+  }
+
+  // Wire the "Show WIN Area Volunteers" button inside a freshly rendered options
+  // panel to the EXISTING WIN Area volunteer list control (#t1-vol-toggle-area)
+  // so the dispatcher does not have to hunt for it. Best-effort: a missing
+  // button or target is a no-op. Called by renderRecommendation after the panel
+  // markup lands in #rec-output.
+  function wireOptionsPanel() {
+    var btn = document.getElementById('rec-options-winvol');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      var areaBtn = document.getElementById('t1-vol-toggle-area');
+      if (!areaBtn) return;
+      var blockEl = document.getElementById('t1-vol-block');
+      // Only CLICK when the WIN Area scope is not already open, so this button
+      // never accidentally COLLAPSES an already-open list (the toggle flips).
+      var alreadyOpen = blockEl && blockEl.style.display !== 'none' &&
+                        state.t1VolScope === 'area';
+      if (!alreadyOpen) areaBtn.click();
+      // Bring the now-visible list into view.
+      var section = document.getElementById('t1-vol-section');
+      if (section && typeof section.scrollIntoView === 'function') {
+        try { section.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) { section.scrollIntoView(); }
+      }
+    });
   }
 
   // ─── Actionable PGC guidance (issue-aware "no volunteer available") ───────
@@ -886,13 +1180,30 @@
     var headerTxt = county
       ? fmt(REC.scopeHeaderCounty, { county: county })
       : REC.scopeHeaderCounty.replace('{county}', '').replace(/\s+$/, '');
+
+    // OPTIONS panel: when local coverage is thin and the recommendation would
+    // otherwise dead-end on "Call PGC", show every option in order of likelihood
+    // instead of (or alongside) the basic recommendation — don't close doors.
+    // Triggered for call_pa_game_comm always, and for refer_out only when there
+    // is NO qualified WIN-area volunteer (thin coverage). The volunteer count is
+    // read from the SAME cached Tier 1 rows/ctx the dispatch summary uses.
+    var volCtx = state.t1VolCtx ||
+      (base ? { county: county, rvs: !!base.rvs, issue: base.issue } : null);
+    var optionsHtml = '';
+    if (shouldShowOptionsPanel(recCounty, volCtx)) {
+      optionsHtml = recOptionsPanelHtml(county, animalType, volCtx);
+    }
+
     html += '<div id="rec-scope-body">' +
       '<div class="ctx-header" id="rec-scope-header">' + escapeHtml(headerTxt) + '</div>' +
-      built.html + summaryHtml + '</div>';
+      built.html + summaryHtml + optionsHtml + '</div>';
 
     var out = $('#rec-output');
     out.innerHTML = html;
     out.className = 'rec-output show tone-' + built.tone;
+
+    // Wire the options-panel "Show WIN Area Volunteers" button (no-op if absent).
+    wireOptionsPanel();
 
     var dismiss = document.getElementById('rec-dismiss');
     if (dismiss) {

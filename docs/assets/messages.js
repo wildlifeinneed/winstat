@@ -220,7 +220,48 @@
       // handles captures when no volunteer is available. {phone} = PGC line.
       pgcCaptureTell: 'No volunteer available in-county to capture this animal \u2014 ask the finder to call PA Game Commission: {phone}.',
       // Inline PGC phone line header (capture path). {phone} = PGC dispatch line.
-      pgcPhoneLine: 'PA Game Commission: <strong>{phone}</strong>'
+      pgcPhoneLine: 'PA Game Commission: <strong>{phone}</strong>',
+
+      // ── OPTIONS panel (thin/no local coverage -> guide, don't dead-end) ────
+      // Shown UNDER a call_pa_game_comm (or thin refer_out) recommendation. The
+      // design principle is "don't close doors": list every option in order of
+      // likelihood so the dispatcher + finder decide what's feasible. Different
+      // animal types may need to travel in different directions depending on
+      // which facilities accept them, so neighboring areas are shown in ALL
+      // directions, never pre-filtered down to one.
+      options: {
+        // Panel header + lead-in.
+        header: 'Options',
+        intro: 'Local coverage is thin. Work through these in order \u2014 the finder may be able to help close the distance.',
+        // 1) WIN-area volunteers. {count} = qualified volunteers in the area,
+        //    {area} = the selected county's WIN area.
+        winVolHeader: 'WIN area volunteers',
+        winVolCount: '<strong>{count}</strong> qualified volunteer(s) in WIN Area {area}.',
+        winVolCountUnknown: '<strong>{count}</strong> qualified volunteer(s) in this WIN area.',
+        winVolPending: 'Qualified-volunteer count loading\u2026 use the WIN Area Volunteers list below.',
+        winVolButton: 'Show WIN Area Volunteers',
+        // 2) Neighboring-area rehabbers. Header + per-area sub-line. {area} =
+        //    neighboring WIN area, {counties} = its bordering counties.
+        neighborHeader: 'Neighboring-area rehabbers',
+        neighborIntro: 'Rehabbers in bordering WIN areas that accept this animal type. The animal may need to travel in a different direction depending on who can take it.',
+        neighborAreaLabel: 'WIN Area {area} (toward {counties})',
+        neighborAreaLabelNoCounties: 'WIN Area {area}',
+        // Shown for a neighboring area that has NO matching rehabber on file.
+        // The area is STILL listed (never hidden) so the dispatcher knows it
+        // exists as a direction. {animal} = animal-type label or "this animal".
+        neighborAreaEmpty: 'No rehabber on file here accepts {animal}.',
+        neighborAnimalFallback: 'this animal type',
+        // Shown when neighboring-area data is unavailable (e.g. the county map
+        // GeoJSON has not loaded yet).
+        neighborUnavailable: 'Neighboring-area data is loading \u2014 use address search below to find the nearest options.',
+        // 3) Address search.
+        addressHeader: 'Address search',
+        addressTip: 'Use address search (Tier 2) to find the nearest volunteers by driving distance.',
+        addressTransportTip: 'If the finder can drive, they may be able to meet a volunteer partway.',
+        // 4) PGC fallback. {phone} = PGC dispatch line.
+        pgcHeader: 'If no options work',
+        pgcFallback: 'Call PA Game Commission: <strong>{phone}</strong>'
+      }
     },
 
     // ── Tier 1 capacity cards / empty + coordinator line (dispatcher.js) ───

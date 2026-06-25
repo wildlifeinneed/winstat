@@ -515,6 +515,67 @@
     .rec-pgc-phone strong { color: #7a4900; }
     .rec-pgc-phone a { color: var(--text); }
 
+    /* OPTIONS panel: shown when local coverage is thin and the recommendation
+       would otherwise dead-end on "Call PGC". A neutral guide (NOT a wall of
+       text) listing every option in order of likelihood: WIN-area volunteers,
+       neighboring-area rehabbers (all directions), address search, then PGC as
+       the last resort. Blue-accented so it reads as helpful guidance, distinct
+       from the amber escalation block above it. */
+    .rec-options {
+      background: var(--surface, #fff);
+      border: 1px solid var(--border, #e2e2e2);
+      border-left: 4px solid var(--blue, #3a78c2);
+      padding: 10px 12px;
+      border-radius: 8px;
+      margin-bottom: 12px;
+    }
+    .rec-options-header {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--blue, #3a78c2);
+      margin-bottom: 4px;
+    }
+    .rec-options-intro { font-size: 13px; color: var(--text-muted); margin: 0 0 10px; }
+    .rec-options-sec { margin-bottom: 10px; }
+    .rec-options-sec:last-child { margin-bottom: 0; }
+    .rec-options-sec-header {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      color: var(--text);
+      margin: 0 0 3px;
+    }
+    .rec-options-line { font-size: 13px; color: var(--text); margin: 0 0 3px; }
+    .rec-options-line strong { color: var(--green-deep); }
+    .rec-options-pending { font-size: 13px; color: var(--text-muted); font-style: italic; margin: 0 0 3px; }
+    .rec-options-winvol-btn {
+      background: none;
+      border: none;
+      padding: 2px 0;
+      color: var(--blue, #3a78c2);
+      font-size: 13px;
+      font-weight: 600;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+    .rec-options-winvol-btn:hover { color: var(--blue-dark, #2a5a96); }
+    .rec-options-areas { list-style: none; padding-left: 0; margin: 4px 0 0; }
+    .rec-options-area {
+      padding: 6px 0 0;
+      border-top: 1px solid var(--border, #ececec);
+      margin-top: 6px;
+    }
+    .rec-options-area:first-child { border-top: none; margin-top: 0; padding-top: 0; }
+    .rec-options-area-label { font-size: 12.5px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+    .rec-options-rehab-list { margin: 0 0 2px; }
+    .rec-options-rehab { font-size: 13px; color: var(--text); margin-bottom: 2px; }
+    .rec-options-rehab a { color: var(--text); }
+    .rec-options-area-empty { font-size: 12.5px; color: var(--text-muted); font-style: italic; margin: 0; }
+    .rec-options-pgc .rec-options-line strong { color: #7a4900; }
+    .rec-options-pgc .rec-options-line a { color: var(--text); }
+
     .empty-msg {
       font-size: 12.5px;
       color: var(--text-muted);
@@ -1748,8 +1809,8 @@
      filename can leave a browser running STALE JS against fresh HTML (e.g. new
      markup whose handlers live only in the new JS). Bump this token on any
      change to these files to force clients to fetch the new copy. -->
-<script src="assets/messages.js?v=20260625k"></script>
-<script src="assets/decision.js?v=20260625k"></script>
-<script src="assets/dispatcher.js?v=20260625k"></script>
+<script src="assets/messages.js?v=20260625l"></script>
+<script src="assets/decision.js?v=20260625l"></script>
+<script src="assets/dispatcher.js?v=20260625l"></script>
 </body>
 </html>

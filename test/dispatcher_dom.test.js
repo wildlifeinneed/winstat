@@ -53,6 +53,13 @@ const GEOJSON_PATH = path.join(DOCS, 'data', 'pa_counties.json');
 // projection sanity check (Erie top-left, Philadelphia bottom-right) is real.
 const PA_GEOJSON = JSON.parse(fs.readFileSync(GEOJSON_PATH, 'utf8'));
 
+// Real committed county -> WIN-area map (all 67 counties). Used by the OPTIONS
+// panel tests, whose neighboring-area computation needs the full area map (not
+// the 3-county COUNTY_WIN fixture) so Allegheny's bordering areas (5 + 11) are
+// derived from the real GeoJSON adjacency + real area assignments.
+const COUNTY_WIN_FULL = JSON.parse(
+  fs.readFileSync(path.join(DOCS, 'data', 'county_win.json'), 'utf8'));
+
 const WORKER_AGG = {
   total_in_range: 32,
   role_counts: { 'C&T': 12, 'RVS C&T': 0, 'COURIER': 20 },
@@ -4727,6 +4734,196 @@ async function runCountyPolicySpeciesScope() {
   console.log('PASS: dispatcher Animal Type dropdown + species_scope — a birds-only county refers out a mammal call (refer_out headline + referral target + birds-only reasoning) while dispatching a bird call and an Other/Unknown call.');
 }
 
+// ── OPTIONS panel (thin/no local coverage — guide, don't dead-end) ────────
+// Drive a Tier 1 recommendation that resolves to call_pa_game_comm using the
+// REAL full county_win.json (so neighboring-area computation has every county's
+// area) + the real GeoJSON the fetch mock serves (so adjacency is real), with a
+// caller-supplied rehabbers list. Returns the live window/doc.
+async function driveTier1PgcOptionsPanel(snapshot, rehabbers, county, base) {
+  const { window } = loadDom({
+    workerAgg: { total_in_range: 0, role_counts: {}, win_areas: [], out_of_county: [], out_of_county_truncated: false, radius_too_broad: false },
+    data: {
+      'county_capacity.json': snapshot,
+      'county_win.json': COUNTY_WIN_FULL,
+      'coordinators.json': COORDINATORS,
+      'rehabbers.json': rehabbers,
+    },
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  const countySel = doc.getElementById('county');
+  countySel.value = county;
+  countySel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+
+  if (base) {
+    const rvsVal = base.rvs ? 'yes' : 'no';
+    const rvsEl = doc.querySelector('input[name="rvs"][value="' + rvsVal + '"]');
+    if (rvsEl) { rvsEl.checked = true; rvsEl.dispatchEvent(new window.Event('change', { bubbles: true })); }
+    const issueEl = doc.querySelector('input[name="issue"][value="' + base.issue + '"]');
+    if (issueEl) { issueEl.checked = true; issueEl.dispatchEvent(new window.Event('change', { bubbles: true })); }
+    if (base.animalType) {
+      const typeEl = doc.getElementById('animal-type');
+      if (typeEl) { typeEl.value = base.animalType; typeEl.dispatchEvent(new window.Event('change', { bubbles: true })); }
+    }
+    await flush(window);
+    await flush(window);
+  }
+
+  doc.getElementById('recommend-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+  return { window, doc };
+}
+
+// Zero-capacity snapshot covering Allegheny + its WIN-area 10 siblings so the
+// recommendation finds no qualified volunteer and lands on call_pa_game_comm
+// (not the missing-capacity branch).
+const PGC_ZERO_SNAPSHOT_AREA10 = {
+  generated_at: '2024-01-01T00:00:00Z',
+  counties: {
+    Allegheny: { ct_no_rvs: { available: 0, total: 0, marginal_volunteers: [] }, ct_rvs: { available: 0, total: 0, marginal_volunteers: [] }, courier: { available: 0, total: 0, marginal_volunteers: [] } },
+    Beaver: { ct_no_rvs: { available: 0, total: 0, marginal_volunteers: [] }, ct_rvs: { available: 0, total: 0, marginal_volunteers: [] }, courier: { available: 0, total: 0, marginal_volunteers: [] } },
+    Washington: { ct_no_rvs: { available: 0, total: 0, marginal_volunteers: [] }, ct_rvs: { available: 0, total: 0, marginal_volunteers: [] }, courier: { available: 0, total: 0, marginal_volunteers: [] } },
+  },
+};
+
+// ── OPTIONS panel renders with all four sections, in order, when the Tier 1
+//    recommendation is a Capture call_pa_game_comm (the classic dead-end). The
+//    panel must NOT close doors: WIN-area volunteers, neighboring-area rehabbers
+//    (Allegheny area 10 borders areas 5 + 11), address search, then PGC last.
+async function runOptionsPanelCapturePgc() {
+  // Mammal-accepting rehabbers seeded in neighboring areas: Butler (area 5),
+  // Westmoreland (area 11), plus a same-area Beaver (must NOT appear as a
+  // NEIGHBOR) and a far Erie (area 1, not bordering — must NOT appear).
+  const REHABBERS = [
+    { rehab_name: 'Butler Mammal Care', county: 'Butler', phone: '7245550001', availability: 'M' },
+    { rehab_name: 'Westmoreland Wildlife', county: 'Westmoreland', phone: '7245550002', availability: 'M, RA' },
+    { rehab_name: 'Beaver Same Area', county: 'Beaver', phone: '7245550003', availability: 'M' },
+    { rehab_name: 'Erie Far', county: 'Erie', phone: '8145550004', availability: 'M' },
+  ];
+  const { doc } = await driveTier1PgcOptionsPanel(
+    PGC_ZERO_SNAPSHOT_AREA10, REHABBERS, 'Allegheny', { rvs: true, issue: 'capture', animalType: 'mammal' });
+
+  const out = doc.getElementById('rec-output');
+  assert.ok(out && out.classList.contains('show'), 'recommendation panel shown');
+
+  // The headline is still the PGC escalation (panel is shown IN ADDITION to it).
+  const actionEl = doc.querySelector('#rec-output .rec-action');
+  assert.ok(actionEl && /call pa game commission/i.test(actionEl.textContent),
+    'capture no-volunteer keeps the PGC headline');
+
+  // The OPTIONS panel exists.
+  const panel = doc.querySelector('#rec-output .rec-options');
+  assert.ok(panel, 'OPTIONS panel is rendered under a call_pa_game_comm recommendation');
+
+  // Four sections, in order: WIN-area volunteers, neighboring rehabbers, address
+  // search, PGC fallback.
+  const secHeaders = Array.prototype.slice.call(panel.querySelectorAll('.rec-options-sec-header'))
+    .map(function (h) { return h.textContent.replace(/\s+/g, ' ').trim(); });
+  assert.strictEqual(secHeaders.length, 4,
+    'panel has exactly four sections (got ' + secHeaders.length + ': ' + secHeaders.join(' | ') + ')');
+  assert.ok(/WIN area volunteers/i.test(secHeaders[0]), '1st section is WIN-area volunteers');
+  assert.ok(/Neighboring/i.test(secHeaders[1]), '2nd section is neighboring-area rehabbers');
+  assert.ok(/Address search/i.test(secHeaders[2]), '3rd section is address search');
+  assert.ok(/no options work/i.test(secHeaders[3]), '4th section is the PGC fallback');
+
+  // 1) WIN-area volunteers section has the "Show WIN Area Volunteers" button.
+  const winBtn = panel.querySelector('#rec-options-winvol');
+  assert.ok(winBtn && /Show WIN Area Volunteers/i.test(winBtn.textContent),
+    'WIN-area section has a "Show WIN Area Volunteers" button');
+
+  // 2) Neighboring areas: Allegheny (area 10) borders areas 5 (Butler/Armstrong)
+  //    and 11 (Westmoreland) — BOTH must be listed; same-area Beaver/Washington
+  //    (area 10) must NOT appear as a neighbor.
+  const areaLabels = Array.prototype.slice.call(panel.querySelectorAll('.rec-options-area-label'))
+    .map(function (l) { return l.textContent.replace(/\s+/g, ' ').trim(); });
+  const labelBlob = areaLabels.join(' | ');
+  assert.ok(/WIN Area 5\b/.test(labelBlob), 'neighboring area 5 is listed (got: ' + labelBlob + ')');
+  assert.ok(/WIN Area 11\b/.test(labelBlob), 'neighboring area 11 is listed (got: ' + labelBlob + ')');
+  assert.ok(!/WIN Area 10\b/.test(labelBlob), 'the county\'s OWN area (10) is NOT listed as a neighbor');
+
+  // The neighboring-area rehabber list is filtered to the selected animal type
+  // and only includes rehabbers in those neighboring areas. Butler (area 5) +
+  // Westmoreland (area 11) appear; same-area Beaver + far Erie do NOT.
+  const rehabRows = Array.prototype.slice.call(panel.querySelectorAll('.rec-options-rehab'))
+    .map(function (li) { return li.textContent.replace(/\s+/g, ' ').trim(); });
+  const rehabBlob = rehabRows.join(' | ');
+  assert.ok(/Butler Mammal Care/.test(rehabBlob), 'neighboring Butler rehabber (area 5) is listed');
+  assert.ok(/Westmoreland Wildlife/.test(rehabBlob), 'neighboring Westmoreland rehabber (area 11) is listed');
+  assert.ok(!/Beaver Same Area/.test(rehabBlob), 'same-area (Beaver, area 10) rehabber is NOT in the neighbor list');
+  assert.ok(!/Erie Far/.test(rehabBlob), 'far non-bordering (Erie, area 1) rehabber is NOT listed');
+
+  // 4) PGC fallback line includes the dispatch number.
+  const pgcSec = panel.querySelector('.rec-options-pgc');
+  assert.ok(pgcSec && /833/.test(pgcSec.textContent),
+    'PGC fallback section includes the PGC dispatch number');
+
+  console.log('PASS: OPTIONS panel (Capture PGC) — renders WIN-area volunteers + neighboring-area rehabbers (areas 5 & 11, own area 10 excluded) + address search + PGC fallback, in order; rehabbers filtered by animal type and scoped to bordering areas.');
+}
+
+// ── OPTIONS panel: a neighboring area with NO matching rehabber on file is
+//    STILL listed (the dispatcher should know the direction exists), flagged as
+//    empty rather than hidden. With a Bird call, the mammal-only neighbor
+//    rehabbers drop, but their areas remain visible with an empty note.
+async function runOptionsPanelNeighborEmptyNotHidden() {
+  // Only mammal-accepting rehabbers in the neighbors -> a BIRD call matches none,
+  // but areas 5 + 11 must still be listed (not hidden).
+  const REHABBERS = [
+    { rehab_name: 'Butler Mammal Only', county: 'Butler', phone: '7245550001', availability: 'M' },
+    { rehab_name: 'Westmoreland Mammal Only', county: 'Westmoreland', phone: '7245550002', availability: 'M' },
+  ];
+  const { doc } = await driveTier1PgcOptionsPanel(
+    PGC_ZERO_SNAPSHOT_AREA10, REHABBERS, 'Allegheny', { rvs: false, issue: 'capture', animalType: 'bird' });
+
+  const panel = doc.querySelector('#rec-output .rec-options');
+  assert.ok(panel, 'OPTIONS panel is rendered');
+
+  const areaLabels = Array.prototype.slice.call(panel.querySelectorAll('.rec-options-area-label'))
+    .map(function (l) { return l.textContent.replace(/\s+/g, ' ').trim(); }).join(' | ');
+  assert.ok(/WIN Area 5\b/.test(areaLabels) && /WIN Area 11\b/.test(areaLabels),
+    'bordering areas 5 + 11 are STILL listed even with no bird-accepting rehabber (got: ' + areaLabels + ')');
+
+  // No bird rehabber rows; each empty area shows the "no rehabber accepts" note.
+  assert.strictEqual(panel.querySelectorAll('.rec-options-rehab').length, 0,
+    'no neighboring rehabber rows for a Bird call against mammal-only neighbors');
+  const empties = panel.querySelectorAll('.rec-options-area-empty');
+  assert.ok(empties.length >= 2,
+    'each empty neighboring area shows a "no rehabber on file accepts this" note (got ' + empties.length + ')');
+
+  console.log('PASS: OPTIONS panel — a neighboring area with no matching rehabber is STILL listed (flagged empty, never hidden) so the dispatcher knows the direction exists.');
+}
+
+// ── OPTIONS panel: the "Show WIN Area Volunteers" button is wired to the
+//    EXISTING #t1-vol-toggle-area control, so clicking it opens the WIN Area
+//    volunteer list (block becomes visible + scope is 'area').
+async function runOptionsPanelWinVolButtonWired() {
+  const { doc, window } = await driveTier1PgcOptionsPanel(
+    PGC_ZERO_SNAPSHOT_AREA10, [], 'Allegheny', { rvs: true, issue: 'capture', animalType: 'mammal' });
+
+  const winBtn = doc.querySelector('#rec-options-winvol');
+  assert.ok(winBtn, 'the options-panel WIN-area button exists');
+
+  const block = doc.getElementById('t1-vol-block');
+  assert.ok(block, 'the WIN Area volunteer block exists');
+  // Initially hidden.
+  assert.ok(block.style.display === 'none' || block.style.display === '',
+    'WIN Area volunteer block is initially collapsed');
+
+  winBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+
+  assert.notStrictEqual(block.style.display, 'none',
+    'clicking "Show WIN Area Volunteers" opens the WIN Area volunteer block');
+
+  console.log('PASS: OPTIONS panel — "Show WIN Area Volunteers" button opens the existing WIN Area volunteer list (#t1-vol-toggle-area).');
+}
+
 async function run() {
   await runHelpLink();
   await runHelpViewerRenders();
@@ -4796,7 +4993,10 @@ async function run() {
   await runTier1PgcTransportAnimalTypeFiltered();
   await runTier1PgcTransportNoRehabFallback();
   await runTier1PgcCaptureActionable();
-  console.log('\nALL DOM TESTS PASSED (66 scenarios).');
+  await runOptionsPanelCapturePgc();
+  await runOptionsPanelNeighborEmptyNotHidden();
+  await runOptionsPanelWinVolButtonWired();
+  console.log('\nALL DOM TESTS PASSED (69 scenarios).');
 }
 
 run().then(function () {
