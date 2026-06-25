@@ -944,7 +944,7 @@ function buildTier2Response(aggregate, contextRows, distanceMode) {
   // driving_miles/duration_min are surfaced only when ORS succeeded for the
   // surviving set (see findContextRowsDriving) and omitted otherwise so the
   // frontend never shows a fabricated value.
-  const outOfCounty = selected.map((r) => {
+  const projectRow = (r) => {
     const o = {
       roles: Array.isArray(r.roles) ? r.roles.slice() : [],
       distance_mi: r.distance_mi,
@@ -971,7 +971,14 @@ function buildTier2Response(aggregate, contextRows, distanceMode) {
       o.duration_min = r.duration_min;
     }
     return o;
-  });
+  };
+  const outOfCounty = selected.map(projectRow);
+  // out_of_county_all: the FULL PII-safe set (every projected qualifying row,
+  // never capped by the nearest-N overflow trim). The Tier 2 MAP plots from
+  // this so EVERY qualified volunteer gets a pin even when the on-screen LIST
+  // is truncated to the nearest 5 on overflow. Identical per-row whitelist as
+  // out_of_county, so it carries no additional PII.
+  const outOfCountyAll = allRows.map(projectRow);
 
   // county_by_role: whitelist each role's county-count map from the aggregate.
   // This lets the frontend show a county breakdown for ALL volunteers per role,
@@ -1002,6 +1009,7 @@ function buildTier2Response(aggregate, contextRows, distanceMode) {
     win_areas: winAreas,
     county_by_role: countyByRole,
     out_of_county: outOfCounty,
+    out_of_county_all: outOfCountyAll,
     out_of_county_truncated: overflow,
     radius_too_broad: overflow,
     distance_mode: distanceMode === MODE_DRIVING ? MODE_DRIVING : MODE_STRAIGHT_LINE,

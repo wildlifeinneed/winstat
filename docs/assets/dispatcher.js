@@ -2112,13 +2112,21 @@
     // qualifiesForAnimal predicate renderContextList uses so the map plots the
     // SAME volunteer set as the qualified-only list. No map-side dimming for
     // unavailable volunteers — every pin looks the same.
+    //
+    // FULL SET (map shows ALL qualified pins): the list may be CAPPED to the
+    // nearest few on overflow, but the map must plot EVERY qualified volunteer.
+    // Prefer the Worker's full, never-truncated out_of_county_all when present;
+    // fall back to out_of_county for older Worker responses that omit it.
     var qualifyFn = (window.WildlifeDecision &&
                      typeof window.WildlifeDecision.qualifiesForAnimal === 'function')
       ? window.WildlifeDecision.qualifiesForAnimal : null;
     var hasBase = ctx && typeof ctx.issue === 'string' && ctx.issue !== '';
     var volunteers = [];
-    if (SHOW_VOLUNTEER_MARKERS && agg && Array.isArray(agg.out_of_county)) {
-      var volRows = agg.out_of_county;
+    var volSource = (agg && Array.isArray(agg.out_of_county_all))
+      ? agg.out_of_county_all
+      : (agg && Array.isArray(agg.out_of_county) ? agg.out_of_county : null);
+    if (SHOW_VOLUNTEER_MARKERS && volSource) {
+      var volRows = volSource;
       if (qualifyFn && hasBase) {
         volRows = volRows.filter(function (row) {
           var roleList = Array.isArray(row.roles) ? row.roles : [];

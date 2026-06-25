@@ -1250,6 +1250,16 @@ async function main() {
     for (let i = 1; i < resp.out_of_county.length; i += 1) {
       assert.ok(resp.out_of_county[i - 1].distance_mi <= resp.out_of_county[i].distance_mi);
     }
+    // out_of_county_all is the FULL set (map plots every qualified pin even when
+    // the on-screen list is capped to 5 on overflow). Same whitelisted shape.
+    assert.strictEqual(resp.out_of_county_all.length, 20, 'all 20 returned in out_of_county_all');
+    for (let i = 1; i < resp.out_of_county_all.length; i += 1) {
+      assert.ok(resp.out_of_county_all[i - 1].distance_mi <= resp.out_of_county_all[i].distance_mi);
+    }
+    // The capped list is the prefix of the full set.
+    for (let i = 0; i < resp.out_of_county.length; i += 1) {
+      assert.deepStrictEqual(resp.out_of_county[i], resp.out_of_county_all[i]);
+    }
   });
 
   await test('(i4) no overflow: <=15 matches -> all rows + radius_too_broad false', () => {
@@ -1283,7 +1293,7 @@ async function main() {
     // Top-level whitelist (now includes availability fields + animal coords + distance_mode + county_by_role).
     assert.deepStrictEqual(Object.keys(body).sort(),
       ['animal_area', 'animal_county', 'animal_geoid', 'animal_lat', 'animal_lon', 'county_by_role',
-       'distance_mode', 'marginal_threshold', 'out_of_county',
+       'distance_mode', 'marginal_threshold', 'out_of_county', 'out_of_county_all',
        'out_of_county_truncated', 'radius_too_broad', 'role_available',
        'role_counts', 'total_available', 'total_in_range', 'win_areas']);
     // No ORS key in deps -> straight_line fallback.
