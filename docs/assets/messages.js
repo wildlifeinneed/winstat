@@ -112,16 +112,8 @@
       noRosterRecorded: 'No marginal-volunteer roster recorded for this bucket.',
       reasoningHeader: 'Reasoning',
       selectCountyFirst: 'Select a county first.',
-      // ── Recommendation SCOPE buttons (mirror the Tier 1 volunteer-list
-      //    In-County / WIN Area scope toggles). The recommendation is recomputed
-      //    over the single-county capacity (In-County) or the merged WIN-area
-      //    capacity (WIN Area); the two buttons re-render the SAME cached
-      //    recommendations without a re-fetch. {county} = selected county name.
-      scopeCountyBtn: 'In-County',
-      scopeAreaBtn: 'WIN Area',
-      // Header shown above the recommendation body for each scope.
+      // Header shown above the recommendation body. {county} = selected county name.
       scopeHeaderCounty: 'Recommendation for {county} County',
-      scopeHeaderArea: 'Recommendation for the {county} WIN area',
       // Target-role display labels keyed by decision target bucket.
       targetLabels: {
         ct_rvs: 'RVS C&T',

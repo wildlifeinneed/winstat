@@ -122,19 +122,14 @@
     t1VolRows: null,
     t1VolCtx: null,
     t1VolScope: null,
-    // Tier 1 RECOMMENDATION scope: cache the recommendation computed at BOTH
-    // scopes from the SAME snapshot capacity so the two scope buttons (In-County
-    // / WIN Area) re-render WITHOUT recomputing on every click. `t1RecCounty` is
-    // the recommendation over the single selected county's capacity; `t1RecArea`
-    // is the recommendation over the merged WIN-area capacity (the original
-    // behavior). `t1RecBase` is the {rvs, issue} premise, `t1RecCountyName` the
-    // selected county, and `t1RecScope` tracks which scope is currently SHOWN
-    // (null = collapsed). Reset whenever a fresh recommendation is rendered.
+    // Tier 1 RECOMMENDATION: the In-County recommendation over the selected
+    // county's capacity (with county-level policy applied). `t1RecCounty` is the
+    // recommendation object, `t1RecBase` the {rvs, issue} premise, and
+    // `t1RecCountyName` the selected county. Reset whenever a fresh
+    // recommendation is rendered.
     t1RecCounty: null,
-    t1RecArea: null,
     t1RecBase: null,
-    t1RecCountyName: null,
-    t1RecScope: null
+    t1RecCountyName: null
   };
 
   // ─── Address-mode (Phase G) configuration ──────────────────────────
@@ -557,57 +552,15 @@
     return { html: html, tone: tone };
   }
 
-  // Reset BOTH recommendation scope buttons to the collapsed (unfilled) state.
-  // Mirrors resetT1VolToggles() for the volunteer list.
-  function resetT1RecToggles() {
-    var countyBtn = $('#t1-rec-toggle-county');
-    var areaBtn = $('#t1-rec-toggle-area');
-    [countyBtn, areaBtn].forEach(function (btn) {
-      if (!btn) return;
-      btn.setAttribute('aria-expanded', 'false');
-      btn.classList.remove('is-active');
-    });
-  }
-
-  // Render the cached recommendation for the requested SCOPE ('county' = the
-  // single selected county's capacity; 'area' = the merged WIN-area capacity)
-  // into the collapsible #rec-scope-body and reveal it. The scope header names
-  // which pool the recommendation covers. No recompute — both recs were built
-  // up front by renderRecommendation. No-op when the cache is empty.
-  function renderT1RecScope(scope) {
-    var rec = scope === 'county' ? state.t1RecCounty : state.t1RecArea;
-    if (!rec) return;
-    var bodyEl = $('#rec-scope-body');
-    var out = $('#rec-output');
-    if (!bodyEl || !out) return;
-    state.t1RecScope = scope;
-    var REC = MSG.recommendation;
-    var county = state.t1RecCountyName || '';
-    var built = recBodyHtml(rec, scope === 'county');
-    var headerTpl = scope === 'county' ? REC.scopeHeaderCounty : REC.scopeHeaderArea;
-    var headerTxt = county
-      ? fmt(headerTpl, { county: county })
-      : headerTpl.replace('{county}', '').replace(/\s+$/, '');
-    bodyEl.innerHTML = '<div class="ctx-header" id="rec-scope-header">' +
-      escapeHtml(headerTxt) + '</div>' + built.html;
-    bodyEl.style.display = 'block';
-    // The shown scope drives the panel tone color (matches the original
-    // single-recommendation behavior).
-    out.className = 'rec-output show tone-' + built.tone;
-  }
-
-  // Cache BOTH scope recommendations + render the shell (dismiss + premise + the
-  // two scope buttons). The In-County scope is shown BY DEFAULT (button filled,
-  // recommendation visible) because county-level policy applies to the specific
-  // county taking the call — it's the most relevant view for a dispatcher. The
-  // WIN Area scope stays collapsed/unfilled until clicked (supplementary view).
-  function renderRecommendation(recCounty, recArea, base, county) {
+  // Render the In-County recommendation: the count-based recommendation over the
+  // selected county's capacity with the county-level policy applied. This is THE
+  // recommendation — no scope toggle — shown directly with the premise line and
+  // a header naming the county.
+  function renderRecommendation(recCounty, base, county) {
     var REC = MSG.recommendation;
     state.t1RecCounty = recCounty;
-    state.t1RecArea = recArea;
     state.t1RecBase = base || null;
     state.t1RecCountyName = county || '';
-    state.t1RecScope = null;
 
     var html = '';
     html += '<button type="button" class="rec-dismiss" id="rec-dismiss" aria-label="' + REC.dismiss + '">' + REC.dismiss + '</button>';
@@ -617,67 +570,28 @@
       var rvsLabel = base.rvs ? 'RVS' : 'non-RVS';
       html += '<div class="rec-premise">' + escapeHtml(fmt(REC.premiseLine, { issue: issueLabel, rvsLabel: rvsLabel })) + '</div>';
     }
-    // Two scope buttons (In-County / WIN Area). The In-County button starts
-    // FILLED (.is-active) and its recommendation is shown by default; the WIN
-    // Area button starts unfilled and collapsed.
-    html += '<div class="t1-rec-toggles">' +
-      '<button id="t1-rec-toggle-county" class="btn-t1-rec-toggle btn-t1-rec-county is-active" type="button" ' +
-        'aria-expanded="true" aria-controls="rec-scope-body">' + escapeHtml(REC.scopeCountyBtn) + '</button>' +
-      '<button id="t1-rec-toggle-area" class="btn-t1-rec-toggle btn-t1-rec-area" type="button" ' +
-        'aria-expanded="false" aria-controls="rec-scope-body">' + escapeHtml(REC.scopeAreaBtn) + '</button>' +
-      '</div>';
-    html += '<div id="rec-scope-body" style="display:none;"></div>';
+
+    // The recommendation body, with the county-level referral guidance shown
+    // (this IS the In-County view, so policy referral always applies).
+    var built = recBodyHtml(recCounty, true);
+    var headerTxt = county
+      ? fmt(REC.scopeHeaderCounty, { county: county })
+      : REC.scopeHeaderCounty.replace('{county}', '').replace(/\s+$/, '');
+    html += '<div id="rec-scope-body">' +
+      '<div class="ctx-header" id="rec-scope-header">' + escapeHtml(headerTxt) + '</div>' +
+      built.html + '</div>';
 
     var out = $('#rec-output');
     out.innerHTML = html;
-    // Panel is shown; the tone class is set below by renderT1RecScope when the
-    // default In-County scope is rendered.
-    out.className = 'rec-output show';
+    out.className = 'rec-output show tone-' + built.tone;
 
     var dismiss = document.getElementById('rec-dismiss');
     if (dismiss) {
       dismiss.addEventListener('click', function () {
         out.classList.remove('show');
         out.innerHTML = '';
-        state.t1RecScope = null;
       });
     }
-    wireT1RecScopeBtns();
-    // Show the In-County recommendation by default (button already marked active
-    // in the markup above). renderT1RecScope reveals the body + sets the tone.
-    renderT1RecScope('county');
-  }
-
-  // Wire the two recommendation scope buttons. Clicking a scope opens the body
-  // at that scope (and fills the button .is-active); clicking the SAME open
-  // scope collapses it (unfills). Switching scopes moves the fill. Because
-  // #rec-output is rebuilt on each render, the handlers are (re)attached here
-  // after the innerHTML swap (the same pattern the dismiss button uses).
-  function wireT1RecScopeBtns() {
-    function wire(btnId, scope) {
-      var btn = $('#' + btnId);
-      if (!btn) return;
-      btn.addEventListener('click', function () {
-        var bodyEl = $('#rec-scope-body');
-        if (!bodyEl) return;
-        var alreadyOpen = bodyEl.style.display !== 'none' && state.t1RecScope === scope;
-        if (alreadyOpen) {
-          bodyEl.style.display = 'none';
-          state.t1RecScope = null;
-          resetT1RecToggles();
-          // Drop the shown-scope tone so the collapsed panel is neutral again.
-          var out = $('#rec-output');
-          if (out) out.className = 'rec-output show';
-          return;
-        }
-        renderT1RecScope(scope);
-        resetT1RecToggles();
-        btn.classList.add('is-active');
-        btn.setAttribute('aria-expanded', 'true');
-      });
-    }
-    wire('t1-rec-toggle-county', 'county');
-    wire('t1-rec-toggle-area', 'area');
   }
 
   // Shared animal base info, entered ONCE at the top of the console and read by
@@ -816,32 +730,19 @@
     }
 
     var counties = (state.snapshot && state.snapshot.counties) || {};
-    // WIN-area expansion: build a merged capacity across all counties in the
-    // same WIN area so the recommendation reflects the full volunteer pool.
-    var siblingCounties = getWinAreaCounties(county);
-    var areaCapacity = siblingCounties.length > 1
-      ? mergeCapacity(siblingCounties.map(function (c) { return counties[c] || null; }))
-      : (counties[county] || null);
-    // SCOPE split: the In-County recommendation runs over ONLY the selected
-    // county's capacity; the WIN Area recommendation runs over the merged
-    // WIN-area pool (the original behavior). Both are computed up front from the
-    // SAME snapshot capacity so the two scope buttons re-render without
-    // recomputing. county ⊆ win_area, so this is a pure narrowing — no fetch.
+    // The recommendation runs over ONLY the selected county's capacity, with the
+    // county-level policy applied.
     var countyCapacity = counties[county] || null;
     var base = readAnimalBaseInfo();
 
     var resolved = resolveForCounty(state.config, county);
     // County-level policy overlay applied AFTER the count-based recommendation.
-    // The policy belongs to the SELECTED county taking the call, so it governs
-    // the In-County recommendation ONLY: when the county's policy forbids
-    // dispatch it becomes a refer_out with the named referral targets. The WIN
-    // Area scope is a SUPPLEMENTARY wider-pool view that shows the raw
-    // count-based recommendation (no policy overlay) — the area is not a single
-    // policy unit, so it must not surface one county's referral guidance.
+    // The policy belongs to the SELECTED county taking the call: when the
+    // county's policy forbids dispatch it becomes a refer_out with the named
+    // referral targets.
     var countyPolicy = policyForCounty(county);
-    var recArea = window.WildlifeDecision.recommend(areaCapacity, base.rvs, base.issue, resolved);
     var recCounty = window.WildlifeDecision.recommend(countyCapacity, base.rvs, base.issue, resolved, countyPolicy, base.animalType);
-    renderRecommendation(recCounty, recArea, base, county);
+    renderRecommendation(recCounty, base, county);
 
     // NOTE: the Tier 1 qualified-volunteer list is NO LONGER loaded here. It now
     // populates AUTOMATICALLY when a county is selected (see the #county change

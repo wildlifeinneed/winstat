@@ -698,44 +698,6 @@
       color: #fff;
     }
 
-    /* Tier 1 RECOMMENDATION scope toggles. SAME two-state design as the
-       volunteer scope toggles above (outline when inactive, solid green fill
-       only when .is-active / list visible). The two buttons (In-County and WIN
-       Area) re-render the recommendation panel over the single-county vs the
-       merged WIN-area capacity; the scope is told apart by the button LABEL. */
-    .t1-rec-toggles {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin: 4px 0 2px;
-    }
-    .btn-t1-rec-toggle {
-      background: var(--surface);
-      color: var(--green-deep);
-      border: 1.5px solid var(--green-deep);
-      padding: 8px 16px;
-      border-radius: 8px;
-      font-family: inherit;
-      font-size: 13.5px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: background var(--transition), border-color var(--transition);
-    }
-    /* INACTIVE hover: faint neutral tint + darker border only, NEVER green, so
-       a just-collapsed (unfilled) button never reads as filled. */
-    .btn-t1-rec-toggle:hover {
-      background: rgba(0, 0, 0, 0.04);
-      border-color: var(--green-dark);
-    }
-    /* ACTIVE == the scope whose recommendation is currently shown: the ONLY
-       green fill. After :hover so it stays solid green even on hover. */
-    .btn-t1-rec-toggle.is-active,
-    .btn-t1-rec-toggle.is-active:hover {
-      background: var(--green-deep);
-      border-color: var(--green-deep);
-      color: #fff;
-    }
-
     /* ─── Tier 2 out-of-county context list ───────────────────── */
     .ctx-header {
       font-family: 'Bitter', Georgia, serif;
@@ -1731,8 +1693,8 @@
      filename can leave a browser running STALE JS against fresh HTML (e.g. new
      markup whose handlers live only in the new JS). Bump this token on any
      change to these files to force clients to fetch the new copy. -->
-<script src="assets/messages.js?v=20260625e"></script>
-<script src="assets/decision.js?v=20260625e"></script>
-<script src="assets/dispatcher.js?v=20260625e"></script>
+<script src="assets/messages.js?v=20260625f"></script>
+<script src="assets/decision.js?v=20260625f"></script>
+<script src="assets/dispatcher.js?v=20260625f"></script>
 </body>
 </html>
