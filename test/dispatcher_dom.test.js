@@ -3328,6 +3328,147 @@ async function driveTier1Recommend(agg, county, base) {
   return { window, doc, opts };
 }
 
+// Drive a Tier 1 RECOMMENDATION using a county_capacity.json SNAPSHOT (the
+// recommendation reads state.snapshot, not the Worker agg). Select `county`,
+// set the RVS/Issue base, then click "Get Recommendation". Returns the live
+// window/doc so the test can exercise the recommendation SCOPE buttons.
+async function driveTier1RecommendSnapshot(snapshot, county, base) {
+  const { window } = loadDom({
+    data: {
+      'county_capacity.json': snapshot,
+      'county_win.json': COUNTY_WIN,
+      'coordinators.json': COORDINATORS,
+    },
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  const countySel = doc.getElementById('county');
+  countySel.value = county;
+  countySel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+
+  if (base) {
+    const rvsVal = base.rvs ? 'yes' : 'no';
+    const rvsEl = doc.querySelector('input[name="rvs"][value="' + rvsVal + '"]');
+    if (rvsEl) { rvsEl.checked = true; rvsEl.dispatchEvent(new window.Event('change', { bubbles: true })); }
+    const issueEl = doc.querySelector('input[name="issue"][value="' + base.issue + '"]');
+    if (issueEl) { issueEl.checked = true; issueEl.dispatchEvent(new window.Event('change', { bubbles: true })); }
+    await flush(window);
+  }
+
+  doc.getElementById('recommend-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  return { window, doc };
+}
+
+// ── Tier 1 RECOMMENDATION SCOPE BUTTONS: the #rec-output recommendation panel
+//    carries TWO scope buttons — "In-County" (#t1-rec-toggle-county) and "WIN
+//    Area" (#t1-rec-toggle-area) — mirroring the volunteer-list scope toggles.
+//    In-County recomputes the recommendation over ONLY the selected county's
+//    capacity; WIN Area covers the merged WIN-area pool (original behavior).
+//    Both are computed up front from the SAME snapshot (no re-fetch); the body
+//    starts COLLAPSED and unfilled; two-state fill (outline vs .is-active). ────
+async function runTier1RecommendationScopeButtons() {
+  // RVS-capture snapshot where the two scopes DIVERGE:
+  //   Allegheny alone -> ct_rvs.available = 0 -> escalate (call_pa_game_comm).
+  //   Allegheny + Beaver (WIN area 10 merge) -> ct_rvs.available = 2 ->
+  //   connecteam_task targeting ct_rvs. So In-County != WIN Area, proving the
+  //   buttons recompute over different capacity pools.
+  const SNAPSHOT = {
+    generated_at: '2024-01-01T00:00:00Z',
+    counties: {
+      Allegheny: {
+        ct_no_rvs: { available: 0, total: 0, marginal_volunteers: [] },
+        ct_rvs: { available: 0, total: 0, marginal_volunteers: [] },
+        courier: { available: 0, total: 0, marginal_volunteers: [] },
+      },
+      Beaver: {
+        ct_no_rvs: { available: 0, total: 0, marginal_volunteers: [] },
+        ct_rvs: { available: 2, total: 3, marginal_volunteers: [] },
+        courier: { available: 0, total: 0, marginal_volunteers: [] },
+      },
+    },
+  };
+  const { window, doc } = await driveTier1RecommendSnapshot(
+    SNAPSHOT, 'Allegheny', { rvs: true, issue: 'capture' });
+
+  const out = doc.getElementById('rec-output');
+  assert.ok(out && out.classList.contains('show'),
+    'recommendation panel shown after clicking "Get Recommendation"');
+
+  // Both scope buttons exist, labeled In-County / WIN Area, with scope-marker
+  // classes. On load NEITHER is active (filled) and the body is COLLAPSED — no
+  // recommendation is shown until a scope is clicked.
+  const countyBtn = doc.getElementById('t1-rec-toggle-county');
+  const areaBtn = doc.getElementById('t1-rec-toggle-area');
+  assert.ok(countyBtn && areaBtn, 'both recommendation scope buttons (county + area) exist');
+  assert.ok(/In-County/i.test(countyBtn.textContent), 'county button is labeled "In-County"');
+  assert.ok(/WIN Area/i.test(areaBtn.textContent), 'area button is labeled "WIN Area"');
+  assert.ok(countyBtn.classList.contains('btn-t1-rec-county'),
+    'county button carries the .btn-t1-rec-county scope marker');
+  assert.ok(areaBtn.classList.contains('btn-t1-rec-area'),
+    'area button carries the .btn-t1-rec-area scope marker');
+  const bodyEl = doc.getElementById('rec-scope-body');
+  assert.ok(bodyEl && bodyEl.style.display === 'none',
+    'recommendation body starts collapsed until a scope button is clicked');
+  assert.ok(!countyBtn.classList.contains('is-active') && !areaBtn.classList.contains('is-active'),
+    'on load BOTH scope buttons are inactive (unfilled) since no recommendation is shown');
+
+  // Click IN-COUNTY: Allegheny alone has ct_rvs.available = 0 -> escalate
+  // (call_pa_game_comm). The header names the COUNTY scope.
+  countyBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
+  assert.ok(bodyEl.style.display !== 'none', 'In-County click reveals the recommendation body');
+  assert.ok(countyBtn.classList.contains('is-active'), 'In-County button marked active (filled)');
+  assert.ok(!areaBtn.classList.contains('is-active'), 'Area button NOT active while In-County open');
+  let actionEl = doc.querySelector('#rec-output .rec-action');
+  assert.ok(actionEl && /game commission|escalat|call/i.test(actionEl.textContent),
+    'In-County (Allegheny only, 0 RVS) recommends escalation (got: "' + (actionEl ? actionEl.textContent : '') + '")');
+  assert.ok(actionEl.classList.contains('escalate'),
+    'In-County escalation action carries the escalate tone');
+  assert.strictEqual(doc.querySelector('#rec-output .rec-target'), null,
+    'In-County escalation has NO target role (no one to dispatch)');
+  let header = doc.getElementById('rec-scope-header');
+  assert.ok(header && /Allegheny County/i.test(header.textContent),
+    'In-County header names the county scope (got: "' + (header ? header.textContent : '') + '")');
+
+  // Click IN-COUNTY AGAIN (the active button): body collapses AND the button
+  // unfills — the core fill==visibility contract.
+  countyBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
+  assert.ok(bodyEl.style.display === 'none', 'clicking the active In-County button again collapses the body');
+  assert.ok(!countyBtn.classList.contains('is-active'),
+    'In-County button UNFILLS (loses is-active) when its own body is collapsed');
+  assert.ok(!areaBtn.classList.contains('is-active'), 'Area button still inactive after In-County collapse');
+
+  // Re-open In-County, then click WIN AREA: focus moves — Area fills, In-County
+  // unfills, and the merged Allegheny+Beaver pool (ct_rvs.available = 2) flips
+  // the recommendation to a connecteam_task dispatch targeting RVS C&T.
+  countyBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
+  areaBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
+  assert.ok(bodyEl.style.display !== 'none', 'Area click keeps the body open');
+  assert.ok(areaBtn.classList.contains('is-active'), 'Area button marked active (filled) after switch');
+  assert.ok(!countyBtn.classList.contains('is-active'), 'County button UNFILLS when switching to Area (only one filled)');
+  actionEl = doc.querySelector('#rec-output .rec-action');
+  assert.ok(actionEl && actionEl.classList.contains('go'),
+    'WIN Area (merged Allegheny+Beaver) recommends a dispatch (go tone) — scope changed the result');
+  const targetEl = doc.querySelector('#rec-output .rec-target');
+  assert.ok(targetEl && /RVS/i.test(targetEl.textContent),
+    'WIN Area dispatch targets the RVS C&T role (got: "' + (targetEl ? targetEl.textContent : '') + '")');
+  header = doc.getElementById('rec-scope-header');
+  assert.ok(header && /WIN area/i.test(header.textContent),
+    'WIN Area header names the area scope (got: "' + (header ? header.textContent : '') + '")');
+
+  // Clicking the OPEN area button again collapses the body AND unfills it.
+  areaBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
+  assert.ok(bodyEl.style.display === 'none', 'clicking the open scope again collapses the body');
+  assert.ok(!areaBtn.classList.contains('is-active') && !countyBtn.classList.contains('is-active'),
+    'both recommendation scope buttons inactive (unfilled) after collapse');
+
+  console.log('PASS: Tier 1 recommendation scope buttons — filled==active==body-visible: on load both unfilled; In-County recomputes over the selected county only (escalate) while WIN Area covers the merged pool (dispatch); re-clicking the active scope collapses + unfills; switching moves the fill.');
+}
+
 // ── Tier 1: By-County recommendation also renders a qualified-volunteer list
 //    (#t1-vol-list) — one .ctx-row per volunteer with role badges + County +
 //    WIN Area + availability note — and DIMS unavailable volunteers via the
@@ -3935,10 +4076,11 @@ async function run() {
   await runTier1VolunteerListAllQualifiedCap();
   await runTier1VolunteerListAllQualifiedNoCap();
   await runTier1VolunteerScopeButtons();
+  await runTier1RecommendationScopeButtons();
   await runTier2CountyBreakdown();
   await runScriptCacheBusting();
   await runScopeButtonHoverFill();
-  console.log('\nALL DOM TESTS PASSED (56 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (57 scenarios).');
 }
 
 run().then(function () {

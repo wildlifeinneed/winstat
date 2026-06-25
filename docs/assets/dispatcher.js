@@ -117,7 +117,20 @@
     // collapsed). Reset by hideTier1Volunteers / a fresh fetch.
     t1VolRows: null,
     t1VolCtx: null,
-    t1VolScope: null
+    t1VolScope: null,
+    // Tier 1 RECOMMENDATION scope: cache the recommendation computed at BOTH
+    // scopes from the SAME snapshot capacity so the two scope buttons (In-County
+    // / WIN Area) re-render WITHOUT recomputing on every click. `t1RecCounty` is
+    // the recommendation over the single selected county's capacity; `t1RecArea`
+    // is the recommendation over the merged WIN-area capacity (the original
+    // behavior). `t1RecBase` is the {rvs, issue} premise, `t1RecCountyName` the
+    // selected county, and `t1RecScope` tracks which scope is currently SHOWN
+    // (null = collapsed). Reset whenever a fresh recommendation is rendered.
+    t1RecCounty: null,
+    t1RecArea: null,
+    t1RecBase: null,
+    t1RecCountyName: null,
+    t1RecScope: null
   };
 
   // ─── Address-mode (Phase G) configuration ──────────────────────────
@@ -420,21 +433,19 @@
     });
   }
 
-  function renderRecommendation(rec, base) {
+  // Build the action/target/low-capacity/reasoning body for a SINGLE
+  // recommendation object. Extracted from the former renderRecommendation body
+  // so both scopes (In-County / WIN Area) reuse the IDENTICAL markup; only the
+  // rec that feeds it differs. Returns { html, tone } (the panel needs the tone
+  // to set the #rec-output color class for the shown scope).
+  function recBodyHtml(rec) {
     var actionMeta = (window.WildlifeDecision &&
                       window.WildlifeDecision.ACTIONS &&
                       window.WildlifeDecision.ACTIONS[rec.action]) || null;
     var label = actionMeta ? actionMeta.label : rec.action;
     var tone  = actionMeta ? actionMeta.tone  : 'unknown';
-    var html = '';
     var REC = MSG.recommendation;
-    html += '<button type="button" class="rec-dismiss" id="rec-dismiss" aria-label="' + REC.dismiss + '">' + REC.dismiss + '</button>';
-    if (base) {
-      var ISSUE_LABELS = { capture: 'Capture', transport: 'Transport' };
-      var issueLabel = ISSUE_LABELS[base.issue] || base.issue;
-      var rvsLabel = base.rvs ? 'RVS' : 'non-RVS';
-      html += '<div class="rec-premise">' + escapeHtml(fmt(REC.premiseLine, { issue: issueLabel, rvsLabel: rvsLabel })) + '</div>';
-    }
+    var html = '';
     html += '<div class="rec-action ' + tone + '">' + escapeHtml(label) + '</div>';
     if (rec.target) {
       var targetLabel = TARGET_LABELS[rec.target] || rec.target;
@@ -464,18 +475,125 @@
       rec.reasoning.forEach(function (r) { html += '<li>' + escapeHtml(r) + '</li>'; });
       html += '</ol></div>';
     }
+    return { html: html, tone: tone };
+  }
+
+  // Reset BOTH recommendation scope buttons to the collapsed (unfilled) state.
+  // Mirrors resetT1VolToggles() for the volunteer list.
+  function resetT1RecToggles() {
+    var countyBtn = $('#t1-rec-toggle-county');
+    var areaBtn = $('#t1-rec-toggle-area');
+    [countyBtn, areaBtn].forEach(function (btn) {
+      if (!btn) return;
+      btn.setAttribute('aria-expanded', 'false');
+      btn.classList.remove('is-active');
+    });
+  }
+
+  // Render the cached recommendation for the requested SCOPE ('county' = the
+  // single selected county's capacity; 'area' = the merged WIN-area capacity)
+  // into the collapsible #rec-scope-body and reveal it. The scope header names
+  // which pool the recommendation covers. No recompute — both recs were built
+  // up front by renderRecommendation. No-op when the cache is empty.
+  function renderT1RecScope(scope) {
+    var rec = scope === 'county' ? state.t1RecCounty : state.t1RecArea;
+    if (!rec) return;
+    var bodyEl = $('#rec-scope-body');
+    var out = $('#rec-output');
+    if (!bodyEl || !out) return;
+    state.t1RecScope = scope;
+    var REC = MSG.recommendation;
+    var county = state.t1RecCountyName || '';
+    var built = recBodyHtml(rec);
+    var headerTpl = scope === 'county' ? REC.scopeHeaderCounty : REC.scopeHeaderArea;
+    var headerTxt = county
+      ? fmt(headerTpl, { county: county })
+      : headerTpl.replace('{county}', '').replace(/\s+$/, '');
+    bodyEl.innerHTML = '<div class="ctx-header" id="rec-scope-header">' +
+      escapeHtml(headerTxt) + '</div>' + built.html;
+    bodyEl.style.display = 'block';
+    // The shown scope drives the panel tone color (matches the original
+    // single-recommendation behavior).
+    out.className = 'rec-output show tone-' + built.tone;
+  }
+
+  // Cache BOTH scope recommendations + render the shell (dismiss + premise + the
+  // two scope buttons) with the body COLLAPSED (no recommendation shown until a
+  // scope button is clicked). Mirrors renderTier1Volunteers(): a fresh "Get
+  // Recommendation" run always starts collapsed and unfilled.
+  function renderRecommendation(recCounty, recArea, base, county) {
+    var REC = MSG.recommendation;
+    state.t1RecCounty = recCounty;
+    state.t1RecArea = recArea;
+    state.t1RecBase = base || null;
+    state.t1RecCountyName = county || '';
+    state.t1RecScope = null;
+
+    var html = '';
+    html += '<button type="button" class="rec-dismiss" id="rec-dismiss" aria-label="' + REC.dismiss + '">' + REC.dismiss + '</button>';
+    if (base) {
+      var ISSUE_LABELS = { capture: 'Capture', transport: 'Transport' };
+      var issueLabel = ISSUE_LABELS[base.issue] || base.issue;
+      var rvsLabel = base.rvs ? 'RVS' : 'non-RVS';
+      html += '<div class="rec-premise">' + escapeHtml(fmt(REC.premiseLine, { issue: issueLabel, rvsLabel: rvsLabel })) + '</div>';
+    }
+    // Two scope buttons (In-County / WIN Area) — SAME two-state pattern as the
+    // Tier 1 volunteer-list toggles. Start unfilled; the body below is hidden.
+    html += '<div class="t1-rec-toggles">' +
+      '<button id="t1-rec-toggle-county" class="btn-t1-rec-toggle btn-t1-rec-county" type="button" ' +
+        'aria-expanded="false" aria-controls="rec-scope-body">' + escapeHtml(REC.scopeCountyBtn) + '</button>' +
+      '<button id="t1-rec-toggle-area" class="btn-t1-rec-toggle btn-t1-rec-area" type="button" ' +
+        'aria-expanded="false" aria-controls="rec-scope-body">' + escapeHtml(REC.scopeAreaBtn) + '</button>' +
+      '</div>';
+    html += '<div id="rec-scope-body" style="display:none;"></div>';
 
     var out = $('#rec-output');
     out.innerHTML = html;
-    out.className = 'rec-output show tone-' + tone;
+    // Panel is shown (with its scope buttons) but carries no tone yet — the tone
+    // class is set by renderT1RecScope when a scope is opened.
+    out.className = 'rec-output show';
 
     var dismiss = document.getElementById('rec-dismiss');
     if (dismiss) {
       dismiss.addEventListener('click', function () {
         out.classList.remove('show');
         out.innerHTML = '';
+        state.t1RecScope = null;
       });
     }
+    wireT1RecScopeBtns();
+  }
+
+  // Wire the two recommendation scope buttons. Clicking a scope opens the body
+  // at that scope (and fills the button .is-active); clicking the SAME open
+  // scope collapses it (unfills). Switching scopes moves the fill. Because
+  // #rec-output is rebuilt on each render, the handlers are (re)attached here
+  // after the innerHTML swap (the same pattern the dismiss button uses).
+  function wireT1RecScopeBtns() {
+    function wire(btnId, scope) {
+      var btn = $('#' + btnId);
+      if (!btn) return;
+      btn.addEventListener('click', function () {
+        var bodyEl = $('#rec-scope-body');
+        if (!bodyEl) return;
+        var alreadyOpen = bodyEl.style.display !== 'none' && state.t1RecScope === scope;
+        if (alreadyOpen) {
+          bodyEl.style.display = 'none';
+          state.t1RecScope = null;
+          resetT1RecToggles();
+          // Drop the shown-scope tone so the collapsed panel is neutral again.
+          var out = $('#rec-output');
+          if (out) out.className = 'rec-output show';
+          return;
+        }
+        renderT1RecScope(scope);
+        resetT1RecToggles();
+        btn.classList.add('is-active');
+        btn.setAttribute('aria-expanded', 'true');
+      });
+    }
+    wire('t1-rec-toggle-county', 'county');
+    wire('t1-rec-toggle-area', 'area');
   }
 
   // Shared animal base info, entered ONCE at the top of the console and read by
@@ -613,14 +731,21 @@
     // WIN-area expansion: build a merged capacity across all counties in the
     // same WIN area so the recommendation reflects the full volunteer pool.
     var siblingCounties = getWinAreaCounties(county);
-    var capacity = siblingCounties.length > 1
+    var areaCapacity = siblingCounties.length > 1
       ? mergeCapacity(siblingCounties.map(function (c) { return counties[c] || null; }))
       : (counties[county] || null);
+    // SCOPE split: the In-County recommendation runs over ONLY the selected
+    // county's capacity; the WIN Area recommendation runs over the merged
+    // WIN-area pool (the original behavior). Both are computed up front from the
+    // SAME snapshot capacity so the two scope buttons re-render without
+    // recomputing. county ⊆ win_area, so this is a pure narrowing — no fetch.
+    var countyCapacity = counties[county] || null;
     var base = readAnimalBaseInfo();
 
     var resolved = resolveForCounty(state.config, county);
-    var rec = window.WildlifeDecision.recommend(capacity, base.rvs, base.issue, resolved);
-    renderRecommendation(rec, base);
+    var recArea = window.WildlifeDecision.recommend(areaCapacity, base.rvs, base.issue, resolved);
+    var recCounty = window.WildlifeDecision.recommend(countyCapacity, base.rvs, base.issue, resolved);
+    renderRecommendation(recCounty, recArea, base, county);
 
     // NOTE: the Tier 1 qualified-volunteer list is NO LONGER loaded here. It now
     // populates AUTOMATICALLY when a county is selected (see the #county change
