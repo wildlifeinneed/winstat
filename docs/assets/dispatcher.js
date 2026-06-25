@@ -827,12 +827,15 @@
     var base = readAnimalBaseInfo();
 
     var resolved = resolveForCounty(state.config, county);
-    // County-level policy overlay (DOWNGRADE-ONLY) applied AFTER the count-based
-    // recommendation. The selected county's policy governs BOTH scopes — the WIN
-    // Area pool is just a wider capacity count, but the dispatch decision still
-    // belongs to the selected county's standing policy.
+    // County-level policy overlay applied AFTER the count-based recommendation.
+    // The policy belongs to the SELECTED county taking the call, so it governs
+    // the In-County recommendation ONLY: when the county's policy forbids
+    // dispatch it becomes a refer_out with the named referral targets. The WIN
+    // Area scope is a SUPPLEMENTARY wider-pool view that shows the raw
+    // count-based recommendation (no policy overlay) — the area is not a single
+    // policy unit, so it must not surface one county's referral guidance.
     var countyPolicy = policyForCounty(county);
-    var recArea = window.WildlifeDecision.recommend(areaCapacity, base.rvs, base.issue, resolved, countyPolicy);
+    var recArea = window.WildlifeDecision.recommend(areaCapacity, base.rvs, base.issue, resolved);
     var recCounty = window.WildlifeDecision.recommend(countyCapacity, base.rvs, base.issue, resolved, countyPolicy);
     renderRecommendation(recCounty, recArea, base, county);
 

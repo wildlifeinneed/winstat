@@ -4186,6 +4186,94 @@ async function runCountyPolicyReferOut() {
   console.log('PASS: county policy refer_out — a dispatch_enabled=false county shows REFERRAL info (target name + tel: phone + notes + special instructions) instead of a Connecteam dispatch; facilities.json is the phone source of truth (Raven Ridge shows 717-808-2652, the differing policy number is flagged).');
 }
 
+// ── REGRESSION (Adams County bug): a dispatch_enabled=false county with EMPTY
+//    in-county capacity but HEALTHY sibling capacity in the WIN area. The
+//    In-County DEFAULT view must show the policy refer_out WITH referral info
+//    (NOT a raw count-based "Call PA Game Commission"), while the WIN Area scope
+//    shows the area-level COUNT-based dispatch with NO referral block. ─────────
+async function runCountyPolicyReferOutEmptyCounty() {
+  // Allegheny (the selected county) has ZERO capacity -> count base would be
+  // call_pa_game_comm. Beaver (same WIN area 10) has healthy non-RVS capacity,
+  // so the merged WIN-area pool yields a count-based dispatch. Allegheny's
+  // policy disables dispatch, so the In-County view must REFER OUT regardless.
+  const SNAPSHOT = {
+    generated_at: '2024-01-01T00:00:00Z',
+    counties: {
+      Allegheny: {
+        ct_no_rvs: { available: 0, total: 0, marginal_volunteers: [] },
+        ct_rvs: { available: 0, total: 0, marginal_volunteers: [] },
+        courier: { available: 0, total: 0, marginal_volunteers: [] },
+      },
+      Beaver: {
+        ct_no_rvs: { available: 4, total: 5, marginal_volunteers: [] },
+        ct_rvs: { available: 0, total: 0, marginal_volunteers: [] },
+        courier: { available: 0, total: 0, marginal_volunteers: [] },
+      },
+    },
+  };
+  const POLICY = {
+    counties: {
+      Allegheny: {
+        dispatch_enabled: false,
+        allowed_issues: 'all',
+        referral_targets: [
+          { name: 'PA Game Commission', phone: '8337429453' },
+          { name: 'West Shore Wildlife', phone: '7175551212', notes: 'Songbirds, mammals' },
+        ],
+        species_scope: null,
+        special_notes: 'County policy: do not dispatch. Refer all calls out.',
+      },
+    },
+  };
+
+  const { window, doc } = await driveTier1RecommendWithPolicy(
+    SNAPSHOT, POLICY, 'Allegheny', { rvs: false, issue: 'capture' });
+
+  const out = doc.getElementById('rec-output');
+  assert.ok(out && out.classList.contains('show'), 'recommendation panel shown');
+
+  // DEFAULT (In-County) view: the In-County button is filled and the body is
+  // open WITHOUT any click.
+  const countyBtn = doc.getElementById('t1-rec-toggle-county');
+  const areaBtn = doc.getElementById('t1-rec-toggle-area');
+  assert.ok(countyBtn.classList.contains('is-active'),
+    'In-County is the default active (filled) scope');
+  const bodyEl = doc.getElementById('rec-scope-body');
+  assert.ok(bodyEl && bodyEl.style.display !== 'none', 'In-County body open by default');
+
+  // THE FIX: In-County (empty Allegheny capacity) must show the POLICY refer_out
+  // with the referral block — NOT a raw count-based "Call PA Game Commission".
+  let actionEl = doc.querySelector('#rec-output .rec-action');
+  assert.ok(actionEl && /refer out|do not dispatch/i.test(actionEl.textContent),
+    'In-County shows the policy refer_out headline even with empty in-county capacity (got: "' +
+      (actionEl ? actionEl.textContent : '') + '")');
+  assert.ok(!/PA Game Commission/i.test(actionEl.textContent),
+    'In-County headline is refer_out, NOT the raw count-based "Call PA Game Commission"');
+  assert.ok(actionEl.classList.contains('escalate'),
+    'In-County refer_out carries the escalate tone');
+  const referralEl = doc.querySelector('#rec-output .rec-referral');
+  assert.ok(referralEl, 'In-County shows the referral block (who to call)');
+  assert.ok(/West Shore Wildlife/i.test(referralEl.textContent),
+    'In-County referral lists the policy targets (West Shore Wildlife)');
+  assert.ok(/do not dispatch. Refer all calls out/i.test(referralEl.textContent),
+    'In-County referral shows the county special_notes');
+
+  // WIN Area scope: the area-level COUNT-based recommendation. Allegheny+Beaver
+  // merged has healthy non-RVS capacity -> a Connecteam dispatch (go tone), with
+  // NO county referral block (the policy belongs to the county, not the area).
+  areaBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
+  actionEl = doc.querySelector('#rec-output .rec-action');
+  assert.ok(actionEl && actionEl.classList.contains('go'),
+    'WIN Area shows the count-based dispatch (go tone) over the merged pool (got: "' +
+      (actionEl ? actionEl.textContent : '') + '")');
+  assert.ok(!/refer out|do not dispatch/i.test(actionEl.textContent),
+    'WIN Area does NOT apply the county policy (no refer_out headline)');
+  assert.strictEqual(doc.querySelector('#rec-output .rec-referral'), null,
+    'WIN Area shows NO referral block (county policy is not an area-level decision)');
+
+  console.log('PASS: county policy refer_out (empty in-county capacity) — In-County DEFAULT view shows the policy refer_out + referral targets even with zero local capacity (fixes the Adams County "Call PA Game Commission" bug); WIN Area shows the area-level count-based dispatch with no referral block.');
+}
+
 async function run() {
   await runHelpLink();
   await runHelpViewerRenders();
@@ -4244,10 +4332,11 @@ async function run() {
   await runTier1VolunteerScopeButtons();
   await runTier1RecommendationScopeButtons();
   await runCountyPolicyReferOut();
+  await runCountyPolicyReferOutEmptyCounty();
   await runTier2CountyBreakdown();
   await runScriptCacheBusting();
   await runScopeButtonHoverFill();
-  console.log('\nALL DOM TESTS PASSED (58 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (59 scenarios).');
 }
 
 run().then(function () {

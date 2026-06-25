@@ -291,16 +291,21 @@
     return result;
   }
 
-  // applyCountyPolicy: DOWNGRADE-ONLY post-step run AFTER the count-based
+  // applyCountyPolicy: county-policy post-step run AFTER the count-based
   // recommend(). Given the base recommendation, the county's policy block, and
   // the animal's RVS flag + Issue, it returns the FINAL action. Rules:
   //   - No policy (null/undefined/empty) -> base action unchanged.
-  //   - dispatch_enabled === false -> always refer_out (with referral targets).
+  //   - dispatch_enabled === false -> always refer_out (with referral targets),
+  //     EVEN when the count yielded a non-dispatch (e.g. call_pa_game_comm):
+  //     the county's standing policy is "do not dispatch, refer to the named
+  //     targets," so the dispatcher must be shown WHO to call regardless of
+  //     local capacity.
   //   - allowed_issues is an array AND this issue is NOT in it -> refer_out.
   //   - Otherwise -> base action passes through unchanged.
-  // It NEVER upgrades: a non-dispatch base (call_pa_game_comm / tbd_escalate /
-  // already refer_out) is returned untouched — policy can only restrict/redirect
-  // a dispatch into a referral, never invent a dispatch. referral_targets and
+  // It NEVER invents a DISPATCH: policy can only redirect an actionable base
+  // into a referral, never turn a non-dispatch into a connecteam_task. An
+  // already-refer_out base, or a tbd_escalate (malformed/unknown issue — not a
+  // capacity decision), is returned untouched. referral_targets and
   // special_notes from the policy are attached to the returned object so the UI
   // can display who to call. Mutates and returns `rec` for convenience.
   function applyCountyPolicy(rec, countyPolicy, issue, animalRvs) {
@@ -321,10 +326,12 @@
       return rec;
     }
 
-    // DOWNGRADE-ONLY: only a count-based DISPATCH can be turned into a referral.
-    // A base that is already a non-dispatch (escalate/unknown/refer_out) is left
-    // exactly as the count logic produced it — policy never upgrades.
-    if (rec.action !== 'connecteam_task') {
+    // Policy forbids dispatch for this call. Redirect any ACTIONABLE base into a
+    // referral so the dispatcher is told who to call. A count-based dispatch
+    // (connecteam_task) and a no-capacity escalation (call_pa_game_comm) both
+    // become refer_out. Policy never INVENTS a dispatch, and an unknown-issue
+    // escalation (tbd_escalate) or an already-refer_out base is left untouched.
+    if (rec.action !== 'connecteam_task' && rec.action !== 'call_pa_game_comm') {
       return rec;
     }
 

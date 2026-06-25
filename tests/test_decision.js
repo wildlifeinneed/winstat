@@ -471,18 +471,34 @@ assert.strictEqual(noPolicyPassed.action, 'connecteam_task',
   'null policy -> base action unchanged');
 passed++;
 
-// 4. DOWNGRADE-ONLY: policy NEVER upgrades a non-dispatch base into a dispatch.
-//    A disabled county over a count-based call_pa_game_comm (no capacity) stays
-//    call_pa_game_comm — refer_out only replaces an ACTUAL dispatch.
+// 4. dispatch_enabled=false ALSO redirects a no-capacity escalation. When the
+//    county's policy forbids dispatch, the dispatcher must be shown WHO to call
+//    even when local capacity is empty (count base = call_pa_game_comm). The
+//    base is redirected to refer_out with the policy referral targets attached.
 var emptyCap = cap(bk(0, 0), bk(0, 0), bk(0, 0));
 var escalateBase = recommend(emptyCap, true, 'capture', DEFAULTS);
 assert.strictEqual(escalateBase.action, 'call_pa_game_comm',
   'precondition: empty capacity yields call_pa_game_comm (non-dispatch)');
 var escalateAfter = applyCountyPolicy(escalateBase, disabledPolicy, 'capture', true);
-assert.strictEqual(escalateAfter.action, 'call_pa_game_comm',
-  'policy never upgrades/replaces a non-dispatch base (no refer_out injected)');
-assert.ok(!('referral_targets' in escalateAfter),
-  'non-dispatch base gets no referral_targets attached');
+assert.strictEqual(escalateAfter.action, 'refer_out',
+  'dispatch_enabled=false redirects a no-capacity call_pa_game_comm -> refer_out');
+assert.ok(Array.isArray(escalateAfter.referral_targets) && escalateAfter.referral_targets.length > 0,
+  'redirected no-capacity base attaches the policy referral targets');
+assert.strictEqual(escalateAfter.special_notes, 'Do Not Enter Dispatch. No volunteers.',
+  'redirected no-capacity base attaches special_notes');
+passed++;
+
+// 4b. Policy NEVER invents a dispatch and never alters a malformed-issue base:
+//     a tbd_escalate (unknown issue) under a disabled county stays tbd_escalate
+//     (it is not a capacity decision, so policy leaves it untouched).
+var unknownBase = recommend(emptyCap, true, 'mystery', DEFAULTS);
+assert.strictEqual(unknownBase.action, 'tbd_escalate',
+  'precondition: unknown issue yields tbd_escalate');
+var unknownAfter = applyCountyPolicy(unknownBase, disabledPolicy, 'mystery', true);
+assert.strictEqual(unknownAfter.action, 'tbd_escalate',
+  'policy leaves a tbd_escalate (malformed issue) untouched — no refer_out injected');
+assert.ok(!('referral_targets' in unknownAfter),
+  'tbd_escalate base gets no referral_targets attached');
 passed++;
 
 // ── Referral phone: facilities.json is the SOURCE OF TRUTH ──────────────────
