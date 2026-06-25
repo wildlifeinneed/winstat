@@ -618,10 +618,13 @@
     .btn-widen:hover { background: var(--amber); color: #fff; }
 
     /* Tier 1 qualified-volunteer scope toggles. Two buttons sit side-by-side
-       (In-County and WIN Area). FILLED == ACTIVE: a button is filled green ONLY
-       while its list is the one currently visible; both start UNFILLED (outline)
-       and at most one is ever filled. The scope is told apart by the button
-       LABEL, not by a permanent fill. */
+       (In-County and WIN Area) with EXACTLY TWO visual states:
+         - INACTIVE (list not shown): outline only, white background. Hover adds
+           at most a faint neutral-gray tint + slightly darker border — NEVER
+           green, so there is no confusing "third" intermediate state.
+         - ACTIVE (.is-active, list shown): solid green fill.
+       Green fill therefore appears ONLY while the list is visible, and the
+       scope is told apart by the button LABEL. */
     .t1-vol-toggles {
       display: flex;
       flex-wrap: wrap;
@@ -637,26 +640,24 @@
       font-size: 13.5px;
       font-weight: 700;
       cursor: pointer;
-      transition: background var(--transition), color var(--transition);
+      transition: background var(--transition), border-color var(--transition);
     }
-    /* Hover hint for an INACTIVE button: a light tint only — NOT a full green
-       fill. A full fill on hover would make a just-collapsed button (cursor
-       still over it, .is-active already removed) look identical to an active
-       one, i.e. "stuck filled" until the mouse moves. Keeping inactive-hover
-       subtle means the SOLID green fill is produced ONLY by .is-active, so the
-       fill always matches list visibility. */
+    /* INACTIVE hover: faint neutral tint + darker border only. Deliberately NOT
+       green so a just-collapsed (unfilled) button never reads as filled while
+       the cursor is still over it. */
     .btn-t1-vol-toggle:hover {
-      background: var(--green-light, rgba(45, 90, 39, 0.08));
-      color: var(--green-deep);
+      background: rgba(0, 0, 0, 0.04);
+      border-color: var(--green-dark);
     }
-    /* ACTIVE == the scope whose list is currently shown: filled green. This is
-       the ONLY thing that fills a button, so the fill always matches list
-       visibility and only one button can be filled at a time. */
-    .btn-t1-vol-toggle.is-active {
+    /* ACTIVE == the scope whose list is currently shown: the ONLY green fill.
+       Placed AFTER :hover so an active button stays solid green even on hover,
+       guaranteeing exactly two visual states (outline vs. solid green). */
+    .btn-t1-vol-toggle.is-active,
+    .btn-t1-vol-toggle.is-active:hover {
       background: var(--green-deep);
+      border-color: var(--green-deep);
       color: #fff;
     }
-    .btn-t1-vol-toggle.is-active:hover { background: var(--green-dark); color: #fff; }
 
     /* ─── Tier 2 out-of-county context list ───────────────────── */
     .ctx-header {

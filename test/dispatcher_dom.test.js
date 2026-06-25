@@ -3853,18 +3853,30 @@ async function runScriptCacheBusting() {
 async function runScopeButtonHoverFill() {
   const html = fs.readFileSync(HTML_PATH, 'utf8');
   // Grab the plain `.btn-t1-vol-toggle:hover { ... }` rule body (NOT .is-active).
-  const hoverMatch = html.match(/\.btn-t1-vol-toggle:hover\s*\{([^}]*)\}/);
+  // It must be the inactive-hover rule only, so it must NOT also be matched as
+  // an .is-active selector.
+  const hoverMatch = html.match(/\n\s*\.btn-t1-vol-toggle:hover\s*\{([^}]*)\}/);
   assert.ok(hoverMatch, '.btn-t1-vol-toggle:hover rule exists');
   const hoverBody = hoverMatch[1];
-  // The inactive-hover background must NOT be the solid green fill (green-deep).
-  assert.ok(!/background:\s*var\(--green-deep\)/.test(hoverBody),
-    'inactive :hover must NOT solid-fill with --green-deep (that makes a collapsed button look stuck-filled while hovered)');
-  // The solid fill must be gated on .is-active.
-  const activeMatch = html.match(/\.btn-t1-vol-toggle\.is-active\s*\{([^}]*)\}/);
+  // INACTIVE hover must have NO green at all — no --green-deep/--green-light/
+  // green fill. Only a neutral tint + (optionally) a darker green BORDER is OK,
+  // so we specifically forbid a green *background* and a white text color
+  // (which together would read as a solid green fill / third state).
+  assert.ok(!/background:[^;]*--green-deep/.test(hoverBody),
+    'inactive :hover must NOT background-fill with --green-deep');
+  assert.ok(!/background:[^;]*--green-light/.test(hoverBody),
+    'inactive :hover must NOT use a green tint (--green-light) — neutral only, no third state');
+  assert.ok(!/color:\s*#fff/i.test(hoverBody),
+    'inactive :hover must NOT flip text to white (white text implies a solid fill)');
+  // The solid green fill must be gated on .is-active. The active rule may be a
+  // combined selector (.is-active, .is-active:hover) so match either form.
+  const activeMatch = html.match(/\.btn-t1-vol-toggle\.is-active[^{]*\{([^}]*)\}/);
   assert.ok(activeMatch, '.btn-t1-vol-toggle.is-active rule exists');
   assert.ok(/background:\s*var\(--green-deep\)/.test(activeMatch[1]),
     '.is-active provides the solid --green-deep fill (fill == active == list visible)');
-  console.log('PASS: scope-button fill is gated on .is-active only — inactive :hover uses a subtle tint, so a collapsed (unfilled) button never looks stuck-filled while the cursor is over it.');
+  assert.ok(/color:\s*#fff/i.test(activeMatch[1]),
+    '.is-active uses white text (solid green fill)');
+  console.log('PASS: scope-button has exactly two visual states — inactive (outline, neutral hover, NO green) vs active (.is-active solid green fill). No confusing green hover/third state.');
 }
 
 async function run() {
