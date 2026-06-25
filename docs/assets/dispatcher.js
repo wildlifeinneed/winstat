@@ -34,29 +34,31 @@
 
   // ─── WIN Areas map (D5.2-5.3) ──────────────────────────────────────
   // Stable per-area color map. 18 buckets (areas 1-16 + 15N/15S). These are
-  // documented, readable-on-light-bg swatches; defined here (not raw inline
-  // hex scattered through markup) so the legend, paths, and any future reuse
-  // share one source of truth.
+  // soft, light pastel swatches — distinct but not garish — so each WIN area
+  // is visually distinguishable while staying readable over the map tiles.
+  // Keyed by area number so the color is stable across refreshes. Defined here
+  // (not raw inline hex scattered through markup) so the legend, paths, and
+  // any future reuse share one source of truth.
   var AREA_COLORS = {
-    '1':   '#4e79a7',
-    '2':   '#59a14f',
-    '3':   '#e15759',
-    '4':   '#f28e2b',
-    '5':   '#76b7b2',
-    '6':   '#edc948',
-    '7':   '#b07aa1',
-    '8':   '#ff9da7',
-    '9':   '#9c755f',
-    '10':  '#86bcb6',
-    '11':  '#d37295',
-    '12':  '#8cd17d',
-    '13':  '#bab0ac',
-    '14':  '#499894',
-    '15N': '#d4a6c8',
-    '15S': '#b6992d',
-    '16':  '#79706e'
+    '1':   '#9ec9e8', // light blue
+    '2':   '#a7d8a0', // light green
+    '3':   '#f4b8a0', // light coral
+    '4':   '#f6c992', // light orange
+    '5':   '#9fd6cf', // light teal
+    '6':   '#f2dd8e', // light gold
+    '7':   '#cdb2da', // light purple
+    '8':   '#f6bcc6', // light pink
+    '9':   '#cdb59a', // light tan
+    '10':  '#b6ddd6', // light aqua
+    '11':  '#e8b3c6', // light rose
+    '12':  '#c3e6a6', // light lime
+    '13':  '#d9d2cb', // light stone
+    '14':  '#a6cfc9', // light seafoam
+    '15N': '#e2c4dd', // light mauve
+    '15S': '#dcd197', // light khaki
+    '16':  '#c4bdba'  // light grey
   };
-  var AREA_FALLBACK = '#c9c4bd';
+  var AREA_FALLBACK = '#cfd8dc';
   // Path to the committed PA county GeoJSON (relative to dispatcher.html, which
   // lives in docs/ alongside data/). Properties: {county, win_area, geoid}.
   var GEOJSON_PATH = 'data/pa_counties.json';
@@ -1832,8 +1834,11 @@
         color: color,
         weight: 2,
         opacity: 0.9,
+        // Pastel fills need a bit more opacity than the old saturated palette to
+        // read as distinct hues, while staying semi-transparent so the map
+        // underneath remains visible.
         fillColor: color,
-        fillOpacity: 0.18,
+        fillOpacity: 0.35,
         interactive: false
       }).addTo(t2map.layers.winArea);
       poly.bindTooltip('WIN Area ' + escapeHtml(area), {
