@@ -3611,9 +3611,9 @@ async function runTier1VolunteerListCaptureQualified() {
 //    in-county vs in-area derived from the SAME cached rows + qualify filter the
 //    In-County / WIN Area list buttons use (so the numbers can NEVER disagree
 //    with the lists), and (2) NEARBY REHABBERS in the county or its WIN area
-//    from rehabbers.json, each as "Name (phone) — County", with an explicit
-//    "animal-type filtering not yet available" caveat (rehabbers.json carries no
-//    structured animal field). ────────────────────────────────────────────────
+//    from rehabbers.json that ACCEPT the selected animal type (filtered via the
+//    `availability` species codes), each as "Name (phone) — County".
+//    ─────────────────────────────────────────────────────────────────────────
 async function runTier1DispatchSummary() {
   // 5 Capture-qualified rows across WIN area 10 (Allegheny selected + Beaver
   // sibling): 3 qualify in the selected county, 4 qualify in-area; a COURIER-only
@@ -3635,15 +3635,23 @@ async function runTier1DispatchSummary() {
     out_of_county_truncated: false,
     radius_too_broad: false,
   };
-  // Rehabbers: 1 in the selected county (Allegheny), 1 in the sibling WIN-area
-  // county (Beaver), and 1 OUT of area (Erie, area 1) that must NOT appear.
+  // Rehabbers exercising the animal-type filter. Availability species codes
+  // (authoritative legend, docs/USER_MANUAL.md "Animal codes"):
+  //   M = Mammals, P = Passerines/songbirds (Bird), R = Raptors,
+  //   RA = Reptiles & Amphibians. Animal Type = Mammal is selected first, so
+  //   only facilities whose availability contains "M" qualify:
+  //   • Tamarack (Allegheny, "M, R, RA")  -> M present  -> SHOWN (in-county, first)
+  //   • Beaver County Rehab (Beaver, "M") -> M present  -> SHOWN (in-area, no phone)
+  //   • Songbird Haven (Allegheny, "P")   -> bird only  -> EXCLUDED by animal type
+  //   • Erie Far Away (Erie, "M")         -> out of WIN area 10 -> EXCLUDED by scope
   const REHABBERS = [
-    { rehab_name: 'Tamarack Wildlife Center', county: 'Allegheny', phone: '8147637676', availability: 'M, RA' },
-    { rehab_name: 'Beaver County Rehab', county: 'Beaver', phone: '', availability: 'M' },
-    { rehab_name: 'Erie Far Away', county: 'Erie', phone: '8145551212', availability: 'M' },
+    { rehab_name: 'Tamarack Wildlife Center', county: 'Allegheny', phone: '8147637676', availability: 'Tamarack Wildlife Center\nM, R, RA' },
+    { rehab_name: 'Beaver County Rehab', county: 'Beaver', phone: '', availability: 'Beaver County Rehab\nM' },
+    { rehab_name: 'Songbird Haven', county: 'Allegheny', phone: '4125550000', availability: 'Songbird Haven\nP' },
+    { rehab_name: 'Erie Far Away', county: 'Erie', phone: '8145551212', availability: 'Erie Far Away\nM' },
   ];
   const { window, doc } = await loadDomAndRecommendWithRehabbers(
-    agg, REHABBERS, 'Allegheny', { rvs: false, issue: 'capture' });
+    agg, REHABBERS, 'Allegheny', { rvs: false, issue: 'capture', animalType: 'mammal' });
 
   const summary = doc.querySelector('#rec-scope-body .rec-summary');
   assert.ok(summary, 'In-County recommendation renders a .rec-summary block');
@@ -3661,12 +3669,14 @@ async function runTier1DispatchSummary() {
     'in-area qualified count = 4 (adds the Beaver C&T; COURIER still excluded) (got: "' + areaLine + '")');
   assert.ok(areaLine && /Area\s*10/.test(areaLine), 'in-area line names WIN Area 10');
 
-  // (2) NEARBY REHABBERS: Allegheny (in-county) + Beaver (in-area) appear; the
-  //     out-of-area Erie rehabber does NOT.
+  // (2) NEARBY REHABBERS, filtered to facilities that accept the selected animal
+  //     type (Mammal). Tamarack (Allegheny) + Beaver (in-area) accept mammals;
+  //     Songbird Haven (bird-only, in-county) is EXCLUDED by animal type; Erie
+  //     is EXCLUDED by scope.
   const rehabRows = Array.prototype.slice.call(summary.querySelectorAll('.rec-summary-rehab'))
     .map(function (li) { return li.textContent.replace(/\s+/g, ' ').trim(); });
   assert.strictEqual(rehabRows.length, 2,
-    'exactly 2 in-scope rehabbers render (Allegheny + Beaver; Erie excluded) (got ' + rehabRows.length + ')');
+    'exactly 2 mammal-accepting in-scope rehabbers render (Tamarack + Beaver; Songbird Haven + Erie excluded) (got ' + rehabRows.length + ')');
   // Selected-county rehabber is listed FIRST, with a formatted, tel-linked phone.
   assert.ok(/Tamarack Wildlife Center/.test(rehabRows[0]) && /Allegheny County/.test(rehabRows[0]),
     'first rehabber row is the in-county one (Tamarack — Allegheny County)');
@@ -3677,16 +3687,40 @@ async function runTier1DispatchSummary() {
   // Sibling-area rehabber with no phone shows the no-phone fallback.
   assert.ok(/Beaver County Rehab/.test(rehabRows[1]) && /no phone on file/i.test(rehabRows[1]),
     'sibling-area rehabber with no phone shows the no-phone fallback (got: "' + rehabRows[1] + '")');
-  assert.ok(!rehabRows.join(' | ').match(/Erie/),
+  const joined = rehabRows.join(' | ');
+  assert.ok(!/Songbird Haven/.test(joined),
+    'bird-only in-county rehabber (Songbird Haven) is EXCLUDED by the Mammal animal-type filter');
+  assert.ok(!/Erie/.test(joined),
     'out-of-area (Erie) rehabber is NOT listed');
 
-  // The animal-type caveat is present (rehabbers.json has no structured animal
-  // field, so the list is NOT filtered by the selected animal type).
+  // The old "animal-type filtering not yet available" caveat is GONE now that the
+  // list is actually filtered by animal type.
   const note = summary.querySelector('.rec-summary-rehab-note');
-  assert.ok(note && /animal-type filtering not yet available/i.test(note.textContent),
-    'a caveat states animal-type filtering is not yet available');
+  assert.ok(!note, 'the animal-type-filtering caveat is removed (list is now filtered)');
 
-  console.log('PASS: Tier 1 dispatch summary — qualified-volunteer counts (in-county 3 / in-area 4, COURIER excluded; matches the list filter) + nearby rehabbers (in-county first, formatted tel link, no-phone fallback, out-of-area excluded) with animal-type-filtering caveat.');
+  // Switching the Animal Type to Raptor re-filters: Tamarack ("M, R, RA") still
+  // qualifies (R = Raptors), but Beaver ("M") no longer does -> only Tamarack.
+  const { doc: doc2 } = await loadDomAndRecommendWithRehabbers(
+    agg, REHABBERS, 'Allegheny', { rvs: false, issue: 'capture', animalType: 'raptor' });
+  const raptorRows = Array.prototype.slice.call(
+    doc2.querySelectorAll('#rec-scope-body .rec-summary .rec-summary-rehab'))
+    .map(function (li) { return li.textContent.replace(/\s+/g, ' ').trim(); });
+  assert.strictEqual(raptorRows.length, 1,
+    'Raptor filter keeps only Tamarack (R); Beaver (M only) drops out (got ' + raptorRows.length + ')');
+  assert.ok(/Tamarack/.test(raptorRows[0]), 'the single Raptor row is Tamarack');
+
+  // Switching to Reptile/Amphibian re-filters on RA: Tamarack ("M, R, RA")
+  // qualifies (RA = Reptiles & Amphibians); Beaver ("M") drops -> only Tamarack.
+  const { doc: doc3 } = await loadDomAndRecommendWithRehabbers(
+    agg, REHABBERS, 'Allegheny', { rvs: false, issue: 'capture', animalType: 'reptile_amphibian' });
+  const raRows = Array.prototype.slice.call(
+    doc3.querySelectorAll('#rec-scope-body .rec-summary .rec-summary-rehab'))
+    .map(function (li) { return li.textContent.replace(/\s+/g, ' ').trim(); });
+  assert.strictEqual(raRows.length, 1,
+    'Reptile/Amphibian filter keeps only Tamarack (RA); Beaver (M only) drops out (got ' + raRows.length + ')');
+  assert.ok(/Tamarack/.test(raRows[0]), 'the single Reptile/Amphibian row is Tamarack');
+
+  console.log('PASS: Tier 1 dispatch summary — qualified-volunteer counts (in-county 3 / in-area 4, COURIER excluded; matches the list filter) + nearby rehabbers FILTERED by animal type (Mammal -> Tamarack+Beaver, bird-only Songbird Haven excluded; Raptor -> Tamarack via R; Reptile/Amphibian -> Tamarack via RA), in-county first, formatted tel link, no-phone fallback, out-of-area excluded, no stale caveat.');
 }
 
 // Helper: load the page with a custom Worker aggregate AND rehabbers.json
@@ -3718,6 +3752,10 @@ async function loadDomAndRecommendWithRehabbers(agg, rehabbers, county, base) {
     if (rvsEl) { rvsEl.checked = true; rvsEl.dispatchEvent(new window.Event('change', { bubbles: true })); }
     const issueEl = doc.querySelector('input[name="issue"][value="' + base.issue + '"]');
     if (issueEl) { issueEl.checked = true; issueEl.dispatchEvent(new window.Event('change', { bubbles: true })); }
+    if (base.animalType) {
+      const typeEl = doc.getElementById('animal-type');
+      if (typeEl) { typeEl.value = base.animalType; typeEl.dispatchEvent(new window.Event('change', { bubbles: true })); }
+    }
     await flush(window);
     await flush(window);
   }
@@ -3759,6 +3797,10 @@ async function driveTier1PgcWithRehabbers(snapshot, rehabbers, county, base) {
     if (rvsEl) { rvsEl.checked = true; rvsEl.dispatchEvent(new window.Event('change', { bubbles: true })); }
     const issueEl = doc.querySelector('input[name="issue"][value="' + base.issue + '"]');
     if (issueEl) { issueEl.checked = true; issueEl.dispatchEvent(new window.Event('change', { bubbles: true })); }
+    if (base.animalType) {
+      const typeEl = doc.getElementById('animal-type');
+      if (typeEl) { typeEl.value = base.animalType; typeEl.dispatchEvent(new window.Event('change', { bubbles: true })); }
+    }
     await flush(window);
     await flush(window);
   }
@@ -3843,6 +3885,37 @@ async function runTier1PgcTransportActionable() {
   assert.ok(!rows.join(' | ').match(/Erie/), 'out-of-area (Erie) rehabber is NOT listed');
 
   console.log('PASS: PGC actionable (Transport, animal contained) — headline asks to transport to nearest rehabber (not "Call PA Game Commission"); nearby rehabbers listed in-county-first with formatted tel links + no-phone fallback, out-of-area excluded.');
+}
+
+// ── PGC ACTIONABLE (Transport, animal-type FILTERED): the transport rehabber
+//    list only names facilities that accept the selected animal type. With a
+//    Bird call, the in-county mammal-only rehabber drops and the bird rehabber
+//    is shown; the no-phone bird-accepting sibling is included too.
+async function runTier1PgcTransportAnimalTypeFiltered() {
+  const REHABBERS = [
+    // Allegheny (in-county): one mammal-only, one bird+raptor.
+    { rehab_name: 'Mammal House', county: 'Allegheny', phone: '4125551111', availability: 'Mammal House\nM' },
+    { rehab_name: 'Feather Friends', county: 'Allegheny', phone: '4125552222', availability: 'Feather Friends\nP, R' },
+    // Beaver (in WIN area 10): bird-accepting, no phone.
+    { rehab_name: 'Beaver Birds', county: 'Beaver', phone: '', availability: 'Beaver Birds\nP' },
+  ];
+  const { doc } = await driveTier1PgcWithRehabbers(
+    PGC_ZERO_SNAPSHOT, REHABBERS, 'Allegheny', { rvs: false, issue: 'transport', animalType: 'bird' });
+
+  const pgc = doc.querySelector('#rec-output .rec-pgc');
+  assert.ok(pgc, 'an actionable .rec-pgc transport block is rendered');
+  const rows = Array.prototype.slice.call(pgc.querySelectorAll('.rec-pgc-rehab'))
+    .map(function (li) { return li.textContent.replace(/\s+/g, ' ').trim(); });
+  assert.strictEqual(rows.length, 2,
+    'Bird filter keeps the 2 bird-accepting rehabbers (Feather Friends + Beaver Birds); mammal-only Mammal House drops (got ' + rows.length + ')');
+  assert.ok(/Feather Friends/.test(rows[0]),
+    'in-county bird rehabber (Feather Friends, P) is listed first');
+  assert.ok(!rows.join(' | ').match(/Mammal House/),
+    'mammal-only rehabber (Mammal House, no P) is EXCLUDED by the Bird animal-type filter');
+  assert.ok(/Beaver Birds/.test(rows[1]) && /no phone on file/i.test(rows[1]),
+    'sibling-area bird rehabber (Beaver Birds, P, no phone) is included with the no-phone fallback');
+
+  console.log('PASS: PGC actionable (Transport) rehabber list is FILTERED by the selected animal type (Bird -> only P-accepting facilities; mammal-only excluded).');
 }
 
 // ── PGC ACTIONABLE (Transport, NO rehabber on file): when a TRANSPORT call has
@@ -4636,9 +4709,10 @@ async function run() {
   await runScriptCacheBusting();
   await runScopeButtonHoverFill();
   await runTier1PgcTransportActionable();
+  await runTier1PgcTransportAnimalTypeFiltered();
   await runTier1PgcTransportNoRehabFallback();
   await runTier1PgcCaptureActionable();
-  console.log('\nALL DOM TESTS PASSED (64 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (65 scenarios).');
 }
 
 run().then(function () {

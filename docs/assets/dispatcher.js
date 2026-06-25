@@ -443,13 +443,67 @@
     return s;
   }
 
+  // ─── Rehabber animal-type matching ───────────────────────────────────────
+  // rehabbers.json stores the animal types each facility accepts INSIDE its free
+  // -text `availability` field, as the rehab-network's species shorthand
+  // appended after the facility name, e.g.
+  //   "Humane Animal Rescue Wildlife Center\nM,P,R, RA RVS, END".
+  // The codes (authoritative legend: docs/USER_MANUAL.md "Animal codes"):
+  //   M   = Mammals
+  //   P   = Passerines / songbirds (general Bird; waterfowl fall here too — the
+  //         data has no separate waterfowl code)
+  //   R   = Raptors
+  //   RA  = Reptiles & Amphibians
+  //   RVS = Rabies-Vector Species (a CAPABILITY / mammal subset, NOT a type)
+  //   END = Endangered / Threatened (a STATUS, not an animal-type category)
+  // Plus free text like "Bats only" for bat-exclusive facilities (which carry NO
+  // standalone "M", so they are correctly excluded for the general Mammal type).
+  //
+  // REHAB_SPECIES_CODES maps each Animal Type dropdown category to the set of
+  // codes that mean "accepts this animal". 'other'/unknown is intentionally
+  // absent -> PASS-THROUGH (we never filter when the species is unknown).
+  var REHAB_SPECIES_CODES = {
+    bird: ['P'],
+    waterfowl: ['P'],          // no dedicated waterfowl code; birds -> P
+    raptor: ['R'],             // R = Raptors
+    bat: ['M'],                // bats are mammals; general M rehabbers take them
+    mammal: ['M'],
+    reptile_amphibian: ['RA']  // RA = Reptiles & Amphibians
+  };
+
+  // Does a rehabber's `availability` text indicate it accepts `animalType`
+  // (a dropdown category)? 'other'/empty/unknown -> true (never restrict).
+  // Tokenizes the availability on non-letter boundaries so a CODE like "RA"
+  // matches as a whole token and is never confused with a letter inside the
+  // facility name (e.g. "AARK"). Bats additionally match the word "bat" so a
+  // "Bats only" facility (no standalone M) still accepts the Bat category.
+  function rehabberAcceptsAnimal(availability, animalType) {
+    var cat = String(animalType == null ? '' : animalType).toLowerCase().trim();
+    if (!cat || cat === 'other' || cat === 'unknown') return true;
+    var codes = REHAB_SPECIES_CODES[cat];
+    if (!codes) return true;            // unknown category -> don't restrict
+    var text = String(availability == null ? '' : availability);
+    // Bat specialists are flagged in free text ("Bats only").
+    if (cat === 'bat' && /\bbats?\b/i.test(text)) return true;
+    if (codes.length === 0) return false; // category with no code in the data
+    var tokens = text.toUpperCase().split(/[^A-Z]+/);
+    var present = {};
+    for (var i = 0; i < tokens.length; i++) {
+      if (tokens[i]) present[tokens[i]] = true;
+    }
+    for (var j = 0; j < codes.length; j++) {
+      if (present[codes[j]]) return true;
+    }
+    return false;
+  }
+
   // ─── Nearby rehabbers (shared) ───────────────────────────────────────────
-  // Return the rehabbers in the selected county or its WIN area, ordered with
-  // selected-county rows FIRST then sibling-area rows (stable within each
-  // group). Used by BOTH the dispatch summary AND the actionable transport-PGC
-  // block so the two never disagree on who is "nearby". rehabbers.json carries
-  // no structured animal-type field, so the list is NOT filtered by animal type.
-  function nearbyRehabbers(county) {
+  // Return the rehabbers in the selected county or its WIN area that ACCEPT the
+  // selected `animalType` (see rehabberAcceptsAnimal), ordered with selected
+  // -county rows FIRST then sibling-area rows (stable within each group). Used
+  // by BOTH the dispatch summary AND the actionable transport-PGC block so the
+  // two never disagree on who is "nearby" or which animals they take.
+  function nearbyRehabbers(county, animalType) {
     if (!county) return [];
     var areaCounties = {};
     getWinAreaCounties(county).forEach(function (c) {
@@ -458,7 +512,8 @@
     var rehabbers = Array.isArray(state.rehabbers) ? state.rehabbers : [];
     var nearby = rehabbers.filter(function (r) {
       var rc = (r && r.county) ? String(r.county).trim().toLowerCase() : '';
-      return rc && areaCounties[rc];
+      if (!rc || !areaCounties[rc]) return false;
+      return rehabberAcceptsAnimal(r.availability, animalType);
     });
     var inCty = [];
     var siblings = [];
@@ -502,11 +557,12 @@
   //      (qualifiesForAnimal) and the in-county narrowing is the SAME
   //      row.county === county filter renderT1VolList applies.
   //   2) Nearby REHABBERS in the selected county or its WIN area (from
-  //      state.rehabbers), each as "Name (phone) — County". rehabbers.json
-  //      carries no structured animal-type field, so the list is NOT filtered by
-  //      the selected animal type; a caveat line says so.
+  //      state.rehabbers) that ACCEPT the selected animal type, each as
+  //      "Name (phone) — County". rehabbers.json encodes accepted animals in the
+  //      `availability` field (species codes), so the list IS filtered by the
+  //      selected Animal Type dropdown category (see rehabberAcceptsAnimal).
   // Returns an HTML string (possibly empty if there is nothing to show).
-  function recDispatchSummaryHtml(county) {
+  function recDispatchSummaryHtml(county, animalType) {
     if (!county) return '';
     var REC = MSG.recommendation;
     var html = '';
@@ -551,19 +607,19 @@
     }
     html += '</ul>';
 
-    // 2) Nearby rehabbers in the county or its WIN area. rehabbers.json has no
-    //    structured animal-type field, so we cannot filter by animal type — show
-    //    all in-scope rehabbers with a caveat. Uses the SHARED nearbyRehabbers()
-    //    helper so the transport-PGC block lists the exact same facilities.
+    // 2) Nearby rehabbers in the county or its WIN area that ACCEPT the selected
+    //    animal type. rehabbers.json encodes accepted animals in `availability`
+    //    (species codes), so nearbyRehabbers() filters by animalType. Uses the
+    //    SHARED nearbyRehabbers() helper so the transport-PGC block lists the
+    //    exact same facilities.
     html += '<div class="rec-summary-rehab-header">' + escapeHtml(REC.summaryRehabHeader) + '</div>';
-    var ordered = nearbyRehabbers(county);
+    var ordered = nearbyRehabbers(county, animalType);
     if (ordered.length) {
       html += '<ul class="rec-summary-list rec-summary-rehab-list">';
       ordered.forEach(function (r) {
         html += rehabberRowHtml(r, 'rec-summary-rehab');
       });
       html += '</ul>';
-      html += '<div class="rec-summary-rehab-note">' + escapeHtml(REC.summaryRehabNoFilter) + '</div>';
     } else {
       html += '<p class="rec-summary-rehab-empty">' + escapeHtml(REC.summaryRehabEmpty) + '</p>';
     }
@@ -595,7 +651,6 @@
           html += rehabberRowHtml(r, 'rec-pgc-rehab');
         });
         html += '</ul>';
-        html += '<div class="rec-summary-rehab-note">' + escapeHtml(REC.summaryRehabNoFilter) + '</div>';
       } else {
         // No nearby rehabber on file -> PGC is the fallback for transport too.
         html += '<p class="rec-pgc-tell">' +
@@ -619,7 +674,7 @@
   // to set the #rec-output color class for the shown scope). `county` is the
   // selected county name, used only to list nearby rehabbers for the actionable
   // transport "no volunteer" path.
-  function recBodyHtml(rec, showPolicyReferral, county) {
+  function recBodyHtml(rec, showPolicyReferral, county, animalType) {
     var actionMeta = (window.WildlifeDecision &&
                       window.WildlifeDecision.ACTIONS &&
                       window.WildlifeDecision.ACTIONS[rec.action]) || null;
@@ -637,7 +692,7 @@
     // rec.issue is the normalized issue carried on the rec by decision.js.
     var isPgc = (rec.action === 'call_pa_game_comm');
     var pgcIssue = isPgc ? (typeof rec.issue === 'string' ? rec.issue : '') : '';
-    var pgcRehabbers = (isPgc && pgcIssue === 'transport') ? nearbyRehabbers(county) : [];
+    var pgcRehabbers = (isPgc && pgcIssue === 'transport') ? nearbyRehabbers(county, animalType) : [];
     if (isPgc) {
       label = (pgcIssue === 'transport')
         ? REC.pgcTransportLabel
@@ -777,12 +832,15 @@
     }
 
     // The recommendation body, with the county-level referral guidance shown
-    // (this IS the In-County view, so policy referral always applies).
-    var built = recBodyHtml(recCounty, true, county);
+    // (this IS the In-County view, so policy referral always applies). The
+    // selected animal type scopes the nearby-rehabber list.
+    var animalType = base ? base.animalType : null;
+    var built = recBodyHtml(recCounty, true, county, animalType);
     // Dispatch summary (Tier-2-depth detail): qualified-volunteer counts +
-    // nearby rehabbers. Built from the SAME cached rows the volunteer-list
-    // buttons use, so the counts never disagree with the lists.
-    var summaryHtml = recDispatchSummaryHtml(county);
+    // nearby rehabbers (filtered to facilities that accept the selected animal
+    // type). Built from the SAME cached rows the volunteer-list buttons use, so
+    // the counts never disagree with the lists.
+    var summaryHtml = recDispatchSummaryHtml(county, animalType);
     var headerTxt = county
       ? fmt(REC.scopeHeaderCounty, { county: county })
       : REC.scopeHeaderCounty.replace('{county}', '').replace(/\s+$/, '');

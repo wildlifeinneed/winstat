@@ -166,13 +166,10 @@
       summaryRehabRow: '{name} ({phone}) \u2014 {county} County',
       // Shown when a rehabber row has no phone on file.
       summaryRehabNoPhone: 'no phone on file',
-      // Empty state when no in-county / in-area rehabbers are on file.
-      summaryRehabEmpty: 'No rehabbers on file in this county or WIN area.',
-      // Caveat appended under the rehabber list: rehabbers.json carries no
-      // structured animal-type field, so the list is NOT filtered by the
-      // selected animal type yet. Confirm the facility accepts this animal
-      // before referring.
-      summaryRehabNoFilter: 'Animal-type filtering not yet available \u2014 confirm the rehabber accepts this animal before referring.',
+      // Empty state when no in-county / in-area rehabber accepts the selected
+      // animal type (rehabbers are filtered by the Animal Type dropdown via the
+      // `availability` species codes in rehabbers.json).
+      summaryRehabEmpty: 'No rehabbers on file in this county or WIN area accept this animal type.',
 
       // ── Actionable "no volunteer available" guidance (dispatcher.js) ───────
       // When recommend() yields call_pa_game_comm (no qualified volunteer in
