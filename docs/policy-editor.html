@@ -263,6 +263,38 @@
     }
     .dirty-flag.show { display: inline-block; }
 
+    /* ─── County status summary (dropdown legend) ────────────── */
+    .county-status-summary {
+      margin-top: 10px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      font-size: 12.5px;
+    }
+    .county-status-summary:empty { display: none; }
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 11px;
+      font-weight: 600;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      line-height: 1.4;
+    }
+    .status-chip .dot {
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .status-chip.off       { background: var(--red-light);   color: #8a261b; border-color: #f0b8b0; }
+    .status-chip.off .dot       { background: var(--red); }
+    .status-chip.restricted { background: var(--amber-light); color: #7a4900; border-color: #f0c070; }
+    .status-chip.restricted .dot { background: var(--amber); }
+    .status-chip.clear     { background: var(--green-light); color: var(--green-dark); border-color: #c8e6d2; }
+    .status-chip.clear .dot     { background: var(--green); }
+
     /* ─── Section cards (LIVE vs RULES) ──────────────────────── */
     .section-card {
       border-radius: var(--radius);
@@ -667,6 +699,7 @@
       <button id="prev-county" class="btn-ghost" type="button" title="Previous county">← Prev</button>
       <button id="next-county" class="btn-ghost" type="button" title="Next county">Next →</button>
     </div>
+    <div class="county-status-summary" id="county-status-summary" aria-live="polite"></div>
     <div class="county-meta" id="county-meta" hidden>
       <span class="county-badge" id="county-area-badge"></span>
       <span id="county-counter"></span>

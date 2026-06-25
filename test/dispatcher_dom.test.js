@@ -3440,8 +3440,9 @@ async function runTier1RecommendationScopeButtons() {
     'recommendation panel shown after clicking "Get Recommendation"');
 
   // Both scope buttons exist, labeled In-County / WIN Area, with scope-marker
-  // classes. On load NEITHER is active (filled) and the body is COLLAPSED — no
-  // recommendation is shown until a scope is clicked.
+  // classes. By DEFAULT the In-County scope is shown (button filled, body open):
+  // county-level policy applies to the specific county taking the call, so it is
+  // the most relevant view. WIN Area starts collapsed/unfilled.
   const countyBtn = doc.getElementById('t1-rec-toggle-county');
   const areaBtn = doc.getElementById('t1-rec-toggle-area');
   assert.ok(countyBtn && areaBtn, 'both recommendation scope buttons (county + area) exist');
@@ -3452,20 +3453,18 @@ async function runTier1RecommendationScopeButtons() {
   assert.ok(areaBtn.classList.contains('btn-t1-rec-area'),
     'area button carries the .btn-t1-rec-area scope marker');
   const bodyEl = doc.getElementById('rec-scope-body');
-  assert.ok(bodyEl && bodyEl.style.display === 'none',
-    'recommendation body starts collapsed until a scope button is clicked');
-  assert.ok(!countyBtn.classList.contains('is-active') && !areaBtn.classList.contains('is-active'),
-    'on load BOTH scope buttons are inactive (unfilled) since no recommendation is shown');
+  assert.ok(bodyEl && bodyEl.style.display !== 'none',
+    'recommendation body is OPEN by default (In-County shown on load)');
+  assert.ok(countyBtn.classList.contains('is-active'),
+    'on load the In-County button is active (filled) — it is the default view');
+  assert.ok(!areaBtn.classList.contains('is-active'),
+    'on load the WIN Area button is inactive (unfilled) — supplementary view');
 
-  // Click IN-COUNTY: Allegheny alone has ct_rvs.available = 0 -> escalate
-  // (call_pa_game_comm). The header names the COUNTY scope.
-  countyBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
-  assert.ok(bodyEl.style.display !== 'none', 'In-County click reveals the recommendation body');
-  assert.ok(countyBtn.classList.contains('is-active'), 'In-County button marked active (filled)');
-  assert.ok(!areaBtn.classList.contains('is-active'), 'Area button NOT active while In-County open');
+  // DEFAULT view is In-County: Allegheny alone has ct_rvs.available = 0 ->
+  // escalate (call_pa_game_comm). The header names the COUNTY scope.
   let actionEl = doc.querySelector('#rec-output .rec-action');
   assert.ok(actionEl && /game commission|escalat|call/i.test(actionEl.textContent),
-    'In-County (Allegheny only, 0 RVS) recommends escalation (got: "' + (actionEl ? actionEl.textContent : '') + '")');
+    'In-County (Allegheny only, 0 RVS) recommends escalation by default (got: "' + (actionEl ? actionEl.textContent : '') + '")');
   assert.ok(actionEl.classList.contains('escalate'),
     'In-County escalation action carries the escalate tone');
   assert.strictEqual(doc.querySelector('#rec-output .rec-target'), null,
@@ -4110,10 +4109,14 @@ async function runCountyPolicyReferOut() {
   assert.ok(out && out.classList.contains('show'),
     'recommendation panel shown after clicking "Get Recommendation"');
 
-  // Open the In-County scope to render the recommendation body.
+  // The In-County scope renders by default — its body (with the county referral
+  // guidance) is already shown without any click. The county-level policy
+  // applies to the specific county taking the call, so the referral info lives
+  // under the In-County view.
   const countyBtn = doc.getElementById('t1-rec-toggle-county');
   assert.ok(countyBtn, 'In-County scope button exists');
-  countyBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
+  assert.ok(countyBtn.classList.contains('is-active'),
+    'In-County scope is active (filled) by default');
 
   // The headline action is the refer_out downgrade, NOT a dispatch — and it
   // carries the escalate (warning) tone, not the green "go" dispatch tone.
@@ -4163,10 +4166,22 @@ async function runCountyPolicyReferOut() {
   // Per-target notes shown.
   assert.ok(/RVS, waterfowl, birds of prey/i.test(referralEl.textContent),
     'per-target referral notes shown');
-  // County-wide special instructions shown.
+  // County special_notes shown.
   const specialEl = referralEl.querySelector('.rec-referral-special');
   assert.ok(specialEl && /Do Not Enter Dispatch/i.test(specialEl.textContent),
     'county special_notes shown as special instructions');
+
+  // SCOPE SPLIT: the county-level policy referral guidance belongs to the
+  // SPECIFIC county taking the call, NOT the whole WIN area. Switching to the
+  // WIN Area scope must NOT show the referral block (targets / phones / special
+  // notes), even though the area rec is also a refer_out downgrade.
+  const areaBtn = doc.getElementById('t1-rec-toggle-area');
+  assert.ok(areaBtn, 'WIN Area scope button exists');
+  areaBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
+  assert.strictEqual(doc.querySelector('#rec-output .rec-referral'), null,
+    'WIN Area scope omits the county-level referral block (policy is county-specific)');
+  assert.ok(!/Do Not Enter Dispatch/i.test(doc.getElementById('rec-scope-body').textContent),
+    'WIN Area scope omits the county special_notes');
 
   console.log('PASS: county policy refer_out — a dispatch_enabled=false county shows REFERRAL info (target name + tel: phone + notes + special instructions) instead of a Connecteam dispatch; facilities.json is the phone source of truth (Raven Ridge shows 717-808-2652, the differing policy number is flagged).');
 }

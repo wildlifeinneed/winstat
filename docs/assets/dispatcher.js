@@ -442,7 +442,7 @@
   // so both scopes (In-County / WIN Area) reuse the IDENTICAL markup; only the
   // rec that feeds it differs. Returns { html, tone } (the panel needs the tone
   // to set the #rec-output color class for the shown scope).
-  function recBodyHtml(rec) {
+  function recBodyHtml(rec, showPolicyReferral) {
     var actionMeta = (window.WildlifeDecision &&
                       window.WildlifeDecision.ACTIONS &&
                       window.WildlifeDecision.ACTIONS[rec.action]) || null;
@@ -460,7 +460,10 @@
     // name + phone + per-target notes — plus any county-wide special
     // instructions. Set ONLY by applyCountyPolicy(); a non-refer_out rec skips
     // this block entirely so the existing dispatch/escalate markup is untouched.
-    if (rec.action === 'refer_out') {
+    // This county-level referral guidance is shown ONLY for the In-County scope
+    // (showPolicyReferral): the policy applies to the SPECIFIC county taking the
+    // call, not the whole WIN area, so the WIN Area scope omits it.
+    if (rec.action === 'refer_out' && showPolicyReferral) {
       var countyName = state.t1RecCountyName || '';
       html += '<div class="rec-referral">';
       html += '<div class="rec-referral-header">' + escapeHtml(REC.referralHeader) + '</div>';
@@ -580,7 +583,7 @@
     state.t1RecScope = scope;
     var REC = MSG.recommendation;
     var county = state.t1RecCountyName || '';
-    var built = recBodyHtml(rec);
+    var built = recBodyHtml(rec, scope === 'county');
     var headerTpl = scope === 'county' ? REC.scopeHeaderCounty : REC.scopeHeaderArea;
     var headerTxt = county
       ? fmt(headerTpl, { county: county })
@@ -594,9 +597,10 @@
   }
 
   // Cache BOTH scope recommendations + render the shell (dismiss + premise + the
-  // two scope buttons) with the body COLLAPSED (no recommendation shown until a
-  // scope button is clicked). Mirrors renderTier1Volunteers(): a fresh "Get
-  // Recommendation" run always starts collapsed and unfilled.
+  // two scope buttons). The In-County scope is shown BY DEFAULT (button filled,
+  // recommendation visible) because county-level policy applies to the specific
+  // county taking the call — it's the most relevant view for a dispatcher. The
+  // WIN Area scope stays collapsed/unfilled until clicked (supplementary view).
   function renderRecommendation(recCounty, recArea, base, county) {
     var REC = MSG.recommendation;
     state.t1RecCounty = recCounty;
@@ -613,11 +617,12 @@
       var rvsLabel = base.rvs ? 'RVS' : 'non-RVS';
       html += '<div class="rec-premise">' + escapeHtml(fmt(REC.premiseLine, { issue: issueLabel, rvsLabel: rvsLabel })) + '</div>';
     }
-    // Two scope buttons (In-County / WIN Area) — SAME two-state pattern as the
-    // Tier 1 volunteer-list toggles. Start unfilled; the body below is hidden.
+    // Two scope buttons (In-County / WIN Area). The In-County button starts
+    // FILLED (.is-active) and its recommendation is shown by default; the WIN
+    // Area button starts unfilled and collapsed.
     html += '<div class="t1-rec-toggles">' +
-      '<button id="t1-rec-toggle-county" class="btn-t1-rec-toggle btn-t1-rec-county" type="button" ' +
-        'aria-expanded="false" aria-controls="rec-scope-body">' + escapeHtml(REC.scopeCountyBtn) + '</button>' +
+      '<button id="t1-rec-toggle-county" class="btn-t1-rec-toggle btn-t1-rec-county is-active" type="button" ' +
+        'aria-expanded="true" aria-controls="rec-scope-body">' + escapeHtml(REC.scopeCountyBtn) + '</button>' +
       '<button id="t1-rec-toggle-area" class="btn-t1-rec-toggle btn-t1-rec-area" type="button" ' +
         'aria-expanded="false" aria-controls="rec-scope-body">' + escapeHtml(REC.scopeAreaBtn) + '</button>' +
       '</div>';
@@ -625,8 +630,8 @@
 
     var out = $('#rec-output');
     out.innerHTML = html;
-    // Panel is shown (with its scope buttons) but carries no tone yet — the tone
-    // class is set by renderT1RecScope when a scope is opened.
+    // Panel is shown; the tone class is set below by renderT1RecScope when the
+    // default In-County scope is rendered.
     out.className = 'rec-output show';
 
     var dismiss = document.getElementById('rec-dismiss');
@@ -638,6 +643,9 @@
       });
     }
     wireT1RecScopeBtns();
+    // Show the In-County recommendation by default (button already marked active
+    // in the markup above). renderT1RecScope reveals the body + sets the tone.
+    renderT1RecScope('county');
   }
 
   // Wire the two recommendation scope buttons. Clicking a scope opens the body
