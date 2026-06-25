@@ -994,6 +994,18 @@
     var headerEl = $('#ctx-header');
     if (!block) return;
 
+    // A fresh Tier-2 lookup always starts collapsed: the block (with its toggle
+    // button) may become visible below, but the list itself (#ctx-content) stays
+    // hidden behind "Show qualified volunteers" until the dispatcher expands it.
+    // Mirrors the Tier 1 reset in renderTier1Volunteers().
+    var contentEl = $('#ctx-content');
+    var toggleEl = $('#ctx-vol-toggle');
+    if (contentEl) contentEl.style.display = 'none';
+    if (toggleEl) {
+      toggleEl.textContent = 'Show qualified volunteers';
+      toggleEl.setAttribute('aria-expanded', 'false');
+    }
+
     // Only show the context block when the response actually carries the Tier 2
     // out_of_county field (i.e. a context=1 widen query). Otherwise hide it so
     // standalone Address mode is unchanged.
@@ -3494,6 +3506,23 @@
     }
     var addrBtn = $('#address-btn');
     if (addrBtn) addrBtn.addEventListener('click', onAddressSubmit);
+    var ctxVolToggle = $('#ctx-vol-toggle');
+    if (ctxVolToggle) {
+      ctxVolToggle.addEventListener('click', function () {
+        var contentEl = $('#ctx-content');
+        if (!contentEl) return;
+        var expanded = contentEl.style.display !== 'none';
+        if (expanded) {
+          contentEl.style.display = 'none';
+          ctxVolToggle.textContent = 'Show qualified volunteers';
+          ctxVolToggle.setAttribute('aria-expanded', 'false');
+        } else {
+          contentEl.style.display = 'block';
+          ctxVolToggle.textContent = 'Hide qualified volunteers';
+          ctxVolToggle.setAttribute('aria-expanded', 'true');
+        }
+      });
+    }
     wireT2MapToggle();
     setupAutocomplete();
     var addrInput = $('#animal-address');

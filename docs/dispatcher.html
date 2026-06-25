@@ -1483,11 +1483,23 @@
 
       <div id="agg-county-breakdown" class="agg-county-breakdown" style="display:none;"></div>
 
-      <div id="ctx-block" style="display:none;">
-        <div class="ctx-header" id="ctx-header">Out-of-county helpers</div>
-        <div id="ctx-notice" class="ctx-notice" style="display:none;"></div>
-        <div id="ctx-empty" class="ctx-empty" style="display:none;"></div>
-        <ul id="ctx-list" class="ctx-list"></ul>
+      <!-- Tier 2 qualified-volunteer list. The toggle button mirrors Tier 1's
+           #t1-vol-toggle (same .btn-t1-vol-toggle styling): the block becomes
+           visible when a Tier-2 lookup carries out_of_county rows, but the list
+           itself (#ctx-content) stays collapsed behind "Show qualified
+           volunteers" until the dispatcher expands it — keeping the long list
+           off small screens by default. -->
+      <div id="ctx-block" style="display:none; margin-top:16px;">
+        <button id="ctx-vol-toggle" class="btn-t1-vol-toggle" type="button"
+                aria-expanded="false" aria-controls="ctx-content">
+          Show qualified volunteers
+        </button>
+        <div id="ctx-content" style="display:none;">
+          <div class="ctx-header" id="ctx-header">Out-of-county helpers</div>
+          <div id="ctx-notice" class="ctx-notice" style="display:none;"></div>
+          <div id="ctx-empty" class="ctx-empty" style="display:none;"></div>
+          <ul id="ctx-list" class="ctx-list"></ul>
+        </div>
       </div>
 
       <div id="rehab-block" style="display:none;" data-panel-key="dispatcher-rehab-block">
