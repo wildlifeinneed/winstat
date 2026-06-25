@@ -1840,9 +1840,14 @@
     Object.keys(byArea).forEach(function (area) {
       var color = areaColor(area);
       var poly = L.polygon(byArea[area].latlngs, {
-        color: color,
-        weight: 2,
-        opacity: 0.9,
+        // Boundary lines use a darkened version of the area's pastel fill so
+        // each border reads as a strong, high-contrast line against the
+        // light interior. The thicker weight makes it obvious where one WIN
+        // area ends and the next begins -- critical when an animal sits right
+        // on the line between two areas that both need alerting.
+        color: darkenColor(color, 0.45),
+        weight: 3,
+        opacity: 1,
         // Pastel fills need a bit more opacity than the old saturated palette to
         // read as distinct hues, while staying semi-transparent so the map
         // underneath remains visible.
@@ -2897,6 +2902,24 @@
 
   function areaColor(area) {
     return AREA_COLORS[String(area)] || AREA_FALLBACK;
+  }
+
+  // Darken a #rrggbb hex color by `amount` (0..1) toward black. Used to derive
+  // a strong, high-contrast boundary stroke from each area's pastel fill so
+  // the lines between WIN areas stand out clearly on the Tier-2 map. Falls back
+  // to a neutral dark grey if the input isn't a parseable 6-digit hex.
+  function darkenColor(hex, amount) {
+    var m = /^#?([0-9a-fA-F]{6})$/.exec(String(hex || '').trim());
+    if (!m) return '#37474f';
+    var f = (amount === undefined || amount === null) ? 0.45 : amount;
+    if (f < 0) f = 0;
+    if (f > 1) f = 1;
+    var n = parseInt(m[1], 16);
+    var r = Math.round(((n >> 16) & 0xff) * (1 - f));
+    var g = Math.round(((n >> 8) & 0xff) * (1 - f));
+    var b = Math.round((n & 0xff) * (1 - f));
+    function h2(v) { var s = v.toString(16); return s.length === 1 ? '0' + s : s; }
+    return '#' + h2(r) + h2(g) + h2(b);
   }
 
   // Compute the geographic bbox across all features (handles Polygon +
