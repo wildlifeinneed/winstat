@@ -1139,8 +1139,16 @@
       transform: rotate(45deg);
       border-color: #7d241a;
     }
-    .t2map-legend .leg-rehab { background: #1d6fb8; border-color: #14507f; }
+    .t2map-legend .leg-rehab { background: #7b3fbf; border-color: #532a82; }
     .t2map-legend .leg-vol { background: var(--amber); border-color: #9c540a; }
+    .t2map-legend .leg-vol-courier { background: #1d6fb8; border-color: #14507f; }
+    .t2map-legend .leg-vol-ct { background: #5bbf5b; border-color: #3a8a3a; }
+    .t2map-legend .leg-vol-rvsct { background: #1f7a33; border-color: #145222; }
+    .t2map-legend .leg-vol-rehab { background: #7b3fbf; border-color: #532a82; }
+    /* Wrapper for the per-role volunteer legend entries. display:contents lets
+       its children join the legend's flex row (and keep the gap spacing) while
+       still being toggled together via the single id=t2map-leg-vol. */
+    .t2map-leg-vol-group { display: contents; }
     .t2map-legend .leg-area {
       background: rgba(118,183,178,0.30);
       border: 2px solid #76b7b2;
@@ -1232,8 +1240,13 @@
       border: 2px solid #fff;
       box-shadow: 0 1px 3px rgba(0,0,0,.4);
     }
-    .t2-pin-rehab { width: 16px; height: 16px; background: #1d6fb8; }
-    .t2-pin-vol   { width: 14px; height: 14px; background: var(--amber); }
+    .t2-pin-rehab { width: 16px; height: 16px; background: #7b3fbf; }
+    /* Volunteer pins are colored by ROLE (highest-priority role wins):
+       COURIER -> blue, C&T -> light green, RVS C&T -> dark green. */
+    .t2-pin-vol         { width: 14px; height: 14px; background: var(--amber); }
+    .t2-pin-vol-courier { width: 14px; height: 14px; background: #1d6fb8; }
+    .t2-pin-vol-ct      { width: 14px; height: 14px; background: #5bbf5b; }
+    .t2-pin-vol-rvsct   { width: 14px; height: 14px; background: #1f7a33; }
     .t2-pin-animal {
       width: 14px; height: 14px;
       background: var(--red);
@@ -1526,7 +1539,15 @@
             <span class="leg-item"><span class="leg-dot leg-animal"></span>Animal location</span>
             <span class="leg-item"><span class="leg-dot leg-rehab"></span>Rehabbers</span>
             <!-- === VOLUNTEER MARKERS START (legend entry) === -->
-            <span class="leg-item" id="t2map-leg-vol"><span class="leg-dot leg-vol"></span>Volunteers</span>
+            <!-- Volunteer pins are colored by ROLE (highest-priority role wins).
+                 The wrapper carries id=t2map-leg-vol so the single SHOW_VOLUNTEER_MARKERS
+                 flag still toggles every volunteer legend entry at once. -->
+            <span id="t2map-leg-vol" class="t2map-leg-vol-group">
+              <span class="leg-item"><span class="leg-dot leg-vol-courier"></span>Courier</span>
+              <span class="leg-item"><span class="leg-dot leg-vol-ct"></span>C&amp;T</span>
+              <span class="leg-item"><span class="leg-dot leg-vol-rvsct"></span>RVS C&amp;T</span>
+              <span class="leg-item"><span class="leg-dot leg-vol-rehab"></span>Rehabber</span>
+            </span>
             <!-- === VOLUNTEER MARKERS END (legend entry) === -->
             <span class="leg-item"><span class="leg-dot leg-area"></span>WIN service area</span>
           </div>

@@ -1777,6 +1777,23 @@
   }
 
   // Build a small CSS-styled DivIcon (no external sprite dependency).
+  // Pick the pin CSS class for a volunteer by ROLE, using the highest-priority
+  // role when several are present: RVS C&T > C&T > COURIER. Roles are canonical
+  // labels ('RVS C&T' / 'C&T' / 'COURIER') but may vary in case/whitespace, so
+  // normalize before matching. Falls back to the plain courier-blue pin.
+  function t2VolPinClass(roles) {
+    var has = { rvs: false, ct: false, courier: false };
+    (roles || []).forEach(function (r) {
+      var k = String(r || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      if (k === 'rvs c&t') has.rvs = true;
+      else if (k === 'c&t') has.ct = true;
+      else if (k === 'courier') has.courier = true;
+    });
+    if (has.rvs) return 't2-pin-vol-rvsct';   // dark green
+    if (has.ct) return 't2-pin-vol-ct';       // light green
+    return 't2-pin-vol-courier';              // blue (default)
+  }
+
   function t2DivIcon(cls, size) {
     return L.divIcon({
       className: '',
@@ -2020,7 +2037,7 @@
           lines.push('County: ' + escapeHtml(v.county));
         }
         L_.marker([lat, lon], {
-          icon: t2DivIcon('t2-pin-vol', 14),
+          icon: t2DivIcon(t2VolPinClass(v.roles), 14),
           title: 'Volunteer'
         }).bindPopup('<strong>Volunteer</strong>' +
             (lines.length ? ('<br>' + lines.join('<br>')) : ''))
