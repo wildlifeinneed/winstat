@@ -277,6 +277,87 @@ for PII-shaped keys (phone/email/address/etc.). Any violation aborts the push.
 **Rule of thumb: never commit `data/volunteer_coords.json`, and never put volunteer
 phone/address into a `docs/data/*` file.**
 
+### 2e. Volunteer data validation (two checks)
+
+After the volunteer coords dataset is built but **before** it is written or
+uploaded to KV, `refresh_monday.py` runs two safety checks
+(`validate_record_integrity` and `validate_geocode_accuracy`).
+
+**Check 1 — record integrity (BLOCKING).** Validates every coords record before
+it can be published. It confirms each record:
+
+- carries all required fields (`lat`, `lon`, `home_county`, `win_area`, `roles`,
+  `available`, `connecteam_user`) — only `win_area` and `connecteam_user` may be
+  `None` (unknown);
+- has finite numeric `lat`/`lon` and a list-typed `roles`;
+- is internally consistent — the record's `win_area` must match the WIN area its
+  `home_county` resolves to. A mismatch is the tell-tale of cross-volunteer field
+  bleed (one person's coords stitched onto another's county), so it is treated as
+  an error, not a warning.
+
+If **any** record fails, the script logs every problem and **exits non-zero** —
+bad / scrambled data is **never written to `docs/data/` or uploaded to KV**. This
+check always runs (you cannot turn it off). A failure fails the CI job, and GitHub
+Actions emails the repo owner about the failed workflow run (see §2g).
+
+**Check 2 — geocode accuracy (NON-BLOCKING).** A reverse sanity check that the
+stored coordinates actually make sense for the volunteer's stated address:
+
+- **county containment** (always): the stored `(lat, lon)` is reverse-looked-up to
+  a PA county via point-in-polygon. If that county differs from the record's
+  `home_county`, the coords are likely wrong (wrong town/state). Coords that fall
+  outside every PA county polygon (a border edge) are flagged as a soft "could not
+  confirm", not a hard mismatch.
+- **re-geocode drift** (with `--revalidate-geocode`): the address is re-run through
+  the Census geocoder; if the fresh result drifts more than **~1 mile** from the
+  stored coords it is flagged.
+
+This check only **logs warnings** — it never blocks a refresh. In CI it runs
+automatically after each refresh as a separate, `continue-on-error` step, so a
+flagged volunteer surfaces as a warning without stopping the data pipeline.
+
+### 2f. Running the accuracy check manually
+
+Run the full accuracy check (both county containment and re-geocode drift) without
+touching any files or KV:
+
+```
+python3 refresh_monday.py --validate --revalidate-geocode --dry-run
+```
+
+- `--validate` enables Check 2; `--revalidate-geocode` adds the per-address
+  re-geocode drift comparison (one Census API call per volunteer, so it is
+  slower); `--dry-run` prints results without writing `docs/data/*` or uploading to
+  KV.
+- Warnings are PII-free (they identify a record by index, `home_county`, and
+  `win_area` only). Investigate any flagged record by checking that volunteer's
+  address on the Monday volunteer board.
+- Check 1 (record integrity) always runs regardless of flags, so this command will
+  also fail loudly if any record is malformed.
+
+### 2g. How you get notified
+
+- **Blocking failures (Check 1, or any pipeline error):** GitHub Actions sends an
+  email to the **repository owner** whenever a scheduled or manual workflow run
+  **fails**. A failed run means the refresh was rejected and KV was **not** updated
+  with bad data — the previous good data stays live.
+- **Non-blocking warnings (Check 2):** these do **not** fail the run, so they do
+  not trigger a failure email. To see them, open the repo's **Actions** tab,
+  click the latest "Refresh wildlife capacity snapshot" run, and look at the
+  **"Validate geocode accuracy (non-blocking)"** step — flagged records are listed
+  in its log (the step is marked with a warning when it flags something).
+
+**What to do if something flags:**
+
+- A **record-integrity failure / failure email** → the refresh was blocked on
+  purpose. Fix the offending volunteer record on the Monday board (the log names
+  the `home_county` / `win_area`), then re-trigger a refresh (§2a). KV keeps the
+  last good data until the fix lands.
+- A **geocode-accuracy warning** → not urgent and nothing was blocked. Confirm the
+  volunteer's address on Monday; a genuine bad coordinate usually means the address
+  was mistyped or geocoded to the wrong place. Re-run the manual command above to
+  re-check after fixing.
+
 ---
 
 ## 3. Cloudflare Worker
@@ -410,6 +491,8 @@ edit.
 | PA Game Commission phone | `messages.js` → `PGC_PHONE` (one place) |
 | Live thresholds + per-county overrides | `docs/data/config.json` (wins over `messages.js`) |
 | Trigger a data refresh | Bump `Last_Updated` on VolDB_Status board `6750158385` |
+| Validate volunteer data | Check 1 record-integrity (blocking) + Check 2 geocode-accuracy (warning) |
+| Run accuracy check manually | `python3 refresh_monday.py --validate --revalidate-geocode --dry-run` |
 | Volunteer board | `9092079933` (Connecteam_Users) — coords go to private KV |
 | Rehabber board | `9092004762` (RehabDB) — public; no open/closed |
 | Coordinator board | `18416913502` (Area Coordinators) — item=area, name only |
