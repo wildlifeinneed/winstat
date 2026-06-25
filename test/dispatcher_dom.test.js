@@ -3637,18 +3637,18 @@ async function runTier1DispatchSummary() {
   };
   // Rehabbers exercising the animal-type filter. Availability species codes
   // (authoritative legend, docs/USER_MANUAL.md "Animal codes"):
-  //   M = Mammals, P = Passerines/songbirds (Bird), R = Raptors,
-  //   RA = Reptiles & Amphibians. Animal Type = Mammal is selected first, so
-  //   only facilities whose availability contains "M" qualify:
-  //   • Tamarack (Allegheny, "M, R, RA")  -> M present  -> SHOWN (in-county, first)
-  //   • Beaver County Rehab (Beaver, "M") -> M present  -> SHOWN (in-area, no phone)
-  //   • Songbird Haven (Allegheny, "P")   -> bird only  -> EXCLUDED by animal type
-  //   • Erie Far Away (Erie, "M")         -> out of WIN area 10 -> EXCLUDED by scope
+  //   M = Mammals (non-bat), P = Passerines (Bird/Waterfowl), R = Raptors,
+  //   RA = Reptiles & Amphibians, RVS = Rabies-Vector Species (incl. BATS).
+  // Mapping: Bat -> RVS; Mammal -> M OR RVS; Raptor -> R; Reptile/Amphibian -> RA.
+  //   • Tamarack (Allegheny, "M, R, RA, RVS") -> in-county, accepts M/R/RA/RVS
+  //   • Beaver County Rehab (Beaver, "M")     -> in-area mammal-only, no phone
+  //   • Songbird Haven (Allegheny, "P")       -> bird-only -> EXCLUDED for M/RVS
+  //   • Erie Far Away (Erie, "M, RVS")        -> out of WIN area 10 -> EXCLUDED
   const REHABBERS = [
-    { rehab_name: 'Tamarack Wildlife Center', county: 'Allegheny', phone: '8147637676', availability: 'Tamarack Wildlife Center\nM, R, RA' },
+    { rehab_name: 'Tamarack Wildlife Center', county: 'Allegheny', phone: '8147637676', availability: 'Tamarack Wildlife Center\nM, R, RA, RVS' },
     { rehab_name: 'Beaver County Rehab', county: 'Beaver', phone: '', availability: 'Beaver County Rehab\nM' },
     { rehab_name: 'Songbird Haven', county: 'Allegheny', phone: '4125550000', availability: 'Songbird Haven\nP' },
-    { rehab_name: 'Erie Far Away', county: 'Erie', phone: '8145551212', availability: 'Erie Far Away\nM' },
+    { rehab_name: 'Erie Far Away', county: 'Erie', phone: '8145551212', availability: 'Erie Far Away\nM, RVS' },
   ];
   const { window, doc } = await loadDomAndRecommendWithRehabbers(
     agg, REHABBERS, 'Allegheny', { rvs: false, issue: 'capture', animalType: 'mammal' });
@@ -3720,7 +3720,19 @@ async function runTier1DispatchSummary() {
     'Reptile/Amphibian filter keeps only Tamarack (RA); Beaver (M only) drops out (got ' + raRows.length + ')');
   assert.ok(/Tamarack/.test(raRows[0]), 'the single Reptile/Amphibian row is Tamarack');
 
-  console.log('PASS: Tier 1 dispatch summary — qualified-volunteer counts (in-county 3 / in-area 4, COURIER excluded; matches the list filter) + nearby rehabbers FILTERED by animal type (Mammal -> Tamarack+Beaver, bird-only Songbird Haven excluded; Raptor -> Tamarack via R; Reptile/Amphibian -> Tamarack via RA), in-county first, formatted tel link, no-phone fallback, out-of-area excluded, no stale caveat.');
+  // Switching to Bat re-filters on RVS (bats are Rabies-Vector Species):
+  // Tamarack ("...RVS") qualifies; Beaver ("M" only, no RVS) drops -> only
+  // Tamarack. This proves Bat maps to RVS, NOT to plain M.
+  const { doc: doc4 } = await loadDomAndRecommendWithRehabbers(
+    agg, REHABBERS, 'Allegheny', { rvs: false, issue: 'capture', animalType: 'bat' });
+  const batRows = Array.prototype.slice.call(
+    doc4.querySelectorAll('#rec-scope-body .rec-summary .rec-summary-rehab'))
+    .map(function (li) { return li.textContent.replace(/\s+/g, ' ').trim(); });
+  assert.strictEqual(batRows.length, 1,
+    'Bat filter keeps only Tamarack (RVS); Beaver (M only, no RVS) drops out (got ' + batRows.length + ')');
+  assert.ok(/Tamarack/.test(batRows[0]), 'the single Bat row is Tamarack (matched via RVS)');
+
+  console.log('PASS: Tier 1 dispatch summary — qualified-volunteer counts (in-county 3 / in-area 4, COURIER excluded; matches the list filter) + nearby rehabbers FILTERED by animal type (Mammal -> M|RVS keeps Tamarack+Beaver, bird-only Songbird Haven excluded; Raptor -> R; Reptile/Amphibian -> RA; Bat -> RVS keeps Tamarack, drops M-only Beaver), in-county first, formatted tel link, no-phone fallback, out-of-area excluded, no stale caveat.');
 }
 
 // Helper: load the page with a custom Worker aggregate AND rehabbers.json

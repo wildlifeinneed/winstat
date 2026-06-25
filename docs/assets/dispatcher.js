@@ -449,34 +449,37 @@
   // appended after the facility name, e.g.
   //   "Humane Animal Rescue Wildlife Center\nM,P,R, RA RVS, END".
   // The codes (authoritative legend: docs/USER_MANUAL.md "Animal codes"):
-  //   M   = Mammals
-  //   P   = Passerines / songbirds (general Bird; waterfowl fall here too — the
-  //         data has no separate waterfowl code)
-  //   R   = Raptors
-  //   RA  = Reptiles & Amphibians
-  //   RVS = Rabies-Vector Species (a CAPABILITY / mammal subset, NOT a type)
+  //   M   = Mammals (non-bat)
+  //   P   = Passerines (songbirds, waterfowl & woodpeckers) — the "Bird" AND
+  //         "Waterfowl" dropdown categories both map here
+  //   R   = Raptors (hawks, owls, falcons, eagles & vultures)
+  //   RVS = Rabies-Vector Species (raccoons, skunks, BATS, groundhogs, coyotes
+  //         & foxes) — a real animal-type signal, NOT just a capability
   //   END = Endangered / Threatened (a STATUS, not an animal-type category)
-  // Plus free text like "Bats only" for bat-exclusive facilities (which carry NO
-  // standalone "M", so they are correctly excluded for the general Mammal type).
+  //   RA  = Native Reptiles & Amphibians
   //
   // REHAB_SPECIES_CODES maps each Animal Type dropdown category to the set of
-  // codes that mean "accepts this animal". 'other'/unknown is intentionally
-  // absent -> PASS-THROUGH (we never filter when the species is unknown).
+  // codes that mean "accepts this animal" (ANY one present -> accepts).
+  // 'other'/unknown is intentionally absent -> PASS-THROUGH (we never filter
+  // when the species is unknown).
+  //   • Bat    -> RVS  (bats are rabies-vector species)
+  //   • Mammal -> M OR RVS  (M = non-bat mammals; RVS covers raccoons/skunks/
+  //                          groundhogs/coyotes/foxes, which a mammal caller wants)
   var REHAB_SPECIES_CODES = {
     bird: ['P'],
-    waterfowl: ['P'],          // no dedicated waterfowl code; birds -> P
-    raptor: ['R'],             // R = Raptors
-    bat: ['M'],                // bats are mammals; general M rehabbers take them
-    mammal: ['M'],
-    reptile_amphibian: ['RA']  // RA = Reptiles & Amphibians
+    waterfowl: ['P'],             // Passerines covers waterfowl
+    raptor: ['R'],                // R = Raptors
+    bat: ['RVS'],                 // bats are Rabies-Vector Species
+    mammal: ['M', 'RVS'],         // non-bat mammals (M) + RVS mammals
+    reptile_amphibian: ['RA']     // RA = Reptiles & Amphibians
   };
 
   // Does a rehabber's `availability` text indicate it accepts `animalType`
   // (a dropdown category)? 'other'/empty/unknown -> true (never restrict).
-  // Tokenizes the availability on non-letter boundaries so a CODE like "RA"
-  // matches as a whole token and is never confused with a letter inside the
-  // facility name (e.g. "AARK"). Bats additionally match the word "bat" so a
-  // "Bats only" facility (no standalone M) still accepts the Bat category.
+  // Tokenizes the availability on non-letter boundaries so a CODE like "RA" or
+  // "RVS" matches as a whole token and is never confused with letters inside the
+  // facility name (e.g. "AARK"). Bats additionally match the free-text word
+  // "bat" so a "Bats only" facility still accepts the Bat category.
   function rehabberAcceptsAnimal(availability, animalType) {
     var cat = String(animalType == null ? '' : animalType).toLowerCase().trim();
     if (!cat || cat === 'other' || cat === 'unknown') return true;
