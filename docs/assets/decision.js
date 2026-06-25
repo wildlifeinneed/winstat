@@ -443,9 +443,17 @@
 
   function recommendByCount(capacity, animalRvs, issue, resolvedConfig) {
     var cfg = resolveConfig(resolvedConfig);
+    var issueNormInit = (typeof issue === 'string') ? issue.toLowerCase().trim() : '';
     var rec = {
       action: null,
       target: null,
+      // Self-describe the normalized issue so DISPLAY code (dispatcher.js) can
+      // make the call_pa_game_comm action issue-aware (transport -> "transport
+      // to nearest rehabber"; capture/RVS -> "call PGC to capture") WITHOUT a
+      // separately-passed param that could drift from the rec it renders. This
+      // is metadata only; the branch logic below is unchanged.
+      issue: issueNormInit,
+      rvs: (animalRvs === true),
       marginal: false,
       marginal_volunteers: [],
       reasoning: []
@@ -458,7 +466,7 @@
       return rec;
     }
 
-    var issueNorm = (typeof issue === 'string') ? issue.toLowerCase().trim() : '';
+    var issueNorm = issueNormInit;
 
     // E. Unknown issue
     if (issueNorm !== 'capture' && issueNorm !== 'transport') {

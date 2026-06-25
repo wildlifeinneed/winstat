@@ -3729,6 +3729,178 @@ async function loadDomAndRecommendWithRehabbers(agg, rehabbers, county, base) {
   return { window, doc, opts };
 }
 
+// Drive a Tier 1 recommendation that resolves to call_pa_game_comm (no qualified
+// volunteer) WITH both a zero-capacity SNAPSHOT (so the recommendation reads
+// real county capacity and lands on branch C/D, not the missing-capacity
+// branch A) AND a rehabbers.json list (so the transport path can name nearby
+// rehabbers). Returns the live window/doc.
+async function driveTier1PgcWithRehabbers(snapshot, rehabbers, county, base) {
+  const { window } = loadDom({
+    workerAgg: { total_in_range: 0, role_counts: {}, win_areas: [], out_of_county: [], out_of_county_truncated: false, radius_too_broad: false },
+    data: {
+      'county_capacity.json': snapshot,
+      'county_win.json': COUNTY_WIN,
+      'coordinators.json': COORDINATORS,
+      'rehabbers.json': rehabbers,
+    },
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  const countySel = doc.getElementById('county');
+  countySel.value = county;
+  countySel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+
+  if (base) {
+    const rvsVal = base.rvs ? 'yes' : 'no';
+    const rvsEl = doc.querySelector('input[name="rvs"][value="' + rvsVal + '"]');
+    if (rvsEl) { rvsEl.checked = true; rvsEl.dispatchEvent(new window.Event('change', { bubbles: true })); }
+    const issueEl = doc.querySelector('input[name="issue"][value="' + base.issue + '"]');
+    if (issueEl) { issueEl.checked = true; issueEl.dispatchEvent(new window.Event('change', { bubbles: true })); }
+    await flush(window);
+    await flush(window);
+  }
+
+  doc.getElementById('recommend-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+  return { window, doc };
+}
+
+// Zero-capacity snapshot shared by the PGC-actionable tests: Allegheny (+ Beaver
+// sibling in WIN area 10) both have 0 available in every bucket, so recommend()
+// finds no qualified volunteer and yields call_pa_game_comm.
+const PGC_ZERO_SNAPSHOT = {
+  generated_at: '2024-01-01T00:00:00Z',
+  counties: {
+    Allegheny: {
+      ct_no_rvs: { available: 0, total: 0, marginal_volunteers: [] },
+      ct_rvs: { available: 0, total: 0, marginal_volunteers: [] },
+      courier: { available: 0, total: 0, marginal_volunteers: [] },
+    },
+    Beaver: {
+      ct_no_rvs: { available: 0, total: 0, marginal_volunteers: [] },
+      ct_rvs: { available: 0, total: 0, marginal_volunteers: [] },
+      courier: { available: 0, total: 0, marginal_volunteers: [] },
+    },
+  },
+};
+
+// Rehabbers shared by the PGC-actionable tests: 1 in-county (Allegheny), 1 in
+// the sibling WIN-area county (Beaver, no phone), 1 OUT of area (Erie) that must
+// never appear in the nearby list.
+const PGC_REHABBERS = [
+  { rehab_name: 'Tamarack Wildlife Center', county: 'Allegheny', phone: '8147637676', availability: 'M, RA' },
+  { rehab_name: 'Beaver County Rehab', county: 'Beaver', phone: '', availability: 'M' },
+  { rehab_name: 'Erie Far Away', county: 'Erie', phone: '8145551212', availability: 'M' },
+];
+
+// ── PGC ACTIONABLE (Transport / animal CONTAINED): when no volunteer is
+//    available for a TRANSPORT call, the recommendation is NOT a flat "Call PA
+//    Game Commission". The animal is already contained, so the dispatcher is
+//    told to ask the finder to drive it to the nearest wildlife rehabber, and
+//    the nearby rehabbers (with tel-linked phones) are listed as destinations.
+async function runTier1PgcTransportActionable() {
+  const { doc } = await driveTier1PgcWithRehabbers(
+    PGC_ZERO_SNAPSHOT, PGC_REHABBERS, 'Allegheny', { rvs: false, issue: 'transport' });
+
+  const out = doc.getElementById('rec-output');
+  assert.ok(out && out.classList.contains('show'), 'recommendation panel shown');
+
+  // Headline is the transport-actionable label, NOT "Call PA Game Commission".
+  const actionEl = doc.querySelector('#rec-output .rec-action');
+  assert.ok(actionEl, 'an action headline is rendered');
+  assert.ok(/transport to nearest wildlife rehabber/i.test(actionEl.textContent),
+    'Transport no-volunteer headline asks to transport to nearest rehabber (got: "' + actionEl.textContent + '")');
+  assert.ok(!/call pa game commission/i.test(actionEl.textContent),
+    'Transport headline is NOT the flat "Call PA Game Commission"');
+
+  // The actionable PGC guidance block names the next step + lists rehabbers.
+  const pgc = doc.querySelector('#rec-output .rec-pgc');
+  assert.ok(pgc, 'an actionable .rec-pgc guidance block is rendered for transport');
+  const tell = pgc.querySelector('.rec-pgc-tell');
+  assert.ok(tell && /contained/i.test(tell.textContent) && /rehabber/i.test(tell.textContent),
+    '"tell the finder" line says the animal is contained -> transport to a rehabber (got: "' + (tell ? tell.textContent : '') + '")');
+
+  // Nearby rehabbers: Allegheny (in-county) first with a formatted tel link;
+  // Beaver (sibling area, no phone) second; Erie (out of area) excluded.
+  const rows = Array.prototype.slice.call(pgc.querySelectorAll('.rec-pgc-rehab'))
+    .map(function (li) { return li.textContent.replace(/\s+/g, ' ').trim(); });
+  assert.strictEqual(rows.length, 2,
+    'exactly 2 in-scope rehabbers listed (Allegheny + Beaver; Erie excluded) (got ' + rows.length + ')');
+  assert.ok(/Tamarack Wildlife Center/.test(rows[0]) && /Allegheny County/.test(rows[0]),
+    'in-county rehabber (Tamarack — Allegheny) is listed FIRST');
+  assert.ok(/814-763-7676/.test(rows[0]),
+    'in-county rehabber phone is formatted XXX-XXX-XXXX (got: "' + rows[0] + '")');
+  const telLink = pgc.querySelector('.rec-pgc-rehab a[href^="tel:"]');
+  assert.ok(telLink && /8147637676/.test(telLink.getAttribute('href')),
+    'in-county rehabber phone is a tel: link with digit-only href');
+  assert.ok(/Beaver County Rehab/.test(rows[1]) && /no phone on file/i.test(rows[1]),
+    'sibling-area rehabber with no phone shows the no-phone fallback (got: "' + rows[1] + '")');
+  assert.ok(!rows.join(' | ').match(/Erie/), 'out-of-area (Erie) rehabber is NOT listed');
+
+  console.log('PASS: PGC actionable (Transport, animal contained) — headline asks to transport to nearest rehabber (not "Call PA Game Commission"); nearby rehabbers listed in-county-first with formatted tel links + no-phone fallback, out-of-area excluded.');
+}
+
+// ── PGC ACTIONABLE (Transport, NO rehabber on file): when a TRANSPORT call has
+//    no volunteer AND no in-scope rehabber, the transport path falls back to the
+//    PGC dispatch line (the finder still needs somewhere to call).
+async function runTier1PgcTransportNoRehabFallback() {
+  const { doc } = await driveTier1PgcWithRehabbers(
+    PGC_ZERO_SNAPSHOT, [
+      // Only an OUT-of-area rehabber on file -> nearby list is empty.
+      { rehab_name: 'Erie Far Away', county: 'Erie', phone: '8145551212', availability: 'M' },
+    ], 'Allegheny', { rvs: false, issue: 'transport' });
+
+  const pgc = doc.querySelector('#rec-output .rec-pgc');
+  assert.ok(pgc, 'an actionable .rec-pgc guidance block is rendered');
+  // No rehabber rows; instead the PGC fallback line with the PGC phone.
+  assert.strictEqual(pgc.querySelectorAll('.rec-pgc-rehab').length, 0,
+    'no nearby rehabber rows when none are on file in-area');
+  const tell = pgc.querySelector('.rec-pgc-tell');
+  assert.ok(tell && /no nearby rehabber/i.test(tell.textContent) && /pa game commission/i.test(tell.textContent),
+    'transport with no rehabber falls back to a PGC line (got: "' + (tell ? tell.textContent : '') + '")');
+  assert.ok(tell && /833/.test(tell.textContent),
+    'the PGC fallback line includes the PGC dispatch number');
+
+  console.log('PASS: PGC actionable (Transport, no rehabber on file) — falls back to the PA Game Commission dispatch line with the PGC phone.');
+}
+
+// ── PGC ACTIONABLE (Capture / animal NOT contained): when no volunteer is
+//    available for a CAPTURE (or RVS capture) call, the animal still needs
+//    CATCHING — a rehab drop-off is not possible — so PGC handles the capture.
+//    The headline says "Call PA Game Commission to capture" and the PGC dispatch
+//    number is shown.
+async function runTier1PgcCaptureActionable() {
+  const { doc } = await driveTier1PgcWithRehabbers(
+    PGC_ZERO_SNAPSHOT, PGC_REHABBERS, 'Allegheny', { rvs: true, issue: 'capture' });
+
+  const actionEl = doc.querySelector('#rec-output .rec-action');
+  assert.ok(actionEl && /call pa game commission to capture/i.test(actionEl.textContent),
+    'Capture no-volunteer headline is "Call PA Game Commission to capture" (got: "' + (actionEl ? actionEl.textContent : '') + '")');
+  assert.ok(actionEl.classList.contains('escalate'),
+    'capture PGC headline keeps the escalate tone');
+
+  const pgc = doc.querySelector('#rec-output .rec-pgc');
+  assert.ok(pgc, 'an actionable .rec-pgc guidance block is rendered for capture');
+  const tell = pgc.querySelector('.rec-pgc-tell');
+  assert.ok(tell && /capture/i.test(tell.textContent) && /pa game commission/i.test(tell.textContent),
+    '"tell the finder" line says PGC handles the capture (got: "' + (tell ? tell.textContent : '') + '")');
+  const phoneLine = pgc.querySelector('.rec-pgc-phone');
+  assert.ok(phoneLine && /833/.test(phoneLine.textContent),
+    'the PGC dispatch number is shown on the capture path (got: "' + (phoneLine ? phoneLine.textContent : '') + '")');
+
+  // The transport-only rehabber list must NOT appear on the capture path.
+  assert.strictEqual(pgc.querySelectorAll('.rec-pgc-rehab').length, 0,
+    'no rehabber list on the capture path (animal not contained)');
+
+  console.log('PASS: PGC actionable (Capture / RVS, animal not contained) — headline is "Call PA Game Commission to capture" + shows the PGC dispatch number; no rehabber list.');
+}
+
+
 // ── Tier 1 (Transport): when ALL volunteers qualify (Issue=Transport ->
 //    qualifyingRoles returns all 3: C&T + RVS C&T + COURIER) AND the list is
 //    long (> 2 per role), the list is CAPPED to ≤2 per role category, with the
@@ -4463,7 +4635,10 @@ async function run() {
   await runTier2CountyBreakdown();
   await runScriptCacheBusting();
   await runScopeButtonHoverFill();
-  console.log('\nALL DOM TESTS PASSED (61 scenarios).');
+  await runTier1PgcTransportActionable();
+  await runTier1PgcTransportNoRehabFallback();
+  await runTier1PgcCaptureActionable();
+  console.log('\nALL DOM TESTS PASSED (64 scenarios).');
 }
 
 run().then(function () {

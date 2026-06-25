@@ -172,7 +172,36 @@
       // structured animal-type field, so the list is NOT filtered by the
       // selected animal type yet. Confirm the facility accepts this animal
       // before referring.
-      summaryRehabNoFilter: 'Animal-type filtering not yet available \u2014 confirm the rehabber accepts this animal before referring.'
+      summaryRehabNoFilter: 'Animal-type filtering not yet available \u2014 confirm the rehabber accepts this animal before referring.',
+
+      // ── Actionable "no volunteer available" guidance (dispatcher.js) ───────
+      // When recommend() yields call_pa_game_comm (no qualified volunteer in
+      // county), the displayed action is now issue-aware instead of a flat
+      // "Call PA Game Commission":
+      //
+      //  • TRANSPORT (animal already CONTAINED by the finder): the right next
+      //    step is to have the finder DRIVE the animal to the nearest wildlife
+      //    rehabber. The action headline + a "tell the finder" line make this
+      //    explicit; the nearby-rehabber list (with phones) is surfaced from
+      //    the dispatch summary so the dispatcher can name a destination.
+      //  • CAPTURE / RVS (animal NOT contained — needs catching): a rehab drop
+      //    off is not possible, so PA Game Commission handles the CAPTURE. The
+      //    headline says so and the PGC dispatch line is shown.
+      //
+      // Action headlines (override ACTIONS.call_pa_game_comm.label per issue).
+      pgcTransportLabel: 'Ask finder to transport to nearest wildlife rehabber',
+      pgcCaptureLabel: 'Call PA Game Commission to capture',
+      // "What to tell the finder" line under the TRANSPORT headline. The animal
+      // is already contained, so transporting to a rehabber is the action.
+      pgcTransportTell: 'No volunteer available in-county. The animal is contained \u2014 ask the finder to drive it to the nearest wildlife rehabber below.',
+      // Fallback shown under the TRANSPORT headline when no in-scope rehabber is
+      // on file (the rehabber list is empty). {phone} = PGC dispatch line.
+      pgcTransportNoRehab: 'No volunteer available in-county and no nearby rehabber on file \u2014 ask the finder to call PA Game Commission: {phone}.',
+      // "What to tell the finder" line under the CAPTURE / RVS headline. PGC
+      // handles captures when no volunteer is available. {phone} = PGC line.
+      pgcCaptureTell: 'No volunteer available in-county to capture this animal \u2014 ask the finder to call PA Game Commission: {phone}.',
+      // Inline PGC phone line header (capture path). {phone} = PGC dispatch line.
+      pgcPhoneLine: 'PA Game Commission: <strong>{phone}</strong>'
     },
 
     // ── Tier 1 capacity cards / empty + coordinator line (dispatcher.js) ───

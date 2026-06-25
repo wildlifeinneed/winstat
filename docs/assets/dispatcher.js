@@ -443,6 +443,55 @@
     return s;
   }
 
+  // ─── Nearby rehabbers (shared) ───────────────────────────────────────────
+  // Return the rehabbers in the selected county or its WIN area, ordered with
+  // selected-county rows FIRST then sibling-area rows (stable within each
+  // group). Used by BOTH the dispatch summary AND the actionable transport-PGC
+  // block so the two never disagree on who is "nearby". rehabbers.json carries
+  // no structured animal-type field, so the list is NOT filtered by animal type.
+  function nearbyRehabbers(county) {
+    if (!county) return [];
+    var areaCounties = {};
+    getWinAreaCounties(county).forEach(function (c) {
+      if (c) areaCounties[String(c).trim().toLowerCase()] = true;
+    });
+    var rehabbers = Array.isArray(state.rehabbers) ? state.rehabbers : [];
+    var nearby = rehabbers.filter(function (r) {
+      var rc = (r && r.county) ? String(r.county).trim().toLowerCase() : '';
+      return rc && areaCounties[rc];
+    });
+    var inCty = [];
+    var siblings = [];
+    var selKey = String(county).trim().toLowerCase();
+    nearby.forEach(function (r) {
+      if (String(r.county).trim().toLowerCase() === selKey) inCty.push(r);
+      else siblings.push(r);
+    });
+    return inCty.concat(siblings);
+  }
+
+  // Render one rehabber list <li> (name + formatted tel-linked phone + county),
+  // reused by the summary and the transport-PGC block so the markup is identical.
+  function rehabberRowHtml(r, liClass) {
+    var REC = MSG.recommendation;
+    var name = String(r.rehab_name || '').trim() || String(r.county || '');
+    var rawPhone = String(r.phone || '').trim();
+    var phoneTxt;
+    if (rawPhone) {
+      var shown = formatPhoneDisplay(rawPhone);
+      var telHref = rawPhone.replace(/[^0-9+]/g, '');
+      phoneTxt = '<a href="tel:' + escapeHtml(telHref) + '">' + escapeHtml(shown) + '</a>';
+    } else {
+      phoneTxt = escapeHtml(REC.summaryRehabNoPhone);
+    }
+    return '<li class="' + liClass + '">' +
+      fmt(REC.summaryRehabRow, {
+        name: escapeHtml(name),
+        phone: phoneTxt,
+        county: escapeHtml(String(r.county || ''))
+      }) + '</li>';
+  }
+
   // ─── Dispatch summary block (Tier-2-depth detail for Tier 1) ──────────────
   // Build scannable summary lines shown UNDER the action/target in the In-County
   // recommendation:
@@ -504,46 +553,14 @@
 
     // 2) Nearby rehabbers in the county or its WIN area. rehabbers.json has no
     //    structured animal-type field, so we cannot filter by animal type — show
-    //    all in-scope rehabbers with a caveat.
+    //    all in-scope rehabbers with a caveat. Uses the SHARED nearbyRehabbers()
+    //    helper so the transport-PGC block lists the exact same facilities.
     html += '<div class="rec-summary-rehab-header">' + escapeHtml(REC.summaryRehabHeader) + '</div>';
-    var areaCounties = {};
-    getWinAreaCounties(county).forEach(function (c) {
-      if (c) areaCounties[String(c).trim().toLowerCase()] = true;
-    });
-    var rehabbers = Array.isArray(state.rehabbers) ? state.rehabbers : [];
-    var nearby = rehabbers.filter(function (r) {
-      var rc = (r && r.county) ? String(r.county).trim().toLowerCase() : '';
-      return rc && areaCounties[rc];
-    });
-    if (nearby.length) {
-      // Selected-county rehabbers first, then sibling-area rehabbers; stable
-      // within each group.
-      var inCty = [];
-      var siblings = [];
-      var selKey = String(county).trim().toLowerCase();
-      nearby.forEach(function (r) {
-        if (String(r.county).trim().toLowerCase() === selKey) inCty.push(r);
-        else siblings.push(r);
-      });
-      var ordered = inCty.concat(siblings);
+    var ordered = nearbyRehabbers(county);
+    if (ordered.length) {
       html += '<ul class="rec-summary-list rec-summary-rehab-list">';
       ordered.forEach(function (r) {
-        var name = String(r.rehab_name || '').trim() || String(r.county || '');
-        var rawPhone = String(r.phone || '').trim();
-        var phoneTxt;
-        if (rawPhone) {
-          var shown = formatPhoneDisplay(rawPhone);
-          var telHref = rawPhone.replace(/[^0-9+]/g, '');
-          phoneTxt = '<a href="tel:' + escapeHtml(telHref) + '">' + escapeHtml(shown) + '</a>';
-        } else {
-          phoneTxt = escapeHtml(REC.summaryRehabNoPhone);
-        }
-        html += '<li class="rec-summary-rehab">' +
-          fmt(REC.summaryRehabRow, {
-            name: escapeHtml(name),
-            phone: phoneTxt,
-            county: escapeHtml(String(r.county || ''))
-          }) + '</li>';
+        html += rehabberRowHtml(r, 'rec-summary-rehab');
       });
       html += '</ul>';
       html += '<div class="rec-summary-rehab-note">' + escapeHtml(REC.summaryRehabNoFilter) + '</div>';
@@ -555,23 +572,88 @@
     return html;
   }
 
+  // ─── Actionable PGC guidance (issue-aware "no volunteer available") ───────
+  // Build the guidance block shown under a call_pa_game_comm headline. It tells
+  // the dispatcher exactly what to TELL the finder:
+  //   • transport -> the animal is contained, so list the nearest rehabbers
+  //     (with tel-linked phones) for the finder to drive to. If NO in-scope
+  //     rehabber is on file, fall back to the PGC dispatch line.
+  //   • capture / rvs -> the animal is not contained, so PGC handles the
+  //     capture; show the "ask the finder to call PGC" line + the PGC number.
+  // `issue` is the normalized issue ('transport'/'capture'); `rehabbers` is the
+  // already-ordered nearby-rehabber list (only used on the transport path).
+  function recPgcGuidanceHtml(issue, rehabbers) {
+    var REC = MSG.recommendation;
+    var pgc = MSG.pgcPhone || '';
+    var html = '<div class="rec-pgc">';
+    if (issue === 'transport') {
+      var list = Array.isArray(rehabbers) ? rehabbers : [];
+      if (list.length) {
+        html += '<p class="rec-pgc-tell">' + escapeHtml(REC.pgcTransportTell) + '</p>';
+        html += '<ul class="rec-summary-list rec-pgc-rehab-list">';
+        list.forEach(function (r) {
+          html += rehabberRowHtml(r, 'rec-pgc-rehab');
+        });
+        html += '</ul>';
+        html += '<div class="rec-summary-rehab-note">' + escapeHtml(REC.summaryRehabNoFilter) + '</div>';
+      } else {
+        // No nearby rehabber on file -> PGC is the fallback for transport too.
+        html += '<p class="rec-pgc-tell">' +
+          escapeHtml(fmt(REC.pgcTransportNoRehab, { phone: pgc })) + '</p>';
+      }
+    } else {
+      // capture / rvs (and any non-transport): PGC handles the capture.
+      html += '<p class="rec-pgc-tell">' +
+        escapeHtml(fmt(REC.pgcCaptureTell, { phone: pgc })) + '</p>';
+      html += '<div class="rec-pgc-phone">' +
+        fmt(REC.pgcPhoneLine, { phone: escapeHtml(pgc) }) + '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
   // Build the action/target/low-capacity/reasoning body for a SINGLE
   // recommendation object. Extracted from the former renderRecommendation body
   // so both scopes (In-County / WIN Area) reuse the IDENTICAL markup; only the
   // rec that feeds it differs. Returns { html, tone } (the panel needs the tone
-  // to set the #rec-output color class for the shown scope).
-  function recBodyHtml(rec, showPolicyReferral) {
+  // to set the #rec-output color class for the shown scope). `county` is the
+  // selected county name, used only to list nearby rehabbers for the actionable
+  // transport "no volunteer" path.
+  function recBodyHtml(rec, showPolicyReferral, county) {
     var actionMeta = (window.WildlifeDecision &&
                       window.WildlifeDecision.ACTIONS &&
                       window.WildlifeDecision.ACTIONS[rec.action]) || null;
     var label = actionMeta ? actionMeta.label : rec.action;
     var tone  = actionMeta ? actionMeta.tone  : 'unknown';
     var REC = MSG.recommendation;
+
+    // call_pa_game_comm is ISSUE-AWARE: the flat "Call PA Game Commission" is
+    // replaced with the actionable next step for THIS issue.
+    //   • TRANSPORT (animal already CONTAINED) -> have the finder DRIVE it to
+    //     the nearest wildlife rehabber. Headline + a "tell the finder" line +
+    //     the nearby-rehabber list (with phones) name a destination.
+    //   • CAPTURE / RVS (animal NOT contained) -> PGC handles the CAPTURE.
+    //     Headline says "Call PA Game Commission to capture" + shows the PGC line.
+    // rec.issue is the normalized issue carried on the rec by decision.js.
+    var isPgc = (rec.action === 'call_pa_game_comm');
+    var pgcIssue = isPgc ? (typeof rec.issue === 'string' ? rec.issue : '') : '';
+    var pgcRehabbers = (isPgc && pgcIssue === 'transport') ? nearbyRehabbers(county) : [];
+    if (isPgc) {
+      label = (pgcIssue === 'transport')
+        ? REC.pgcTransportLabel
+        : REC.pgcCaptureLabel;
+    }
+
     var html = '';
     html += '<div class="rec-action ' + tone + '">' + escapeHtml(label) + '</div>';
     if (rec.target) {
       var targetLabel = TARGET_LABELS[rec.target] || rec.target;
       html += '<div class="rec-target">' + fmt(REC.targetRole, { label: escapeHtml(targetLabel) }) + '</div>';
+    }
+
+    // Actionable PGC guidance block — what the dispatcher should TELL the finder.
+    if (isPgc) {
+      html += recPgcGuidanceHtml(pgcIssue, pgcRehabbers);
     }
 
     // refer_out (county-policy downgrade): show WHO to call — referral target
@@ -696,7 +778,7 @@
 
     // The recommendation body, with the county-level referral guidance shown
     // (this IS the In-County view, so policy referral always applies).
-    var built = recBodyHtml(recCounty, true);
+    var built = recBodyHtml(recCounty, true, county);
     // Dispatch summary (Tier-2-depth detail): qualified-volunteer counts +
     // nearby rehabbers. Built from the SAME cached rows the volunteer-list
     // buttons use, so the counts never disagree with the lists.
