@@ -557,6 +557,13 @@
       color: var(--text-muted);
     }
     .scope-mode label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+    .scope-species {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin: 8px 0 4px;
+    }
+    .scope-species label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13.5px; }
     .scope-all-note {
       font-size: 12.5px;
       color: var(--text-muted);
@@ -797,13 +804,18 @@
           <label class="field-label">Species scope</label>
           <div class="scope-mode">
             <label><input type="radio" name="scope-mode" value="all" id="scope-all" /> All species</label>
-            <label><input type="radio" name="scope-mode" value="custom" id="scope-custom" /> Limit by tags</label>
+            <label><input type="radio" name="scope-mode" value="custom" id="scope-custom" /> Limit by species</label>
           </div>
           <div id="scope-tags-wrap">
-            <div class="tag-input-wrap" id="species-tag-wrap">
-              <input type="text" class="tag-entry" id="species-entry" placeholder="type a species/taxon, press Enter…" aria-label="Add species tag" />
+            <div class="scope-species" id="species-checks" role="group" aria-label="Allowed species categories">
+              <label><input type="checkbox" class="species-check" value="bird" /> Bird (songbirds, general)</label>
+              <label><input type="checkbox" class="species-check" value="waterfowl" /> Waterfowl (ducks, geese, swans)</label>
+              <label><input type="checkbox" class="species-check" value="raptor" /> Raptor (hawks, eagles, owls, falcons)</label>
+              <label><input type="checkbox" class="species-check" value="bat" /> Bat</label>
+              <label><input type="checkbox" class="species-check" value="mammal" /> Mammal (non-bat)</label>
+              <label><input type="checkbox" class="species-check" value="reptile_amphibian" /> Reptile / Amphibian</label>
             </div>
-            <p class="rule-hint">Free-text tags (e.g. <em>bats</em>, <em>waterfowl</em>, <em>birds of prey</em>). Stored as <code>{ "capture": [ … ] }</code>. Leave empty + choose “All species” to store <code>null</code>.</p>
+            <p class="rule-hint">Check the species this county dispatches. Stored as <code>{ "capture": [ … ] }</code> (or <code>{ "rvs": [ … ] }</code> when the existing scope used that key). Choose “All species” to store <code>null</code>.</p>
           </div>
           <p class="scope-all-note" id="scope-all-note" hidden>Stored as <code>null</code> — policy applies to all species.</p>
         </div>
@@ -858,8 +870,8 @@
 
 <!-- Reuse the SAME decision engine the dispatcher uses, so the preview never
      drifts from production behavior. messages.js must load before decision.js. -->
-<script src="assets/messages.js?v=20260625b"></script>
-<script src="assets/decision.js?v=20260625d"></script>
+<script src="assets/messages.js?v=20260625e"></script>
+<script src="assets/decision.js?v=20260625e"></script>
 <script>
 (function () {
   'use strict';
@@ -1201,19 +1213,39 @@
   }
 
   // species_scope: null = all; otherwise an object like { capture: [...] } /
-  // { rvs: [...] }. The editor stores tags under a single key while preserving
-  // the original key when one already exists.
+  // { rvs: [...] }. The editor presents the scope as a fixed set of species
+  // CATEGORY checkboxes (bird/waterfowl/raptor/bat/mammal/reptile_amphibian)
+  // and stores the canonical policy token for each checked category under a
+  // single issue key, preserving the original key when one already exists.
+  //
+  // SCOPE_CATEGORIES maps each checkbox category to:
+  //   token  — the canonical policy.json term written when checked.
+  //   match  — the normalized terms that, when found in an existing scope list,
+  //            mean this category should load as checked (handles spreadsheet
+  //            variants like "water birds" / "birds of prey").
+  var SCOPE_CATEGORIES = [
+    { cat: 'bird',              token: 'birds',         match: ['birds', 'songbirds', 'bird'] },
+    { cat: 'waterfowl',         token: 'waterfowl',     match: ['waterfowl', 'waterbirds', 'water birds'] },
+    { cat: 'raptor',            token: 'birds of prey', match: ['raptors', 'raptor', 'birds of prey'] },
+    { cat: 'bat',               token: 'bats',          match: ['bats', 'bat'] },
+    { cat: 'mammal',            token: 'mammals',       match: ['mammals', 'mammal'] },
+    { cat: 'reptile_amphibian', token: 'reptiles',      match: ['reptiles', 'amphibians', 'reptile', 'amphibian', 'herps'] }
+  ];
+
+  function normScopeTerm(s) {
+    return String(s == null ? '' : s).toLowerCase().trim();
+  }
+
   function renderScope(scope) {
     var hasScope = scope && typeof scope === 'object';
     $('#scope-all').checked = !hasScope;
     $('#scope-custom').checked = !!hasScope;
     toggleScopeMode(!!hasScope);
-    var wrap = $('#species-tag-wrap');
-    // remove existing chips (keep the entry input)
-    $all('.tag-chip', wrap).forEach(function (c) { c.remove(); });
-    var tags = flattenScope(scope);
-    var entry = $('#species-entry');
-    tags.forEach(function (tag) { wrap.insertBefore(buildTagChip(tag), entry); });
+    var tokens = flattenScope(scope).map(normScopeTerm);
+    $all('.species-check').forEach(function (cb) {
+      var def = SCOPE_CATEGORIES.filter(function (d) { return d.cat === cb.value; })[0];
+      cb.checked = !!(def && def.match.some(function (m) { return tokens.indexOf(m) !== -1; }));
+    });
   }
 
   function flattenScope(scope) {
@@ -1226,39 +1258,29 @@
     return out;
   }
 
-  function buildTagChip(tag) {
-    var rm = el('button', { type: 'button', 'aria-label': 'Remove ' + tag }, ['×']);
-    var chip = el('span', { class: 'tag-chip' }, [tag, rm]);
-    rm.addEventListener('click', function () {
-      chip.remove();
-      commitScope();
-      markDirty();
-    });
-    return chip;
-  }
-
   function toggleScopeMode(custom) {
     $('#scope-tags-wrap').hidden = !custom;
     $('#scope-all-note').hidden = custom;
   }
 
-  // Read the chips back into the model. Preserves the existing scope key
+  // Read the checkboxes back into the model. Preserves the existing scope key
   // (e.g. "capture"/"rvs") when present; defaults new scopes to "capture".
   function commitScope() {
     var p = state.counties[state.current];
     var custom = $('#scope-custom').checked;
     if (!custom) { p.species_scope = null; return; }
-    var tags = $all('.tag-chip', $('#species-tag-wrap')).map(function (c) {
-      return c.firstChild.textContent;
-    });
-    if (!tags.length) { p.species_scope = {}; return; }
+    var tokens = SCOPE_CATEGORIES.filter(function (d) {
+      var cb = $all('.species-check').filter(function (c) { return c.value === d.cat; })[0];
+      return cb && cb.checked;
+    }).map(function (d) { return d.token; });
+    if (!tokens.length) { p.species_scope = {}; return; }
     var key = 'capture';
     if (p.species_scope && typeof p.species_scope === 'object') {
       var keys = Object.keys(p.species_scope);
       if (keys.length) key = keys[0];
     }
     var obj = {};
-    obj[key] = tags;
+    obj[key] = tokens;
     p.species_scope = obj;
   }
 
@@ -1498,16 +1520,17 @@
       if (this.checked) { toggleScopeMode(true); commitScope(); markDirty(); }
     });
 
-    var entry = $('#species-entry');
-    entry.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' || e.key === ',') {
-        e.preventDefault();
-        addSpeciesTag(entry.value);
-        entry.value = '';
-      }
-    });
-    entry.addEventListener('blur', function () {
-      if (entry.value.trim()) { addSpeciesTag(entry.value); entry.value = ''; }
+    $all('.species-check').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        // Checking a species implies custom mode.
+        if (this.checked && !$('#scope-custom').checked) {
+          $('#scope-custom').checked = true;
+          $('#scope-all').checked = false;
+          toggleScopeMode(true);
+        }
+        commitScope();
+        markDirty();
+      });
     });
 
     $('#f-special-notes').addEventListener('input', function () {
@@ -1515,21 +1538,6 @@
       p.special_notes = this.value;
       markDirty();
     });
-  }
-
-  function addSpeciesTag(raw) {
-    var tag = (raw || '').trim();
-    if (!tag) return;
-    // ensure custom mode
-    $('#scope-custom').checked = true;
-    $('#scope-all').checked = false;
-    toggleScopeMode(true);
-    var wrap = $('#species-tag-wrap');
-    var existing = $all('.tag-chip', wrap).map(function (c) { return c.firstChild.textContent.toLowerCase(); });
-    if (existing.indexOf(tag.toLowerCase()) !== -1) return;
-    wrap.insertBefore(buildTagChip(tag), $('#species-entry'));
-    commitScope();
-    markDirty();
   }
 
   function collectIssues() {

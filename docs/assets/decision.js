@@ -187,6 +187,65 @@
     return issueNorm; // unknown issue -> passthrough handled by caller
   }
 
+  // ─── Species-scope matching (animal type vs policy species_scope) ────────
+  // The dispatcher's Animal Type dropdown emits one of these category values:
+  //   'bird', 'waterfowl', 'raptor', 'bat', 'mammal', 'reptile_amphibian',
+  //   'other' (Other/Unknown).
+  // policy.json species_scope lists carry free-form spreadsheet terms like
+  //   'birds', 'waterfowl', 'water birds', 'birds of prey', 'bats'.
+  // SPECIES_TOKENS maps each dropdown category to the set of normalized policy
+  // tokens it satisfies. 'other' (Unknown) is intentionally absent: an unknown
+  // species PASSES THROUGH (we never restrict when we don't know the species).
+  var SPECIES_TOKENS = {
+    bird: ['birds', 'songbirds', 'bird'],
+    waterfowl: ['waterfowl', 'waterbirds', 'water birds', 'birds'],
+    raptor: ['raptors', 'birds of prey', 'raptor', 'birds'],
+    bat: ['bats', 'bat'],
+    mammal: ['mammals', 'mammal'],
+    reptile_amphibian: ['reptiles', 'amphibians', 'reptile', 'amphibian', 'herps']
+  };
+
+  function normSpecies(s) {
+    return String(s == null ? '' : s).toLowerCase().trim();
+  }
+
+  // speciesAllowedByScope: does `animalType` (a dropdown category) satisfy the
+  // policy `scopeList` (array of allowed species terms for this issue)?
+  //   - scopeList null/undefined/empty -> ALL species allowed (true).
+  //   - animalType 'other'/empty/unknown -> PASS THROUGH (true): never restrict
+  //     when the species is unknown.
+  //   - otherwise -> true iff any of the dropdown category's tokens appears in
+  //     the (normalized) scope list.
+  function speciesAllowedByScope(animalType, scopeList) {
+    if (!Array.isArray(scopeList) || scopeList.length === 0) return true;
+    var cat = normSpecies(animalType);
+    if (!cat || cat === 'other' || cat === 'unknown') return true;
+    var tokens = SPECIES_TOKENS[cat];
+    if (!tokens) return true; // unknown category -> don't restrict
+    var allowed = {};
+    for (var i = 0; i < scopeList.length; i++) {
+      allowed[normSpecies(scopeList[i])] = true;
+    }
+    for (var j = 0; j < tokens.length; j++) {
+      if (allowed[normSpecies(tokens[j])]) return true;
+    }
+    return false;
+  }
+
+  // scopeListForIssue: pull the species_scope array that applies to THIS policy
+  // issue. species_scope is keyed by the policy issue family:
+  //   'capture'      -> species_scope.capture
+  //   'rvs_capture'  -> species_scope.rvs  (RVS scope, e.g. "bats only")
+  //   'transport'    -> species_scope.transport
+  // Returns null when species_scope is null/absent or carries no list for this
+  // issue (i.e. no restriction for this call).
+  function scopeListForIssue(speciesScope, policyIssue) {
+    if (!speciesScope || typeof speciesScope !== 'object') return null;
+    var key = (policyIssue === 'rvs_capture') ? 'rvs' : policyIssue;
+    var list = speciesScope[key];
+    return Array.isArray(list) ? list : null;
+  }
+
   // Pull referral_targets relevant to a policy issue. A target with no
   // `for_issues` (or a non-array) is treated as applying to ALL issues; a target
   // WITH a for_issues array is included only when it lists this issue. Targets
@@ -301,6 +360,12 @@
   //     targets," so the dispatcher must be shown WHO to call regardless of
   //     local capacity.
   //   - allowed_issues is an array AND this issue is NOT in it -> refer_out.
+  //   - species_scope (when set for this issue) does NOT include the selected
+  //     animal type -> refer_out. This is ADDITIONAL to the dispatch_enabled and
+  //     allowed_issues checks: a county may dispatch this ISSUE but restrict it
+  //     to certain SPECIES (e.g. Chester dispatches captures for birds only). An
+  //     'Other/Unknown' (or absent) animal type PASSES THROUGH — we never
+  //     restrict when the species is unknown.
   //   - Otherwise -> base action passes through unchanged.
   // It NEVER invents a DISPATCH: policy can only redirect an actionable base
   // into a referral, never turn a non-dispatch into a connecteam_task. An
@@ -308,7 +373,7 @@
   // capacity decision), is returned untouched. referral_targets and
   // special_notes from the policy are attached to the returned object so the UI
   // can display who to call. Mutates and returns `rec` for convenience.
-  function applyCountyPolicy(rec, countyPolicy, issue, animalRvs) {
+  function applyCountyPolicy(rec, countyPolicy, issue, animalRvs, animalType) {
     if (!rec) return rec;
     if (!countyPolicy || typeof countyPolicy !== 'object') return rec;
 
@@ -320,8 +385,13 @@
     if (!dispatchOff && Array.isArray(countyPolicy.allowed_issues)) {
       issueNotAllowed = (countyPolicy.allowed_issues.indexOf(policyIssue) === -1);
     }
+    // Species-scope gate (ADDITIONAL to the two checks above): the county allows
+    // this issue, but only for certain species. If the selected animal type is
+    // not among them, refer out. Unknown/absent species passes through.
+    var scopeList = scopeListForIssue(countyPolicy.species_scope, policyIssue);
+    var speciesNotAllowed = !speciesAllowedByScope(animalType, scopeList);
 
-    if (!dispatchOff && !issueNotAllowed) {
+    if (!dispatchOff && !issueNotAllowed && !speciesNotAllowed) {
       // Policy permits this dispatch: pass the base action through unchanged.
       return rec;
     }
@@ -344,8 +414,13 @@
     rec.reasoning = Array.isArray(rec.reasoning) ? rec.reasoning : [];
     if (dispatchOff) {
       rec.reasoning.push(T1.policyDispatchDisabled);
-    } else {
+    } else if (issueNotAllowed) {
       rec.reasoning.push(fmt(T1.policyIssueNotAllowed, { issue: policyIssue }));
+    } else {
+      // Species restriction is the reason: name the allowed species list.
+      rec.reasoning.push(fmt(T1.policySpeciesNotAllowed, {
+        species: Array.isArray(scopeList) ? scopeList.join(', ') : ''
+      }));
     }
     return rec;
   }
@@ -356,10 +431,14 @@
   // block is passed, applyCountyPolicy() runs AFTER it and can only turn a
   // count-based dispatch into a named referral (refer_out) — it never invents a
   // dispatch. `countyPolicy` is optional, so existing call sites/tests that omit
-  // it keep today's behavior exactly.
-  function recommend(capacity, animalRvs, issue, resolvedConfig, countyPolicy) {
+  // it keep today's behavior exactly. `animalType` is the optional dropdown
+  // category ('bird','waterfowl','raptor','bat','mammal','reptile_amphibian',
+  // 'other'); when a county's species_scope restricts the issue, a non-matching
+  // animal type is referred out. Omitting it (or 'other'/unknown) never adds a
+  // species restriction.
+  function recommend(capacity, animalRvs, issue, resolvedConfig, countyPolicy, animalType) {
     var rec = recommendByCount(capacity, animalRvs, issue, resolvedConfig);
-    return applyCountyPolicy(rec, countyPolicy, issue, animalRvs);
+    return applyCountyPolicy(rec, countyPolicy, issue, animalRvs, animalType);
   }
 
   function recommendByCount(capacity, animalRvs, issue, resolvedConfig) {
@@ -452,6 +531,7 @@
     resolveReferralPhone: resolveReferralPhone,
     qualifiesForAnimal: qualifiesForAnimal,
     qualifyingRoles: qualifyingRoles,
+    speciesAllowedByScope: speciesAllowedByScope,
     ACTIONS: ACTIONS
   };
   if (typeof module !== 'undefined' && module.exports) {

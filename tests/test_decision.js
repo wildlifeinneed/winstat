@@ -501,6 +501,101 @@ assert.ok(!('referral_targets' in unknownAfter),
   'tbd_escalate base gets no referral_targets attached');
 passed++;
 
+// ── species_scope enforcement (animal type vs county policy) ────────────────
+// applyCountyPolicy's 5th arg is the dropdown animal type. When a county allows
+// the issue but restricts it to certain species, a non-matching animal type is
+// referred out; a matching type (or unknown species, or null scope) passes
+// through. Mirrors Chester (capture: birds-only).
+var chesterBirdsPolicy = {
+  dispatch_enabled: true,
+  allowed_issues: ['capture', 'rvs_capture', 'transport'],
+  species_scope: { capture: ['birds'] },
+  referral_targets: [
+    { name: 'Chester Bird Rehab', phone: '6105550000', for_issues: ['capture'] }
+  ],
+  special_notes: ''
+};
+
+// birds-only capture + a MAMMAL call -> refer_out with referral targets.
+var mammalBase = recommend(dispatchCap, false, 'capture', DEFAULTS);
+assert.strictEqual(mammalBase.action, 'connecteam_task',
+  'precondition: capture with capacity dispatches');
+var mammalReferred = applyCountyPolicy(mammalBase, chesterBirdsPolicy, 'capture', false, 'mammal');
+assert.strictEqual(mammalReferred.action, 'refer_out',
+  'birds-only capture + mammal -> refer_out');
+assert.strictEqual(mammalReferred.target, null, 'species refer_out clears the dispatch target');
+assert.ok(Array.isArray(mammalReferred.referral_targets) && mammalReferred.referral_targets.length === 1,
+  'species refer_out attaches the capture referral target');
+assert.ok(mammalReferred.reasoning.some(function (r) { return r.indexOf('birds') !== -1; }),
+  'species refer_out reasoning names the allowed species');
+
+// birds-only capture + a BIRD call -> passes through (dispatch unchanged).
+var birdBase = recommend(dispatchCap, false, 'capture', DEFAULTS);
+var birdPassed = applyCountyPolicy(birdBase, chesterBirdsPolicy, 'capture', false, 'bird');
+assert.strictEqual(birdPassed.action, 'connecteam_task',
+  'birds-only capture + bird -> passes through');
+assert.ok(!('referral_targets' in birdPassed),
+  'species passthrough carries no referral_targets');
+
+// raptor matches a raptor/waterfowl scope (Lebanon-style birds of prey).
+var lebanonPolicy = {
+  dispatch_enabled: true,
+  allowed_issues: ['capture'],
+  species_scope: { capture: ['waterfowl', 'water birds', 'birds of prey'] },
+  referral_targets: []
+};
+var raptorPassed = applyCountyPolicy(
+  recommend(dispatchCap, false, 'capture', DEFAULTS), lebanonPolicy, 'capture', false, 'raptor');
+assert.strictEqual(raptorPassed.action, 'connecteam_task',
+  'raptor matches "birds of prey" scope -> passes through');
+var batVsLebanon = applyCountyPolicy(
+  recommend(dispatchCap, false, 'capture', DEFAULTS), lebanonPolicy, 'capture', false, 'bat');
+assert.strictEqual(batVsLebanon.action, 'refer_out',
+  'bat does NOT match waterfowl/raptor scope -> refer_out');
+
+// null species_scope -> never restricts (even a mammal passes through).
+var nullScopePolicy = {
+  dispatch_enabled: true,
+  allowed_issues: ['capture'],
+  species_scope: null,
+  referral_targets: []
+};
+var nullScopePassed = applyCountyPolicy(
+  recommend(dispatchCap, false, 'capture', DEFAULTS), nullScopePolicy, 'capture', false, 'mammal');
+assert.strictEqual(nullScopePassed.action, 'connecteam_task',
+  'null species_scope -> mammal passes through (no restriction)');
+
+// Other/Unknown animal type PASSES THROUGH even under a birds-only scope.
+var unknownTypePassed = applyCountyPolicy(
+  recommend(dispatchCap, false, 'capture', DEFAULTS), chesterBirdsPolicy, 'capture', false, 'other');
+assert.strictEqual(unknownTypePassed.action, 'connecteam_task',
+  'Other/Unknown animal type passes through under birds-only scope');
+// Omitting the animal type entirely also passes through (back-compat).
+var omittedTypePassed = applyCountyPolicy(
+  recommend(dispatchCap, false, 'capture', DEFAULTS), chesterBirdsPolicy, 'capture', false);
+assert.strictEqual(omittedTypePassed.action, 'connecteam_task',
+  'omitted animal type passes through (no restriction)');
+
+// species_scope keyed to a DIFFERENT issue does not affect this issue. Chester
+// restricts only 'capture'; a transport call has no capture scope to satisfy.
+var transportUnderBirds = applyCountyPolicy(
+  recommend(cap(bk(0,0), bk(0,0), bk(2,2)), false, 'transport', DEFAULTS),
+  chesterBirdsPolicy, 'transport', false, 'mammal');
+assert.strictEqual(transportUnderBirds.action, 'connecteam_task',
+  'capture-scoped species restriction does not apply to a transport call');
+
+// speciesAllowedByScope helper unit checks.
+var speciesAllowedByScope = mod.speciesAllowedByScope;
+assert.strictEqual(typeof speciesAllowedByScope, 'function', 'speciesAllowedByScope exported');
+assert.strictEqual(speciesAllowedByScope('bird', ['birds']), true, 'bird matches birds');
+assert.strictEqual(speciesAllowedByScope('mammal', ['birds']), false, 'mammal does not match birds');
+assert.strictEqual(speciesAllowedByScope('other', ['birds']), true, 'unknown species passes through');
+assert.strictEqual(speciesAllowedByScope('mammal', null), true, 'null scope allows all');
+assert.strictEqual(speciesAllowedByScope('mammal', []), true, 'empty scope allows all');
+assert.strictEqual(speciesAllowedByScope('waterfowl', ['waterbirds']), true, 'waterfowl matches waterbirds');
+assert.strictEqual(speciesAllowedByScope('bat', ['bats']), true, 'bat matches bats');
+passed++;
+
 // ── Referral phone: facilities.json is the SOURCE OF TRUTH ──────────────────
 // resolveReferralPhone must prefer facilities.json phones over the
 // (spreadsheet-sourced) policy phones, flag discrepancies, and fall back to the

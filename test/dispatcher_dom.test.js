@@ -3395,6 +3395,10 @@ async function driveTier1RecommendWithPolicy(snapshot, policy, county, base, ext
     if (rvsEl) { rvsEl.checked = true; rvsEl.dispatchEvent(new window.Event('change', { bubbles: true })); }
     const issueEl = doc.querySelector('input[name="issue"][value="' + base.issue + '"]');
     if (issueEl) { issueEl.checked = true; issueEl.dispatchEvent(new window.Event('change', { bubbles: true })); }
+    if (base.animalType) {
+      const typeEl = doc.getElementById('animal-type');
+      if (typeEl) { typeEl.value = base.animalType; typeEl.dispatchEvent(new window.Event('change', { bubbles: true })); }
+    }
     await flush(window);
   }
 
@@ -4274,6 +4278,84 @@ async function runCountyPolicyReferOutEmptyCounty() {
   console.log('PASS: county policy refer_out (empty in-county capacity) — In-County DEFAULT view shows the policy refer_out + referral targets even with zero local capacity (fixes the Adams County "Call PA Game Commission" bug); WIN Area shows the area-level count-based dispatch with no referral block.');
 }
 
+// ── ANIMAL TYPE + SPECIES SCOPE: a county whose policy.json restricts dispatch
+//    to certain species (species_scope) must REFER OUT a call for a
+//    non-matching animal type, even with healthy capacity, while passing a
+//    matching (or Unknown) animal type through as a normal dispatch. Mirrors
+//    Chester (capture: birds-only). Drives the full dropdown → recommend →
+//    render pipeline through the new #animal-type control. ────────────────────
+async function runCountyPolicySpeciesScope() {
+  // Allegheny has HEALTHY non-RVS capacity, so the count base is a dispatch.
+  // Its policy allows captures but ONLY for birds. A mammal call must refer out;
+  // a bird call (and an Other/Unknown call) must dispatch.
+  const SNAPSHOT = {
+    generated_at: '2024-01-01T00:00:00Z',
+    counties: {
+      Allegheny: {
+        ct_no_rvs: { available: 4, total: 5, marginal_volunteers: [] },
+        ct_rvs: { available: 2, total: 3, marginal_volunteers: [] },
+        courier: { available: 1, total: 1, marginal_volunteers: [] },
+      },
+    },
+  };
+  const POLICY = {
+    counties: {
+      Allegheny: {
+        dispatch_enabled: true,
+        allowed_issues: ['capture', 'rvs_capture', 'transport'],
+        species_scope: { capture: ['birds'] },
+        referral_targets: [
+          { name: 'Allegheny Mammal Rehab', phone: '4125550000', for_issues: ['capture'] },
+        ],
+        special_notes: '',
+      },
+    },
+  };
+
+  // 1. MAMMAL call under a birds-only capture scope -> refer_out with targets.
+  const mammal = await driveTier1RecommendWithPolicy(
+    SNAPSHOT, POLICY, 'Allegheny', { rvs: false, issue: 'capture', animalType: 'mammal' });
+  const typeSel = mammal.doc.getElementById('animal-type');
+  assert.ok(typeSel, 'Animal Type dropdown exists in the Tier 1 input area');
+  assert.strictEqual(typeSel.value, 'mammal', 'Animal Type dropdown reflects the selected mammal');
+
+  const mammalAction = mammal.doc.querySelector('#rec-output .rec-action');
+  assert.ok(mammalAction, 'recommendation action headline rendered for species refer_out');
+  assert.ok(/refer out|do not dispatch/i.test(mammalAction.textContent),
+    'birds-only county + mammal shows a refer_out headline (got: "' + mammalAction.textContent + '")');
+  assert.ok(mammalAction.classList.contains('escalate'),
+    'species refer_out carries the escalate (warning) tone');
+  const mammalReferral = mammal.doc.querySelector('#rec-output .rec-referral');
+  assert.ok(mammalReferral && /Allegheny Mammal Rehab/i.test(mammalReferral.textContent),
+    'species refer_out shows the capture referral target');
+  const mammalReasoning = mammal.doc.querySelector('#rec-output .rec-reasoning');
+  assert.ok(mammalReasoning && /restricts dispatch to birds only/i.test(mammalReasoning.textContent),
+    'species refer_out reasoning explains the birds-only restriction (got: "' +
+      (mammalReasoning ? mammalReasoning.textContent : '') + '")');
+
+  // 2. BIRD call under the SAME scope -> dispatches (passes through).
+  const bird = await driveTier1RecommendWithPolicy(
+    SNAPSHOT, POLICY, 'Allegheny', { rvs: false, issue: 'capture', animalType: 'bird' });
+  const birdAction = bird.doc.querySelector('#rec-output .rec-action');
+  assert.ok(birdAction && /Dispatch via Connecteam/i.test(birdAction.textContent),
+    'birds-only county + bird dispatches via Connecteam (got: "' +
+      (birdAction ? birdAction.textContent : '') + '")');
+  assert.strictEqual(bird.doc.querySelector('#rec-output .rec-referral'), null,
+    'bird passthrough shows no referral block');
+
+  // 3. OTHER/UNKNOWN animal type -> passes through (never restrict on unknown).
+  const unknown = await driveTier1RecommendWithPolicy(
+    SNAPSHOT, POLICY, 'Allegheny', { rvs: false, issue: 'capture', animalType: 'other' });
+  const unknownAction = unknown.doc.querySelector('#rec-output .rec-action');
+  assert.ok(unknownAction && /Dispatch via Connecteam/i.test(unknownAction.textContent),
+    'Other/Unknown animal type passes through to a dispatch (got: "' +
+      (unknownAction ? unknownAction.textContent : '') + '")');
+  assert.strictEqual(unknown.doc.querySelector('#rec-output .rec-referral'), null,
+    'Other/Unknown passthrough shows no referral block');
+
+  console.log('PASS: dispatcher Animal Type dropdown + species_scope — a birds-only county refers out a mammal call (refer_out headline + referral target + birds-only reasoning) while dispatching a bird call and an Other/Unknown call.');
+}
+
 async function run() {
   await runHelpLink();
   await runHelpViewerRenders();
@@ -4333,10 +4415,11 @@ async function run() {
   await runTier1RecommendationScopeButtons();
   await runCountyPolicyReferOut();
   await runCountyPolicyReferOutEmptyCounty();
+  await runCountyPolicySpeciesScope();
   await runTier2CountyBreakdown();
   await runScriptCacheBusting();
   await runScopeButtonHoverFill();
-  console.log('\nALL DOM TESTS PASSED (59 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (60 scenarios).');
 }
 
 run().then(function () {

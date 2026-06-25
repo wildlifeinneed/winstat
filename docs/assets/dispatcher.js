@@ -687,9 +687,13 @@
   function readAnimalBaseInfo() {
     var rvsRadio = document.querySelector('input[name="rvs"]:checked');
     var issueRadio = document.querySelector('input[name="issue"]:checked');
+    var animalTypeSel = document.getElementById('animal-type');
     return {
       rvs: rvsRadio ? (rvsRadio.value === 'yes') : false,
-      issue: issueRadio ? issueRadio.value : 'capture'
+      issue: issueRadio ? issueRadio.value : 'capture',
+      // Animal Type dropdown category drives county species_scope enforcement.
+      // Defaults to 'other' (Other/Unknown), which never adds a restriction.
+      animalType: animalTypeSel ? animalTypeSel.value : 'other'
     };
   }
 
@@ -836,7 +840,7 @@
     // policy unit, so it must not surface one county's referral guidance.
     var countyPolicy = policyForCounty(county);
     var recArea = window.WildlifeDecision.recommend(areaCapacity, base.rvs, base.issue, resolved);
-    var recCounty = window.WildlifeDecision.recommend(countyCapacity, base.rvs, base.issue, resolved, countyPolicy);
+    var recCounty = window.WildlifeDecision.recommend(countyCapacity, base.rvs, base.issue, resolved, countyPolicy, base.animalType);
     renderRecommendation(recCounty, recArea, base, county);
 
     // NOTE: the Tier 1 qualified-volunteer list is NO LONGER loaded here. It now
@@ -3860,6 +3864,16 @@
         refreshTier1Volunteers();
       });
     });
+    // The Animal Type dropdown feeds county species_scope enforcement (the
+    // In-County recommendation can refer_out a species the county doesn't
+    // dispatch). It does not change WHO qualifies (role-based), so it only flags
+    // an existing recommendation stale — no volunteer-list refresh needed.
+    var animalTypeSel = $('#animal-type');
+    if (animalTypeSel) {
+      animalTypeSel.addEventListener('change', function () {
+        markResultsStale();
+      });
+    }
 
     // Address-mode wiring (Phase G).
     $$('input[name="mode"]').forEach(function (radio) {

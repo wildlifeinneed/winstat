@@ -93,7 +93,10 @@
       // applyCountyPolicy() DOWNGRADE reasoning fragments.
       policyDispatchDisabled: 'County policy: dispatch is disabled for this county - refer the finder out.',
       // {issue} = policy issue key (capture / rvs_capture / transport).
-      policyIssueNotAllowed: 'County policy: dispatch not allowed for {issue} in this county - refer the finder out.'
+      policyIssueNotAllowed: 'County policy: dispatch not allowed for {issue} in this county - refer the finder out.',
+      // applyCountyPolicy() SPECIES-SCOPE downgrade reasoning. {species} = the
+      // comma-separated allowed-species list for this issue (e.g. "birds").
+      policySpeciesNotAllowed: 'County policy restricts dispatch to {species} only for this issue - refer the finder out.'
     },
 
     // ── renderRecommendation (Tier 1 modal) wording (dispatcher.js) ────────

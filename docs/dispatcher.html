@@ -1454,6 +1454,18 @@
           <label><input type="radio" name="issue" value="transport" /> Transport</label>
         </div>
       </div>
+      <div>
+        <label class="field-label" for="animal-type">Animal Type</label>
+        <select id="animal-type" aria-label="Animal Type">
+          <option value="other" selected>Other / Unknown</option>
+          <option value="bird">Bird (songbirds, general)</option>
+          <option value="waterfowl">Waterfowl (ducks, geese, swans)</option>
+          <option value="raptor">Raptor (hawks, eagles, owls, falcons)</option>
+          <option value="bat">Bat</option>
+          <option value="mammal">Mammal (non-bat)</option>
+          <option value="reptile_amphibian">Reptile / Amphibian</option>
+        </select>
+      </div>
     </div>
   </section>
 
@@ -1719,8 +1731,8 @@
      filename can leave a browser running STALE JS against fresh HTML (e.g. new
      markup whose handlers live only in the new JS). Bump this token on any
      change to these files to force clients to fetch the new copy. -->
-<script src="assets/messages.js?v=20260625b"></script>
-<script src="assets/decision.js?v=20260625d"></script>
-<script src="assets/dispatcher.js?v=20260625d"></script>
+<script src="assets/messages.js?v=20260625e"></script>
+<script src="assets/decision.js?v=20260625e"></script>
+<script src="assets/dispatcher.js?v=20260625e"></script>
 </body>
 </html>
