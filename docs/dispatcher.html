@@ -460,6 +460,42 @@
     .rec-reasoning ol { padding-left: 20px; font-size: 13.5px; color: var(--text); }
     .rec-reasoning li { margin-bottom: 3px; }
 
+    /* Dispatch summary: Tier-2-depth detail (qualified counts + nearby
+       rehabbers) shown under the action. A neutral info card so it reads as
+       supporting context, distinct from the amber referral/marginal blocks. */
+    .rec-summary {
+      background: var(--bg);
+      border: 1px solid var(--border, #e2e2e2);
+      border-left: 4px solid var(--green);
+      padding: 10px 12px;
+      border-radius: 8px;
+      margin-bottom: 12px;
+    }
+    .rec-summary-header {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .rec-summary-list { list-style: none; padding-left: 0; margin: 0 0 8px; }
+    .rec-summary-vol { font-size: 13.5px; color: var(--text); margin-bottom: 2px; }
+    .rec-summary-vol strong { color: var(--green-deep); }
+    .rec-summary-pending { color: var(--text-muted); font-style: italic; }
+    .rec-summary-rehab-header {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      color: var(--text);
+      margin: 8px 0 4px;
+    }
+    .rec-summary-rehab-list { margin-bottom: 4px; }
+    .rec-summary-rehab { font-size: 13px; color: var(--text); margin-bottom: 3px; }
+    .rec-summary-rehab a { color: var(--text); }
+    .rec-summary-rehab-note { font-size: 12px; color: var(--amber); font-style: italic; margin-top: 4px; }
+    .rec-summary-rehab-empty { font-size: 13px; color: var(--text-muted); margin: 0; }
+
     .empty-msg {
       font-size: 12.5px;
       color: var(--text-muted);
@@ -1693,8 +1729,8 @@
      filename can leave a browser running STALE JS against fresh HTML (e.g. new
      markup whose handlers live only in the new JS). Bump this token on any
      change to these files to force clients to fetch the new copy. -->
-<script src="assets/messages.js?v=20260625f"></script>
-<script src="assets/decision.js?v=20260625f"></script>
-<script src="assets/dispatcher.js?v=20260625f"></script>
+<script src="assets/messages.js?v=20260625g"></script>
+<script src="assets/decision.js?v=20260625g"></script>
+<script src="assets/dispatcher.js?v=20260625g"></script>
 </body>
 </html>

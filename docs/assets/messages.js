@@ -141,7 +141,38 @@
       referralNoTargets: 'No referral target on file - ask the finder to call PA Game Commission.',
       // County-wide special instructions header + body. {notes} = special_notes.
       referralSpecialHeader: 'Special instructions',
-      referralSpecialNotes: '{notes}'
+      referralSpecialNotes: '{notes}',
+
+      // ── Dispatch summary block (dispatcher.js recDispatchSummaryHtml) ──────
+      // Scannable counts + nearby-rehabber lines shown under the action, giving
+      // the dispatcher the same depth Tier 2 surfaces. The volunteer counts are
+      // computed from the SAME qualified rows the In-County / WIN Area list
+      // buttons use (state.t1VolRows), so they never disagree with the lists.
+      summaryHeader: 'Dispatch summary',
+      // Qualified-volunteer count lines. {count} = qualified volunteers,
+      // {county} = selected county, {area} = its WIN area.
+      summaryVolCounty: 'Qualified volunteers in-county: <strong>{count}</strong> ({county} County)',
+      summaryVolArea: 'Qualified volunteers in-area: <strong>{count}</strong> (WIN Area {area})',
+      // Same lines when the WIN area is unknown for the selected county.
+      summaryVolAreaUnknown: 'Qualified volunteers in-area: <strong>{count}</strong>',
+      // Shown in place of the count lines when the volunteer list has not
+      // loaded yet (e.g. the Worker is slow / unavailable). The list loads
+      // automatically on county selection, so this is a transient state.
+      summaryVolPending: 'Qualified-volunteer counts loading\u2026 open the In-County / WIN Area lists below.',
+      // Nearby-rehabber section header + per-row line.
+      summaryRehabHeader: 'Nearby rehabbers',
+      // {name} = rehabber name, {phone} = formatted phone (or dash), {county} =
+      // rehabber county.
+      summaryRehabRow: '{name} ({phone}) \u2014 {county} County',
+      // Shown when a rehabber row has no phone on file.
+      summaryRehabNoPhone: 'no phone on file',
+      // Empty state when no in-county / in-area rehabbers are on file.
+      summaryRehabEmpty: 'No rehabbers on file in this county or WIN area.',
+      // Caveat appended under the rehabber list: rehabbers.json carries no
+      // structured animal-type field, so the list is NOT filtered by the
+      // selected animal type yet. Confirm the facility accepts this animal
+      // before referring.
+      summaryRehabNoFilter: 'Animal-type filtering not yet available \u2014 confirm the rehabber accepts this animal before referring.'
     },
 
     // ── Tier 1 capacity cards / empty + coordinator line (dispatcher.js) ───

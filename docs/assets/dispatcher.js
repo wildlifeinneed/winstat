@@ -432,6 +432,129 @@
     });
   }
 
+  // Format a digit string as a US phone (833-742-9453) for display; non-10-digit
+  // values fall back to the raw input. Mirrors the refer_out phone formatting.
+  function formatPhoneDisplay(raw) {
+    var s = String(raw == null ? '' : raw).trim();
+    var digits = s.replace(/[^0-9]/g, '');
+    if (digits.length === 10) {
+      return digits.slice(0, 3) + '-' + digits.slice(3, 6) + '-' + digits.slice(6);
+    }
+    return s;
+  }
+
+  // ─── Dispatch summary block (Tier-2-depth detail for Tier 1) ──────────────
+  // Build scannable summary lines shown UNDER the action/target in the In-County
+  // recommendation:
+  //   1) Qualified-volunteer COUNTS (in-county + in-area), reusing the SAME
+  //      qualified rows the In-County / WIN Area list buttons render
+  //      (state.t1VolRows + state.t1VolCtx) so the numbers never disagree with
+  //      the lists. The qualified filter is the SHARED decision.js predicate
+  //      (qualifiesForAnimal) and the in-county narrowing is the SAME
+  //      row.county === county filter renderT1VolList applies.
+  //   2) Nearby REHABBERS in the selected county or its WIN area (from
+  //      state.rehabbers), each as "Name (phone) — County". rehabbers.json
+  //      carries no structured animal-type field, so the list is NOT filtered by
+  //      the selected animal type; a caveat line says so.
+  // Returns an HTML string (possibly empty if there is nothing to show).
+  function recDispatchSummaryHtml(county) {
+    if (!county) return '';
+    var REC = MSG.recommendation;
+    var html = '';
+    html += '<div class="rec-summary">';
+    html += '<div class="rec-summary-header">' + escapeHtml(REC.summaryHeader) + '</div>';
+
+    // 1) Qualified-volunteer counts from the cached Tier 1 rows. These are the
+    //    SAME rows + ctx the In-County / WIN Area list buttons consume, loaded
+    //    automatically on county selection.
+    var rows = Array.isArray(state.t1VolRows) ? state.t1VolRows : null;
+    var ctx = state.t1VolCtx || null;
+    html += '<ul class="rec-summary-list">';
+    if (rows && ctx) {
+      var qualifyFn = (window.WildlifeDecision &&
+                       typeof window.WildlifeDecision.qualifiesForAnimal === 'function')
+        ? window.WildlifeDecision.qualifiesForAnimal : null;
+      var hasBase = typeof ctx.issue === 'string' && ctx.issue !== '';
+      var areaList = rows;
+      if (qualifyFn && hasBase) {
+        areaList = rows.filter(function (row) {
+          var roleList = Array.isArray(row.roles) ? row.roles : [];
+          return qualifyFn(roleList, !!ctx.rvs, ctx.issue);
+        });
+      }
+      var countyList = areaList.filter(function (row) {
+        return row.county && String(row.county) === county;
+      });
+      html += '<li class="rec-summary-vol">' +
+        fmt(REC.summaryVolCounty, { count: countyList.length, county: escapeHtml(county) }) + '</li>';
+      var winArea = (state.countyWin && state.countyWin[county] !== undefined &&
+                     state.countyWin[county] !== null)
+        ? String(state.countyWin[county]).trim() : '';
+      var areaLine = winArea
+        ? fmt(REC.summaryVolArea, { count: areaList.length, area: escapeHtml(winArea) })
+        : fmt(REC.summaryVolAreaUnknown, { count: areaList.length });
+      html += '<li class="rec-summary-vol">' + areaLine + '</li>';
+    } else {
+      // The list has not loaded yet (e.g. Worker slow/unavailable). Show a
+      // transient pending line rather than a misleading "0".
+      html += '<li class="rec-summary-vol rec-summary-pending">' +
+        escapeHtml(REC.summaryVolPending) + '</li>';
+    }
+    html += '</ul>';
+
+    // 2) Nearby rehabbers in the county or its WIN area. rehabbers.json has no
+    //    structured animal-type field, so we cannot filter by animal type — show
+    //    all in-scope rehabbers with a caveat.
+    html += '<div class="rec-summary-rehab-header">' + escapeHtml(REC.summaryRehabHeader) + '</div>';
+    var areaCounties = {};
+    getWinAreaCounties(county).forEach(function (c) {
+      if (c) areaCounties[String(c).trim().toLowerCase()] = true;
+    });
+    var rehabbers = Array.isArray(state.rehabbers) ? state.rehabbers : [];
+    var nearby = rehabbers.filter(function (r) {
+      var rc = (r && r.county) ? String(r.county).trim().toLowerCase() : '';
+      return rc && areaCounties[rc];
+    });
+    if (nearby.length) {
+      // Selected-county rehabbers first, then sibling-area rehabbers; stable
+      // within each group.
+      var inCty = [];
+      var siblings = [];
+      var selKey = String(county).trim().toLowerCase();
+      nearby.forEach(function (r) {
+        if (String(r.county).trim().toLowerCase() === selKey) inCty.push(r);
+        else siblings.push(r);
+      });
+      var ordered = inCty.concat(siblings);
+      html += '<ul class="rec-summary-list rec-summary-rehab-list">';
+      ordered.forEach(function (r) {
+        var name = String(r.rehab_name || '').trim() || String(r.county || '');
+        var rawPhone = String(r.phone || '').trim();
+        var phoneTxt;
+        if (rawPhone) {
+          var shown = formatPhoneDisplay(rawPhone);
+          var telHref = rawPhone.replace(/[^0-9+]/g, '');
+          phoneTxt = '<a href="tel:' + escapeHtml(telHref) + '">' + escapeHtml(shown) + '</a>';
+        } else {
+          phoneTxt = escapeHtml(REC.summaryRehabNoPhone);
+        }
+        html += '<li class="rec-summary-rehab">' +
+          fmt(REC.summaryRehabRow, {
+            name: escapeHtml(name),
+            phone: phoneTxt,
+            county: escapeHtml(String(r.county || ''))
+          }) + '</li>';
+      });
+      html += '</ul>';
+      html += '<div class="rec-summary-rehab-note">' + escapeHtml(REC.summaryRehabNoFilter) + '</div>';
+    } else {
+      html += '<p class="rec-summary-rehab-empty">' + escapeHtml(REC.summaryRehabEmpty) + '</p>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
   // Build the action/target/low-capacity/reasoning body for a SINGLE
   // recommendation object. Extracted from the former renderRecommendation body
   // so both scopes (In-County / WIN Area) reuse the IDENTICAL markup; only the
@@ -574,12 +697,16 @@
     // The recommendation body, with the county-level referral guidance shown
     // (this IS the In-County view, so policy referral always applies).
     var built = recBodyHtml(recCounty, true);
+    // Dispatch summary (Tier-2-depth detail): qualified-volunteer counts +
+    // nearby rehabbers. Built from the SAME cached rows the volunteer-list
+    // buttons use, so the counts never disagree with the lists.
+    var summaryHtml = recDispatchSummaryHtml(county);
     var headerTxt = county
       ? fmt(REC.scopeHeaderCounty, { county: county })
       : REC.scopeHeaderCounty.replace('{county}', '').replace(/\s+$/, '');
     html += '<div id="rec-scope-body">' +
       '<div class="ctx-header" id="rec-scope-header">' + escapeHtml(headerTxt) + '</div>' +
-      built.html + '</div>';
+      built.html + summaryHtml + '</div>';
 
     var out = $('#rec-output');
     out.innerHTML = html;

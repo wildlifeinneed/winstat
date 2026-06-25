@@ -3606,6 +3606,129 @@ async function runTier1VolunteerListCaptureQualified() {
   console.log('PASS: Tier 1 volunteer list (Capture) — qualified-only like Tier 2 (COURIER-only dropped); request sends qualify_roles; qualified-but-unavailable row kept + dimmed.');
 }
 
+// ── Tier 1 DISPATCH SUMMARY: the In-County recommendation now surfaces
+//    Tier-2-depth detail UNDER the action — (1) QUALIFIED-volunteer COUNTS
+//    in-county vs in-area derived from the SAME cached rows + qualify filter the
+//    In-County / WIN Area list buttons use (so the numbers can NEVER disagree
+//    with the lists), and (2) NEARBY REHABBERS in the county or its WIN area
+//    from rehabbers.json, each as "Name (phone) — County", with an explicit
+//    "animal-type filtering not yet available" caveat (rehabbers.json carries no
+//    structured animal field). ────────────────────────────────────────────────
+async function runTier1DispatchSummary() {
+  // 5 Capture-qualified rows across WIN area 10 (Allegheny selected + Beaver
+  // sibling): 3 qualify in the selected county, 4 qualify in-area; a COURIER-only
+  // row does NOT qualify for a Capture animal and must be EXCLUDED from BOTH
+  // counts (matching the list's qualified-only filter).
+  const agg = {
+    total_in_range: 5,
+    role_counts: { 'C&T': 3, 'RVS C&T': 1, 'COURIER': 1 },
+    win_areas: ['10'],
+    out_of_county: [
+      { roles: ['C&T'], distance_mi: 2.0, win_area: '10', county: 'Allegheny', availability_note: '' },
+      { roles: ['C&T'], distance_mi: 3.0, win_area: '10', county: 'Allegheny', availability_note: '' },
+      { roles: ['RVS C&T'], distance_mi: 4.0, win_area: '10', county: 'Allegheny', availability_note: '' },
+      // Sibling-county (Beaver) qualified row: counts in-area but NOT in-county.
+      { roles: ['C&T'], distance_mi: 6.0, win_area: '10', county: 'Beaver', availability_note: '' },
+      // COURIER-only: does NOT qualify on a Capture animal -> excluded from both.
+      { roles: ['COURIER'], distance_mi: 8.0, win_area: '10', county: 'Beaver', availability_note: '' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  // Rehabbers: 1 in the selected county (Allegheny), 1 in the sibling WIN-area
+  // county (Beaver), and 1 OUT of area (Erie, area 1) that must NOT appear.
+  const REHABBERS = [
+    { rehab_name: 'Tamarack Wildlife Center', county: 'Allegheny', phone: '8147637676', availability: 'M, RA' },
+    { rehab_name: 'Beaver County Rehab', county: 'Beaver', phone: '', availability: 'M' },
+    { rehab_name: 'Erie Far Away', county: 'Erie', phone: '8145551212', availability: 'M' },
+  ];
+  const { window, doc } = await loadDomAndRecommendWithRehabbers(
+    agg, REHABBERS, 'Allegheny', { rvs: false, issue: 'capture' });
+
+  const summary = doc.querySelector('#rec-scope-body .rec-summary');
+  assert.ok(summary, 'In-County recommendation renders a .rec-summary block');
+
+  // (1) Qualified-volunteer COUNTS. In-county = 3 (2 C&T + 1 RVS C&T, Allegheny);
+  //     in-area = 4 (those 3 + 1 Beaver C&T). The COURIER-only row is excluded.
+  const volLines = Array.prototype.slice.call(summary.querySelectorAll('.rec-summary-vol'))
+    .map(function (li) { return li.textContent.replace(/\s+/g, ' ').trim(); });
+  const ctyLine = volLines.find(function (t) { return /in-county/i.test(t); });
+  const areaLine = volLines.find(function (t) { return /in-area/i.test(t); });
+  assert.ok(ctyLine && /in-county:\s*3\b/i.test(ctyLine),
+    'in-county qualified count = 3 (Allegheny C&T+C&T+RVS C&T; COURIER excluded) (got: "' + ctyLine + '")');
+  assert.ok(ctyLine && /Allegheny/.test(ctyLine), 'in-county line names the selected county');
+  assert.ok(areaLine && /in-area:\s*4\b/i.test(areaLine),
+    'in-area qualified count = 4 (adds the Beaver C&T; COURIER still excluded) (got: "' + areaLine + '")');
+  assert.ok(areaLine && /Area\s*10/.test(areaLine), 'in-area line names WIN Area 10');
+
+  // (2) NEARBY REHABBERS: Allegheny (in-county) + Beaver (in-area) appear; the
+  //     out-of-area Erie rehabber does NOT.
+  const rehabRows = Array.prototype.slice.call(summary.querySelectorAll('.rec-summary-rehab'))
+    .map(function (li) { return li.textContent.replace(/\s+/g, ' ').trim(); });
+  assert.strictEqual(rehabRows.length, 2,
+    'exactly 2 in-scope rehabbers render (Allegheny + Beaver; Erie excluded) (got ' + rehabRows.length + ')');
+  // Selected-county rehabber is listed FIRST, with a formatted, tel-linked phone.
+  assert.ok(/Tamarack Wildlife Center/.test(rehabRows[0]) && /Allegheny County/.test(rehabRows[0]),
+    'first rehabber row is the in-county one (Tamarack — Allegheny County)');
+  assert.ok(/814-763-7676/.test(rehabRows[0]),
+    'in-county rehabber phone is formatted XXX-XXX-XXXX (got: "' + rehabRows[0] + '")');
+  const telLink = summary.querySelector('.rec-summary-rehab a[href^="tel:"]');
+  assert.ok(telLink, 'rehabber phone is a tel: link');
+  // Sibling-area rehabber with no phone shows the no-phone fallback.
+  assert.ok(/Beaver County Rehab/.test(rehabRows[1]) && /no phone on file/i.test(rehabRows[1]),
+    'sibling-area rehabber with no phone shows the no-phone fallback (got: "' + rehabRows[1] + '")');
+  assert.ok(!rehabRows.join(' | ').match(/Erie/),
+    'out-of-area (Erie) rehabber is NOT listed');
+
+  // The animal-type caveat is present (rehabbers.json has no structured animal
+  // field, so the list is NOT filtered by the selected animal type).
+  const note = summary.querySelector('.rec-summary-rehab-note');
+  assert.ok(note && /animal-type filtering not yet available/i.test(note.textContent),
+    'a caveat states animal-type filtering is not yet available');
+
+  console.log('PASS: Tier 1 dispatch summary — qualified-volunteer counts (in-county 3 / in-area 4, COURIER excluded; matches the list filter) + nearby rehabbers (in-county first, formatted tel link, no-phone fallback, out-of-area excluded) with animal-type-filtering caveat.');
+}
+
+// Helper: load the page with a custom Worker aggregate AND rehabbers.json
+// payload, select a county + base info (so the Tier 1 volunteer list loads into
+// state.t1VolRows), then click "Get Recommendation". Returns the live
+// window/doc. Mirrors driveTier1Recommend but also seeds rehabbers so the
+// dispatch-summary rehabber list has data.
+async function loadDomAndRecommendWithRehabbers(agg, rehabbers, county, base) {
+  const { window, opts } = loadDom({
+    workerAgg: agg,
+    data: {
+      'county_win.json': COUNTY_WIN,
+      'coordinators.json': COORDINATORS,
+      'rehabbers.json': rehabbers,
+    },
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  const countySel = doc.getElementById('county');
+  countySel.value = county;
+  countySel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+
+  if (base) {
+    const rvsVal = base.rvs ? 'yes' : 'no';
+    const rvsEl = doc.querySelector('input[name="rvs"][value="' + rvsVal + '"]');
+    if (rvsEl) { rvsEl.checked = true; rvsEl.dispatchEvent(new window.Event('change', { bubbles: true })); }
+    const issueEl = doc.querySelector('input[name="issue"][value="' + base.issue + '"]');
+    if (issueEl) { issueEl.checked = true; issueEl.dispatchEvent(new window.Event('change', { bubbles: true })); }
+    await flush(window);
+    await flush(window);
+  }
+
+  doc.getElementById('recommend-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+  return { window, doc, opts };
+}
+
 // ── Tier 1 (Transport): when ALL volunteers qualify (Issue=Transport ->
 //    qualifyingRoles returns all 3: C&T + RVS C&T + COURIER) AND the list is
 //    long (> 2 per role), the list is CAPPED to ≤2 per role category, with the
@@ -4329,6 +4452,7 @@ async function run() {
   await runTier2AvailNote();
   await runTier1VolunteerList();
   await runTier1VolunteerListCaptureQualified();
+  await runTier1DispatchSummary();
   await runTier1VolunteerListAllQualifiedCap();
   await runTier1VolunteerListAllQualifiedNoCap();
   await runTier1VolunteerScopeButtons();
@@ -4339,7 +4463,7 @@ async function run() {
   await runTier2CountyBreakdown();
   await runScriptCacheBusting();
   await runScopeButtonHoverFill();
-  console.log('\nALL DOM TESTS PASSED (60 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (61 scenarios).');
 }
 
 run().then(function () {
