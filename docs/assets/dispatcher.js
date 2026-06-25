@@ -1340,17 +1340,26 @@
 
     if (listEl) listEl.innerHTML = html;
 
-    // Banner + expand link only in the capped state, injected as SIBLINGS of the
-    // <ul> (never nested inside it) so the list stays valid <ul><li> markup. The
-    // expand link swaps the capped rows for the FULL list and removes itself +
-    // the banner so the dispatcher can see every qualified volunteer on demand.
-    if (capped && listEl && blockEl) {
-      var bannerEl = document.createElement('div');
+    // Banner: shown whenever ALL roles qualify (Issue=Transport ->
+    // qualifyingRoles returns all 3), INDEPENDENT of list length. The message is
+    // about QUALIFICATION ("everyone here is taskable"), not about capping, so it
+    // must appear consistently across counties — whether the list is long enough
+    // to be capped (Armstrong) or short (Adams/Allegheny). Injected as a SIBLING
+    // of the <ul> (never nested inside it) so the list stays valid <ul><li>.
+    var bannerEl = null;
+    if (allRolesQualify && listEl && blockEl) {
+      bannerEl = document.createElement('div');
       bannerEl.className = 't1-vol-all-qualified';
       bannerEl.setAttribute('role', 'note');
-      bannerEl.textContent = T2.tier1VolAllQualified;
+      bannerEl.textContent = T2.tier1VolAllQualified +
+        (capped ? (T2.tier1VolAllQualifiedCapped || '') : '');
       listEl.parentNode.insertBefore(bannerEl, listEl);
+    }
 
+    // Expand link: ONLY in the capped state. It swaps the capped rows for the
+    // FULL list and removes itself + the banner so the dispatcher can see every
+    // qualified volunteer on demand.
+    if (capped && listEl && blockEl) {
       var fullHtml = list.map(rowHtml).join('');
       var moreBtn = document.createElement('button');
       moreBtn.type = 'button';
@@ -1360,7 +1369,7 @@
       else listEl.parentNode.appendChild(moreBtn);
       moreBtn.addEventListener('click', function () {
         listEl.innerHTML = fullHtml;
-        if (bannerEl.parentNode) bannerEl.parentNode.removeChild(bannerEl);
+        if (bannerEl && bannerEl.parentNode) bannerEl.parentNode.removeChild(bannerEl);
         if (moreBtn.parentNode) moreBtn.parentNode.removeChild(moreBtn);
       });
     }

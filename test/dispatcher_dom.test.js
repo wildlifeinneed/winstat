@@ -3550,8 +3550,11 @@ async function runTier1VolunteerListAllQualifiedCap() {
 }
 
 // ── Tier 1 (Transport, short list): when all roles qualify but the list is
-//    SHORT (≤ 2 per role), no cap/banner/expand-link is applied — the full
-//    list renders as-is. Guards against capping tiny lists. ──────────────────
+//    SHORT (≤ 2 per role), the full list renders (no cap, no expand link) — but
+//    the "all volunteers are qualified" BANNER STILL appears, because the banner
+//    is about QUALIFICATION (all 3 roles taskable), not list length. This keeps
+//    the banner CONSISTENT across counties regardless of how many volunteers are
+//    in the list (the Adams/Allegheny-vs-Armstrong inconsistency fix). ─────────
 async function runTier1VolunteerListAllQualifiedNoCap() {
   // 3 transport rows (1 per role) — all qualify but list is short, so NOT capped.
   const agg = {
@@ -3570,12 +3573,17 @@ async function runTier1VolunteerListAllQualifiedNoCap() {
 
   const rows = Array.prototype.slice.call(doc.querySelectorAll('#t1-vol-list .ctx-row'));
   assert.strictEqual(rows.length, 3, 'short all-qualified list renders in full (got ' + rows.length + ')');
-  assert.ok(!doc.querySelector('#t1-vol-block .t1-vol-all-qualified'),
-    'no banner on a short list (not capped)');
+  // Banner STILL shows on a short list — consistency fix. It must NOT carry the
+  // capped "showing a few per role" suffix, since the full list is shown.
+  const banner = doc.querySelector('#t1-vol-block .t1-vol-all-qualified');
+  assert.ok(banner && /All volunteers in this area are qualified/i.test(banner.textContent),
+    'banner shows on a short all-qualified list (consistency fix)');
+  assert.ok(!/showing a few per role/i.test(banner.textContent),
+    'short-list banner omits the capped "showing a few per role" suffix');
   assert.ok(!doc.querySelector('#t1-vol-block .t1-vol-show-all'),
     'no expand link on a short list (not capped)');
 
-  console.log('PASS: Tier 1 volunteer list (Transport, short) — all roles qualify but ≤2 per role, so renders in full with no cap/banner/expand link.');
+  console.log('PASS: Tier 1 volunteer list (Transport, short) — all roles qualify so the qualification banner shows (no capped suffix), with the full list and no expand link.');
 }
 
 // ── COUNTY BREAKDOWN: per-role county list inside each role card's .sub. ────

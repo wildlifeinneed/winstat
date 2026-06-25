@@ -232,10 +232,14 @@
       // {county} = the selected county name.
       tier1VolHeader: 'Qualified volunteers near {county}',
       tier1VolEmpty: 'No qualified volunteers found near {county}.',
-      // Shown above the Tier 1 list when EVERY volunteer in the area qualifies
-      // (all 3 role types are taskable, e.g. Issue=Transport) and the list is
-      // capped to a few per role category.
-      tier1VolAllQualified: 'All volunteers in this area are qualified — showing a few per role.',
+      // Shown above the Tier 1 list whenever EVERY role qualifies (all 3 role
+      // types are taskable, e.g. Issue=Transport), INDEPENDENT of list length —
+      // the message is about qualification, not capping, so it appears
+      // consistently across counties (long or short lists alike).
+      tier1VolAllQualified: 'All volunteers in this area are qualified.',
+      // Appended to the banner ONLY when the list is also capped to a few per
+      // role category (long lists). Keeps the base banner length-independent.
+      tier1VolAllQualifiedCapped: ' Showing a few per role.',
       // Expand link to reveal the full (uncapped) list. {count} = total rows.
       tier1VolShowAll: 'Show all {count} volunteers',
       // {count} = rows shown.
