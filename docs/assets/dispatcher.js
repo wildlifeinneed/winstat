@@ -2039,8 +2039,7 @@
         L_.marker([lat, lon], {
           icon: t2DivIcon(t2VolPinClass(v.roles), 14),
           title: 'Volunteer'
-        }).bindPopup('<strong>Volunteer</strong>' +
-            (lines.length ? ('<br>' + lines.join('<br>')) : ''))
+        }).bindPopup(lines.length ? lines.join('<br>') : '')
           .addTo(t2map.layers.volunteer);
         bounds.push([lat, lon]);
       });
