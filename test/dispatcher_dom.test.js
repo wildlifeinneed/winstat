@@ -3586,6 +3586,89 @@ async function runTier1VolunteerListAllQualifiedNoCap() {
   console.log('PASS: Tier 1 volunteer list (Transport, short) — all roles qualify so the qualification banner shows (no capped suffix), with the full list and no expand link.');
 }
 
+// ── Tier 1 SCOPE BUTTONS: the By-County results carry TWO scope buttons —
+//    "In-County Volunteers" (#t1-vol-toggle-county) and "WIN Area Volunteers"
+//    (#t1-vol-toggle-area). The COUNTY button lists ONLY volunteers whose home
+//    county === the selected county; the AREA button keeps the original full
+//    WIN-area list. Both render into the SAME #t1-vol-block from a SINGLE Worker
+//    fetch (the In-County view is a client-side filter), preserving the
+//    qualified-only / dim / role-color behavior. ─────────────────────────────
+async function runTier1VolunteerScopeButtons() {
+  // 4 transport-qualified rows across the WIN area: 2 in the SELECTED county
+  // (Allegheny) and 2 in sibling counties (Beaver, Butler) of the same area.
+  const agg = {
+    total_in_range: 4,
+    role_counts: { 'C&T': 2, 'RVS C&T': 1, 'COURIER': 1 },
+    win_areas: ['10'],
+    out_of_county: [
+      { roles: ['C&T'], distance_mi: 2.0, win_area: '10', county: 'Allegheny', availability_note: '' },
+      { roles: ['RVS C&T'], distance_mi: 5.0, win_area: '10', county: 'Beaver', availability_note: '' },
+      { roles: ['C&T'], distance_mi: 7.0, win_area: '10', county: 'Allegheny', available: false, availability_note: '' },
+      { roles: ['COURIER'], distance_mi: 9.0, win_area: '11', county: 'Butler', availability_note: '' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { window, doc } = await driveTier1Recommend(agg, 'Allegheny', { rvs: false, issue: 'transport' });
+
+  // Both scope buttons exist and are visually distinct (county = filled class,
+  // area = outline). The section is visible; the block starts COLLAPSED.
+  const countyBtn = doc.getElementById('t1-vol-toggle-county');
+  const areaBtn = doc.getElementById('t1-vol-toggle-area');
+  assert.ok(countyBtn && areaBtn, 'both scope buttons (county + area) exist');
+  assert.ok(/In-County/i.test(countyBtn.textContent), 'county button is labeled "In-County Volunteers"');
+  assert.ok(countyBtn.classList.contains('btn-t1-vol-county'),
+    'county button carries the distinct .btn-t1-vol-county (filled) class');
+  assert.ok(areaBtn.classList.contains('btn-t1-vol-area'),
+    'area button carries the distinct .btn-t1-vol-area (outline) class');
+  const blockEl = doc.getElementById('t1-vol-block');
+  assert.ok(blockEl && blockEl.style.display === 'none',
+    'volunteer block starts collapsed until a scope button is clicked');
+
+  // Click IN-COUNTY: only the 2 Allegheny rows show (Beaver + Butler dropped).
+  countyBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
+  assert.ok(blockEl.style.display !== 'none', 'In-County click reveals the block');
+  assert.ok(countyBtn.classList.contains('is-active'), 'In-County button marked active');
+  assert.ok(!areaBtn.classList.contains('is-active'), 'Area button NOT active while In-County open');
+  let rows = Array.prototype.slice.call(doc.querySelectorAll('#t1-vol-list .ctx-row'));
+  assert.strictEqual(rows.length, 2,
+    'In-County scope shows ONLY the 2 selected-county (Allegheny) rows (got ' + rows.length + ')');
+  rows.forEach(function (r) {
+    const c = r.querySelector('.ctx-ctx');
+    assert.ok(c && /Allegheny/.test(c.textContent),
+      'every In-County row is from Allegheny (got: "' + (c ? c.textContent : '') + '")');
+    assert.ok(!/Beaver|Butler/.test(r.textContent),
+      'no sibling-county (Beaver/Butler) row appears in the In-County list');
+  });
+  // The In-County header names the county scope ("in Allegheny County").
+  const header = doc.getElementById('t1-vol-header');
+  assert.ok(header && /in Allegheny County/i.test(header.textContent),
+    'In-County header names the county scope (got: "' + (header ? header.textContent : '') + '")');
+  // Dimming preserved: the available:false Allegheny C&T row is dimmed.
+  const inCountyDimmed = rows.filter(function (r) { return r.classList.contains('unavail'); });
+  assert.strictEqual(inCountyDimmed.length, 1,
+    'In-County list preserves dimming for the unavailable Allegheny row');
+
+  // Click WIN AREA: the full 4-row area list returns (county filter dropped).
+  areaBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
+  assert.ok(blockEl.style.display !== 'none', 'Area click keeps the block open');
+  assert.ok(areaBtn.classList.contains('is-active'), 'Area button marked active after switch');
+  assert.ok(!countyBtn.classList.contains('is-active'), 'County button cleared after switching to Area');
+  rows = Array.prototype.slice.call(doc.querySelectorAll('#t1-vol-list .ctx-row'));
+  assert.strictEqual(rows.length, 4,
+    'WIN Area scope shows ALL 4 area volunteers (got ' + rows.length + ')');
+  const hasSibling = rows.some(function (r) { return /Beaver|Butler/.test(r.textContent); });
+  assert.ok(hasSibling, 'WIN Area list includes sibling-county rows (full-area scope preserved)');
+
+  // Clicking the OPEN area button again collapses the block.
+  areaBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
+  assert.ok(blockEl.style.display === 'none', 'clicking the open scope again collapses the block');
+  assert.ok(!areaBtn.classList.contains('is-active') && !countyBtn.classList.contains('is-active'),
+    'both buttons inactive after collapse');
+
+  console.log('PASS: Tier 1 scope buttons — In-County button lists ONLY selected-county volunteers (siblings dropped, dimming preserved, county-scoped header); WIN Area button restores the full-area list; same #t1-vol-block + single fetch; toggle collapses on re-click.');
+}
+
 // ── COUNTY BREAKDOWN: per-role county list inside each role card's .sub. ────
 //    Each card shows only the counties relevant to THAT role (not aggregate).
 //    With county_by_role: C&T box: Blair 2, Centre 1.  RVS C&T box: Centre 1.  COURIER: Clearfield 1.
@@ -3779,8 +3862,9 @@ async function run() {
   await runTier1VolunteerListCaptureQualified();
   await runTier1VolunteerListAllQualifiedCap();
   await runTier1VolunteerListAllQualifiedNoCap();
+  await runTier1VolunteerScopeButtons();
   await runTier2CountyBreakdown();
-  console.log('\nALL DOM TESTS PASSED (53 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (54 scenarios).');
 }
 
 run().then(function () {

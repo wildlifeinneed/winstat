@@ -229,9 +229,13 @@
       // {beyondCount} = how many listed rows are beyond the radius.
       ctxHeaderBeyondNote: ' (+{beyondCount} beyond)',
       // Tier 1 (By-County) qualified-volunteer list header + empty state.
-      // {county} = the selected county name.
+      // {county} = the selected county name. The AREA-scope strings describe the
+      // full WIN area; the COUNTY-scope strings describe ONLY the selected
+      // county (the In-County Volunteers button).
       tier1VolHeader: 'Qualified volunteers near {county}',
       tier1VolEmpty: 'No qualified volunteers found near {county}.',
+      tier1VolHeaderCounty: 'Qualified volunteers in {county} County',
+      tier1VolEmptyCounty: 'No qualified volunteers found in {county} County.',
       // Shown above the Tier 1 list whenever EVERY role qualifies (all 3 role
       // types are taskable, e.g. Issue=Transport), INDEPENDENT of list length —
       // the message is about qualification, not capping, so it appears

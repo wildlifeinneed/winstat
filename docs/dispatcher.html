@@ -617,7 +617,16 @@
     }
     .btn-widen:hover { background: var(--amber); color: #fff; }
 
-    /* Tier 1 qualified-volunteer Show/Hide toggle. */
+    /* Tier 1 qualified-volunteer scope toggles. Two buttons sit side-by-side:
+       the IN-COUNTY button (filled green = the tighter, usually-preferred scope)
+       and the WIN AREA button (outline = the broader fallback scope). The
+       distinct fill vs. outline treatment tells the dispatcher at a glance which
+       scope each button opens. The currently-OPEN button gets .is-active. */
+    .t1-vol-toggles {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
     .btn-t1-vol-toggle {
       background: var(--surface);
       color: var(--green-deep);
@@ -631,6 +640,17 @@
       transition: background var(--transition), color var(--transition);
     }
     .btn-t1-vol-toggle:hover { background: var(--green-deep); color: #fff; }
+    /* IN-COUNTY = filled green (tighter scope, visually primary). */
+    .btn-t1-vol-county {
+      background: var(--green-deep);
+      color: #fff;
+    }
+    .btn-t1-vol-county:hover { background: var(--green-dark); color: #fff; }
+    /* The open scope is emphasized with a focus ring so the dispatcher can see
+       which list is currently showing. */
+    .btn-t1-vol-toggle.is-active {
+      box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--green-deep);
+    }
 
     /* ─── Tier 2 out-of-county context list ───────────────────── */
     .ctx-header {
@@ -1400,10 +1420,22 @@
          (the SAME visual treatment Tier 2 uses). Placed directly under the
          summary cards and hidden behind the Show/Hide toggle. -->
     <div id="t1-vol-section" style="display:none; margin-top:16px;">
-      <button id="t1-vol-toggle" class="btn-t1-vol-toggle" type="button"
-              aria-expanded="false" aria-controls="t1-vol-block">
-        Show qualified volunteers
-      </button>
+      <!-- Two scope buttons. The AREA button (existing behavior) lists every
+           qualified volunteer in the selected county's full WIN area. The
+           COUNTY button lists ONLY volunteers whose home county matches the
+           selected county. Both render into the SAME #t1-vol-block using the
+           SAME row markup (qualified-only, unavailable dimmed, role-colored
+           borders, Transport cap/banner); only the row set differs. -->
+      <div class="t1-vol-toggles">
+        <button id="t1-vol-toggle-county" class="btn-t1-vol-toggle btn-t1-vol-county" type="button"
+                aria-expanded="false" aria-controls="t1-vol-block">
+          In-County Volunteers
+        </button>
+        <button id="t1-vol-toggle-area" class="btn-t1-vol-toggle btn-t1-vol-area" type="button"
+                aria-expanded="false" aria-controls="t1-vol-block">
+          WIN Area Volunteers
+        </button>
+      </div>
       <div id="t1-vol-block" style="display:none;">
         <div class="ctx-header" id="t1-vol-header">Qualified volunteers</div>
         <div id="t1-vol-empty" class="ctx-empty" style="display:none;"></div>

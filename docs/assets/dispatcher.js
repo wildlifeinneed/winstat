@@ -106,7 +106,18 @@
     // the county-mode coordinator so two coordinators are NEVER shown at once;
     // switching back to county mode rebinds to 'county'. The dropdown VALUE is
     // preserved either way (we never wipe the selection).
-    activeLocation: 'county'
+    activeLocation: 'county',
+    // Tier 1 volunteer list: cache the LAST-FETCHED Worker context rows + the
+    // {county, rvs, issue} render context so the two scope buttons (In-County /
+    // WIN Area) can re-render WITHOUT re-fetching. The WIN-area fetch already
+    // returns EVERY in-county volunteer (county ⊆ win_area, and the Worker
+    // retains all win_area members regardless of distance), so the In-County
+    // view is just a client-side filter (row.county === selected county) over
+    // these SAME rows. `scope` tracks which button is currently OPEN (null =
+    // collapsed). Reset by hideTier1Volunteers / a fresh fetch.
+    t1VolRows: null,
+    t1VolCtx: null,
+    t1VolScope: null
   };
 
   // ─── Address-mode (Phase G) configuration ──────────────────────────
@@ -1167,56 +1178,110 @@
   // (out_of_county shape: {roles, distance_mi, win_area, county, availability_note,
   // available}); `ctx` carries { county, rvs, issue } for the header + the
   // defensive qualified-only filter. Hidden entirely when there is no list.
+
+  // Reset BOTH scope buttons to the collapsed state (label + aria + active mark).
+  function resetT1VolToggles() {
+    var countyBtn = $('#t1-vol-toggle-county');
+    var areaBtn = $('#t1-vol-toggle-area');
+    [countyBtn, areaBtn].forEach(function (btn) {
+      if (!btn) return;
+      btn.setAttribute('aria-expanded', 'false');
+      btn.classList.remove('is-active');
+    });
+  }
+
   function hideTier1Volunteers() {
     var section = $('#t1-vol-section');
     var listEl = $('#t1-vol-list');
     var emptyEl = $('#t1-vol-empty');
     var blockEl = $('#t1-vol-block');
-    var toggleEl = $('#t1-vol-toggle');
     // Clear any stale flag so a hidden (or about-to-be-rebuilt) section never
     // carries a dim/banner over from a previous county selection.
     clearStale(section);
     if (section) section.style.display = 'none';
     if (listEl) listEl.innerHTML = '';
     if (emptyEl) { emptyEl.style.display = 'none'; emptyEl.textContent = ''; }
-    // Collapse the list and reset the toggle so the next recommendation starts
-    // hidden again ("Show qualified volunteers").
+    // Collapse the list + reset BOTH scope buttons so the next recommendation
+    // starts hidden again (no scope open).
     if (blockEl) blockEl.style.display = 'none';
-    if (toggleEl) {
-      toggleEl.textContent = 'Show qualified volunteers';
-      toggleEl.setAttribute('aria-expanded', 'false');
-    }
+    resetT1VolToggles();
+    // Drop the cached rows/ctx/scope so a stale list can never be re-opened.
+    state.t1VolRows = null;
+    state.t1VolCtx = null;
+    state.t1VolScope = null;
   }
 
+  // Render the cached Tier 1 volunteer rows into #t1-vol-block at the requested
+  // SCOPE: 'county' (only volunteers whose home county === the selected county)
+  // or 'area' (every qualified volunteer in the selected county's WIN area — the
+  // original behavior). Both scopes use the SAME row markup, qualified-only
+  // filter, unavailable dimming, role-colored borders, and Transport cap/banner;
+  // only the row SET differs. Returns nothing; safe to call repeatedly (used by
+  // the two scope buttons). When the cache is empty it no-ops.
+  function renderT1VolScope(scope) {
+    var rows = state.t1VolRows;
+    var ctx = state.t1VolCtx;
+    if (!Array.isArray(rows) || !ctx) return;
+    state.t1VolScope = scope;
+    renderT1VolList(rows, ctx, scope);
+  }
+
+  // Cache the fetched rows + render context, reveal the section with BOTH scope
+  // buttons, and start COLLAPSED (no list shown) until the dispatcher clicks a
+  // scope button. The list body is built on demand by renderT1VolScope so the
+  // two buttons re-render the SAME data at different scopes without re-fetching.
   function renderTier1Volunteers(rows, ctx) {
+    var section = $('#t1-vol-section');
+    var emptyEl = $('#t1-vol-empty');
+    var blockEl = $('#t1-vol-block');
+    if (!section) return;
+
+    state.t1VolRows = Array.isArray(rows) ? rows : [];
+    state.t1VolCtx = ctx || {};
+    state.t1VolScope = null;
+
+    // A fresh recommendation always starts collapsed: the section (with its two
+    // scope buttons) becomes visible, but the list itself stays hidden until the
+    // dispatcher opens a scope.
+    if (blockEl) blockEl.style.display = 'none';
+    if (emptyEl) { emptyEl.style.display = 'none'; emptyEl.textContent = ''; }
+    resetT1VolToggles();
+
+    // Re-rendering (driven by a fresh "Get Recommendation" run / county change)
+    // clears any stale flag carried over so the refreshed rows never show under
+    // the dim/banner treatment.
+    clearStale(section);
+
+    section.style.display = 'block';
+
+    // Pre-build the list body at the WIN-AREA scope (the original default) into
+    // the still-hidden #t1-vol-block. This keeps the rendered rows present in the
+    // DOM the moment the section appears (the block stays collapsed until a scope
+    // button is clicked), and gives the area button an instant reveal. Clicking
+    // either button re-renders at the chosen scope via renderT1VolScope.
+    renderT1VolList(state.t1VolRows, state.t1VolCtx, 'area');
+  }
+
+  // Build the volunteer <li> list for a given scope. Extracted from the former
+  // renderTier1Volunteers body so both scope buttons reuse the identical
+  // qualified-only / dim / cap / banner logic; the ONLY difference is the
+  // scope-level county filter applied up front.
+  function renderT1VolList(rows, ctx, scope) {
     var section = $('#t1-vol-section');
     var listEl = $('#t1-vol-list');
     var emptyEl = $('#t1-vol-empty');
     var headerEl = $('#t1-vol-header');
     var blockEl = $('#t1-vol-block');
-    var toggleEl = $('#t1-vol-toggle');
     if (!section) return;
-
-    // A fresh recommendation always starts collapsed: the section (with its
-    // toggle button) becomes visible, but the list itself stays hidden behind
-    // the "Show qualified volunteers" button until the dispatcher expands it.
-    if (blockEl) blockEl.style.display = 'none';
-    if (toggleEl) {
-      toggleEl.textContent = 'Show qualified volunteers';
-      toggleEl.setAttribute('aria-expanded', 'false');
-    }
-
-    // Re-rendering the list (driven by a fresh "Get Recommendation" run) clears
-    // any stale flag carried over from a county change, so the refreshed rows
-    // never show under the dim/banner treatment.
-    clearStale(section);
 
     var T2 = MSG.tier2Aggregate;
     var county = (ctx && ctx.county) ? ctx.county : '';
+    var countyScope = scope === 'county';
     if (headerEl) {
+      var headerTpl = countyScope ? T2.tier1VolHeaderCounty : T2.tier1VolHeader;
       headerEl.textContent = county
-        ? fmt(T2.tier1VolHeader, { county: county })
-        : T2.tier1VolHeader.replace('{county}', '').replace(/\s+$/, '');
+        ? fmt(headerTpl, { county: county })
+        : headerTpl.replace('{county}', '').replace(/\s+$/, '');
     }
 
     // QUALIFIED-ONLY list (SAME rule Tier 2's renderContextList applies). The
@@ -1239,12 +1304,28 @@
       });
     }
 
+    // SCOPE FILTER: the In-County view keeps ONLY volunteers whose home county
+    // matches the selected county. The WIN-area fetch already returns every
+    // in-county volunteer (county ⊆ win_area), so this is a pure client-side
+    // narrowing — no re-fetch. The WIN-area scope leaves the list untouched.
+    if (countyScope && county) {
+      list = list.filter(function (row) {
+        return row.county && String(row.county) === county;
+      });
+    }
+
     if (!list.length) {
       if (listEl) listEl.innerHTML = '';
+      // Remove any banner / expand-link left over from a previous scope render.
+      var prevBannerE = blockEl ? blockEl.querySelector('.t1-vol-all-qualified') : null;
+      if (prevBannerE) prevBannerE.parentNode.removeChild(prevBannerE);
+      var prevMoreE = blockEl ? blockEl.querySelector('.t1-vol-show-all') : null;
+      if (prevMoreE) prevMoreE.parentNode.removeChild(prevMoreE);
       if (emptyEl) {
+        var emptyTpl = countyScope ? T2.tier1VolEmptyCounty : T2.tier1VolEmpty;
         emptyEl.textContent = county
-          ? fmt(T2.tier1VolEmpty, { county: county })
-          : T2.tier1VolEmpty.replace('{county}', '').replace(/\s+$/, '');
+          ? fmt(emptyTpl, { county: county })
+          : emptyTpl.replace('{county}', '').replace(/\s+$/, '');
         emptyEl.style.display = 'block';
       }
       section.style.display = 'block';
@@ -3511,23 +3592,40 @@
     });
     var widenBtn = $('#widen-btn');
     if (widenBtn) widenBtn.addEventListener('click', widenFromCounty);
-    var t1VolToggle = $('#t1-vol-toggle');
-    if (t1VolToggle) {
-      t1VolToggle.addEventListener('click', function () {
+    // Tier 1 volunteer-list SCOPE buttons. Two buttons share one #t1-vol-block:
+    //   - #t1-vol-toggle-county -> In-County scope (home county === selected)
+    //   - #t1-vol-toggle-area   -> WIN Area scope (the full area; original)
+    // Clicking a scope opens the block at that scope (and marks the button
+    // .is-active); clicking the SAME open scope again collapses it. Switching
+    // between scopes re-renders the SAME cached rows (no re-fetch).
+    function wireT1VolScopeBtn(btnId, scope) {
+      var btn = $('#' + btnId);
+      if (!btn) return;
+      // Bind exactly once (defensive against init running more than once).
+      if (btn.dataset.t1ScopeBound) return;
+      btn.dataset.t1ScopeBound = '1';
+      btn.addEventListener('click', function () {
         var blockEl = $('#t1-vol-block');
         if (!blockEl) return;
-        var expanded = blockEl.style.display !== 'none';
-        if (expanded) {
+        var alreadyOpen = blockEl.style.display !== 'none' && state.t1VolScope === scope;
+        if (alreadyOpen) {
+          // Collapse: hide the block and clear both buttons' active state.
           blockEl.style.display = 'none';
-          t1VolToggle.textContent = 'Show qualified volunteers';
-          t1VolToggle.setAttribute('aria-expanded', 'false');
-        } else {
-          blockEl.style.display = 'block';
-          t1VolToggle.textContent = 'Hide qualified volunteers';
-          t1VolToggle.setAttribute('aria-expanded', 'true');
+          state.t1VolScope = null;
+          resetT1VolToggles();
+          return;
         }
+        // Open (or switch scope): render the cached rows at this scope, show the
+        // block, and mark THIS button active (the other inactive).
+        renderT1VolScope(scope);
+        blockEl.style.display = 'block';
+        resetT1VolToggles();
+        btn.classList.add('is-active');
+        btn.setAttribute('aria-expanded', 'true');
       });
     }
+    wireT1VolScopeBtn('t1-vol-toggle-county', 'county');
+    wireT1VolScopeBtn('t1-vol-toggle-area', 'area');
     var addrBtn = $('#address-btn');
     if (addrBtn) addrBtn.addEventListener('click', onAddressSubmit);
     var ctxVolToggle = $('#ctx-vol-toggle');
