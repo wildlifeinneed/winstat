@@ -944,10 +944,65 @@
   function populateSelect() {
     var sel = $('#county-select');
     state.order.forEach(function (name) {
-      var hasPolicy = !!state.counties[name];
-      var opt = el('option', { value: name },
-        [name + (hasPolicy ? '' : '  (no policy yet)')]);
+      var opt = el('option', { value: name }, ['']);
+      opt.dataset.county = name;
       sel.appendChild(opt);
+    });
+    refreshCountyIndicators();
+  }
+
+  // Classify a county's policy for the dropdown markers / summary.
+  //   'off'        -> dispatch disabled
+  //   'restricted' -> dispatch on but allowed_issues is a specific list
+  //   'clear'      -> dispatch on + all issues (unrestricted)
+  //   'none'       -> no policy authored yet
+  function countyStatus(name) {
+    var p = state.counties[name];
+    if (!p) return 'none';
+    if (p.dispatch_enabled === false) return 'off';
+    var ai = p.allowed_issues;
+    if (Array.isArray(ai)) return 'restricted';
+    return 'clear';
+  }
+
+  var STATUS_MARK = {
+    off: '🚫 ',
+    restricted: '⚠️ ',
+    clear: '',
+    none: ''
+  };
+
+  // (Re)label every <option> with its status marker and rebuild the summary.
+  // Called on load and after any edit so the dropdown stays live.
+  function refreshCountyIndicators() {
+    var sel = $('#county-select');
+    if (!sel) return;
+    var counts = { off: 0, restricted: 0, clear: 0, none: 0 };
+    $all('option[data-county]', sel).forEach(function (opt) {
+      var name = opt.dataset.county;
+      var status = countyStatus(name);
+      counts[status]++;
+      var hasPolicy = status !== 'none';
+      opt.textContent = STATUS_MARK[status] + name + (hasPolicy ? '' : '  (no policy yet)');
+    });
+    renderStatusSummary(counts);
+  }
+
+  function renderStatusSummary(counts) {
+    var box = $('#county-status-summary');
+    if (!box) return;
+    box.innerHTML = '';
+    var unrestricted = counts.clear + counts.none;
+    var chips = [
+      { cls: 'off',        n: counts.off,        label: 'disabled' },
+      { cls: 'restricted', n: counts.restricted, label: 'restricted' },
+      { cls: 'clear',      n: unrestricted,      label: 'unrestricted' }
+    ];
+    chips.forEach(function (c) {
+      box.appendChild(el('span', { class: 'status-chip ' + c.cls }, [
+        el('span', { class: 'dot' }, []),
+        c.n + ' ' + c.label
+      ]));
     });
   }
 
@@ -962,6 +1017,7 @@
     // Ensure a working policy object exists (author from scratch for absent ones).
     if (!state.counties[name]) {
       state.counties[name] = blankPolicy();
+      refreshCountyIndicators();
     }
     state.current = name;
     $('#county-select').value = name;
@@ -1211,6 +1267,7 @@
     if (state.current) state.dirty[state.current] = true;
     updateDirtyFlag();
     setSaveStatus('');
+    refreshCountyIndicators();
   }
   function updateDirtyFlag() {
     var f = $('#dirty-flag');
@@ -1499,6 +1556,7 @@
       delete state.dirty[name];
       renderRules(state.counties[name]);
       updateDirtyFlag();
+      refreshCountyIndicators();
       runValidation();
       $('#preview-out').hidden = true;
       setSaveStatus('Reverted ' + name + ' to last loaded values.', true);
