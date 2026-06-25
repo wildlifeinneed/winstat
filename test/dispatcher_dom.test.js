@@ -3845,6 +3845,28 @@ async function runScriptCacheBusting() {
   console.log('PASS: dispatcher app scripts (messages/decision/dispatcher) carry ?v= cache-busting — guards against stale-JS-vs-fresh-HTML desync that breaks new handlers.');
 }
 
+// ── SCOPE BUTTON HOVER vs FILL: the solid green fill must be produced ONLY by
+//    .is-active, NOT by :hover. If an INACTIVE button's :hover also solid-fills,
+//    a just-collapsed button (cursor still over it, .is-active already removed)
+//    looks "stuck filled" until the mouse moves — the exact reported bug. We
+//    assert at the CSS source level since jsdom doesn't compute :hover. ───────
+async function runScopeButtonHoverFill() {
+  const html = fs.readFileSync(HTML_PATH, 'utf8');
+  // Grab the plain `.btn-t1-vol-toggle:hover { ... }` rule body (NOT .is-active).
+  const hoverMatch = html.match(/\.btn-t1-vol-toggle:hover\s*\{([^}]*)\}/);
+  assert.ok(hoverMatch, '.btn-t1-vol-toggle:hover rule exists');
+  const hoverBody = hoverMatch[1];
+  // The inactive-hover background must NOT be the solid green fill (green-deep).
+  assert.ok(!/background:\s*var\(--green-deep\)/.test(hoverBody),
+    'inactive :hover must NOT solid-fill with --green-deep (that makes a collapsed button look stuck-filled while hovered)');
+  // The solid fill must be gated on .is-active.
+  const activeMatch = html.match(/\.btn-t1-vol-toggle\.is-active\s*\{([^}]*)\}/);
+  assert.ok(activeMatch, '.btn-t1-vol-toggle.is-active rule exists');
+  assert.ok(/background:\s*var\(--green-deep\)/.test(activeMatch[1]),
+    '.is-active provides the solid --green-deep fill (fill == active == list visible)');
+  console.log('PASS: scope-button fill is gated on .is-active only — inactive :hover uses a subtle tint, so a collapsed (unfilled) button never looks stuck-filled while the cursor is over it.');
+}
+
 async function run() {
   await runHelpLink();
   await runHelpViewerRenders();
@@ -3903,7 +3925,8 @@ async function run() {
   await runTier1VolunteerScopeButtons();
   await runTier2CountyBreakdown();
   await runScriptCacheBusting();
-  console.log('\nALL DOM TESTS PASSED (55 scenarios).');
+  await runScopeButtonHoverFill();
+  console.log('\nALL DOM TESTS PASSED (56 scenarios).');
 }
 
 run().then(function () {
