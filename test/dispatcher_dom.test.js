@@ -760,6 +760,47 @@ async function runTier2ContextList() {
   console.log('PASS: Tier 2 renders 3 context rows (nearest-first) with role badges, no PII.');
 }
 
+// ── Tier 2 HEADER COUNT (bug fix): when out_of_county includes beyond-radius
+//    "edge" rows (e.g. an 80–145 mi helper on a 50 mi radius), the qualified
+//    heading must count ONLY in-radius volunteers (matching "Volunteers in
+//    range") and append a "(+N beyond)" note — never overstate the within-mi
+//    count. ─────────────────────────────────────────────────────────────────
+async function runTier2HeaderInRadiusCount() {
+  const agg = {
+    total_in_range: 1,
+    role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 0 },
+    win_areas: [],
+    out_of_county: [
+      // 1 within the 50 mi radius (driveTier2 sets radius=50) ...
+      { roles: ['C&T'], distance_mi: 9.4, win_area: '11', county: 'Beaver' },
+      // ... and 2 BEYOND it — these must NOT be counted as "within 50 mi".
+      { roles: ['C&T'], distance_mi: 88.0, win_area: '5', county: 'Westmoreland' },
+      { roles: ['C&T'], distance_mi: 142.6, win_area: '6', county: 'Erie' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  // RVS=no / capture: C&T qualifies, so all three rows survive the qualified
+  // filter — but only ONE is within the radius.
+  const { doc } = await driveTier2(agg, 'Allegheny', { rvs: false, issue: 'capture' });
+
+  const rows = Array.prototype.slice.call(doc.querySelectorAll('#ctx-list .ctx-row'));
+  assert.strictEqual(rows.length, 3,
+    'all 3 qualified rows still LIST (in + beyond radius) (got ' + rows.length + ')');
+
+  const hdr = doc.getElementById('ctx-header').textContent || '';
+  // Count must be the IN-RADIUS 1, NOT the listed 3.
+  assert.ok(/within 50 mi \(beyond Allegheny\): 1/.test(hdr),
+    'heading counts only the 1 in-radius volunteer under "within 50 mi" (got: "' + hdr + '")');
+  assert.ok(hdr.indexOf('(+2 beyond)') !== -1,
+    'heading notes the 2 beyond-radius helpers as "(+2 beyond)" (got: "' + hdr + '")');
+  // The misleading old behavior would have read ": 3" with no beyond note.
+  assert.strictEqual(/:\s*3(\D|$)/.test(hdr), false,
+    'heading must NOT report the inflated total-listed count (got: "' + hdr + '")');
+
+  console.log('PASS: Tier 2 heading counts only in-radius volunteers + notes "(+N beyond)" (bug fix).');
+}
+
 // ── Tier 2 DRIVING TIME: a context row with duration_min (driving mode) renders
 //    "X.X mi driving / ~Y min"; a row WITHOUT duration_min (straight_line
 //    fallback) renders distance only — never a fabricated time. ─────────────
@@ -3688,6 +3729,7 @@ async function run() {
   await runStandaloneNoRvsCaptureAllCtCapable();
   await runTier1Coordinator();
   await runTier2ContextList();
+  await runTier2HeaderInRadiusCount();
   await runTier2ContextDrivingTime();
   await runTier2ContextStraightLineNoTime();
   await runTier2ContextDrivingAnnotation();

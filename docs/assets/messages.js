@@ -213,11 +213,21 @@
       rehabNone: 'No rehabber locations available to rank.',
       // No data at all. {phone}.
       noVolunteersNoData: 'No volunteers in range and no rehabber data available — ask the finder to call <strong>PA Game Commission</strong>: {phone}.',
-      // Context list (out-of-county). {radius}, {county}, {count} = qualified rows shown.
-      ctxHeaderBeyond: 'Out-of-county helpers within {radius} mi (beyond {county}): {count}',
-      // Standalone Address lookup (no county excluded): ALL qualifying
-      // volunteers in range. {radius}, {count} = qualified rows shown.
-      ctxHeader: 'Qualified volunteers within {radius} mi: {count}',
+      // Context list (out-of-county). {radius}, {county}. {count} = volunteers
+      // actually WITHIN the radius (matches the "Volunteers in range" count).
+      // {beyond} = a parenthetical clause naming any extra rows LISTED beyond
+      // the radius (computed in code; empty when none, so the heading stays
+      // clean and the count is never misleading).
+      ctxHeaderBeyond: 'Out-of-county helpers within {radius} mi (beyond {county}): {count}{beyond}',
+      // Standalone Address lookup (no county excluded). {radius} = radius;
+      // {count} = volunteers WITHIN the radius; {beyond} = parenthetical clause
+      // for any extra rows listed beyond the radius.
+      ctxHeader: 'Qualified volunteers within {radius} mi: {count}{beyond}',
+      // Parenthetical appended to the headers above when one or more LISTED
+      // rows fall BEYOND the radius, so the within-radius "{count}" is honest
+      // while still acknowledging the extra reachable-but-farther helpers.
+      // {beyondCount} = how many listed rows are beyond the radius.
+      ctxHeaderBeyondNote: ' (+{beyondCount} beyond)',
       // Tier 1 (By-County) qualified-volunteer list header + empty state.
       // {county} = the selected county name.
       tier1VolHeader: 'Qualified volunteers near {county}',

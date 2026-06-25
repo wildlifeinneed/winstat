@@ -1026,12 +1026,32 @@
       });
     }
 
-    // Header carries the COUNT of qualified volunteers shown (rows.length is the
-    // post-filter qualified set), e.g. "Qualified volunteers within 20 mi: 6".
+    // Header count must reflect volunteers actually WITHIN the radius (matching
+    // the "Volunteers in range" card), NOT the raw rows.length — the Worker can
+    // include beyond-radius "edge" rows in out_of_county (e.g. an 80–145 mi
+    // helper on a 20 mi radius). Counting those under "within {radius} mi" was
+    // misleading (the bug). Split the qualified rows by the radius: {count} =
+    // in-radius, with a "(+N beyond)" note appended only when extra farther rows
+    // are listed. With no numeric radius (shouldn't happen here) fall back to the
+    // full rows.length so the count is never understated.
+    var radiusForCount = Number(radius);
+    var inRangeCount = rows.length;
+    var beyondCount = 0;
+    if (Number.isFinite(radiusForCount) && radiusForCount > 0) {
+      inRangeCount = 0;
+      rows.forEach(function (row) {
+        var d = (typeof row.distance_mi === 'number') ? row.distance_mi : Number(row.distance_mi);
+        if (Number.isFinite(d) && d > radiusForCount) beyondCount++;
+        else inRangeCount++;
+      });
+    }
+    var beyondNote = beyondCount > 0
+      ? fmt(T2.ctxHeaderBeyondNote, { beyondCount: beyondCount })
+      : '';
     if (headerEl) {
       headerEl.textContent = county
-        ? fmt(T2.ctxHeaderBeyond, { radius: radius, county: county, count: rows.length })
-        : fmt(T2.ctxHeader, { radius: radius, count: rows.length });
+        ? fmt(T2.ctxHeaderBeyond, { radius: radius, county: county, count: inRangeCount, beyond: beyondNote })
+        : fmt(T2.ctxHeader, { radius: radius, count: inRangeCount, beyond: beyondNote });
     }
     // Truncation reflects the QUALIFIED set: the Worker flags overflow only when
     // the qualified set itself exceeds the cap (it filtered before capping).
