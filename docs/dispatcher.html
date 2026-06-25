@@ -1193,8 +1193,8 @@
       .resource-links .btn-dma-link { min-height: 44px; }
     }
     /* ─── Live DMA (Disease Management Area) status banner (Tier-2) ──────
-       Amber/yellow alert when the animal location falls within a PA Game
-       Commission CWD Disease Management Area; subtle grey note otherwise. */
+       Red alert when the animal location falls within a PA Game Commission
+       CWD Disease Management Area; green "clear" note otherwise. */
     .dma-status {
       margin-bottom: 12px;
       padding: 11px 14px;
@@ -1204,18 +1204,18 @@
       overflow-wrap: anywhere;
     }
     .dma-status.dma-warn {
-      background: var(--amber-light);
-      border: 1px solid #f0c070;
-      border-left: 4px solid var(--amber);
-      color: #7a4900;
+      background: var(--red-light);
+      border: 1px solid #e6a49b;
+      border-left: 4px solid var(--red);
+      color: #7a1d14;
       font-weight: 600;
     }
-    .dma-status.dma-warn strong { color: #7a4900; }
+    .dma-status.dma-warn strong { color: #7a1d14; }
     .dma-status.dma-clear {
-      background: #f0efeb;
-      border: 1px solid var(--border);
-      border-left: 4px solid var(--text-light);
-      color: var(--text-muted);
+      background: var(--green-light);
+      border: 1px solid #a9d6ba;
+      border-left: 4px solid var(--green);
+      color: var(--green-deep);
       font-size: 12.5px;
     }
     .dma-status.dma-checking {

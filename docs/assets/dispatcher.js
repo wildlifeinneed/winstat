@@ -2205,8 +2205,8 @@
   //  LIVE DMA (Disease Management Area) CHECK — Tier-2 only
   //  Queries the PA Game Commission public ArcGIS REST layer (CWD Disease
   //  Management Areas) for the animal coordinate. Public endpoint, no auth.
-  //  A non-empty `features` array means the point is INSIDE a DMA → amber
-  //  warning banner; otherwise a subtle "not within a DMA" note. Any network
+  //  A non-empty `features` array means the point is INSIDE a DMA → red
+  //  warning banner; otherwise a green "not within a DMA" note. Any network
   //  / parse failure fails SILENTLY (the banner is hidden) so it never blocks
   //  the rest of the Tier-2 result.
   // ════════════════════════════════════════════════════════════════════
