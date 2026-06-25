@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import os
 import re
 import sys
@@ -42,6 +43,9 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import requests
 
+import county_pip
+import county_win
+import dispatch_core
 import geocoder
 
 
@@ -1669,6 +1673,263 @@ def atomic_write_sidecar(path: Path, dt: datetime) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Post-processing validation
+# ---------------------------------------------------------------------------
+#
+# Two independent safety nets that run AFTER all per-volunteer records are
+# built but BEFORE the private coords dataset is written / uploaded to KV:
+#
+#   * Check 1 — record integrity (BLOCKING). Every emitted coords record must
+#     carry all required fields, and each field must still belong to the SAME
+#     volunteer it was built from (no cross-volunteer field bleed — e.g. coords
+#     from one person paired with another person's roles). A failure means we
+#     refuse to publish: the caller exits non-zero so bad data never reaches KV.
+#
+#   * Check 2 — geocode accuracy (NON-BLOCKING / on-demand). A reverse sanity
+#     check that the stored (lat, lon) actually fall inside the volunteer's
+#     stated home county (point-in-polygon via county_pip) and, optionally, that
+#     a re-geocode lands within ~1 mile of the stored coords. Mismatches are
+#     logged as warnings; this is wired to a `--validate` mode so it can run in
+#     CI / on demand rather than blocking every refresh.
+
+# The fields every coords record MUST carry. ``home_county`` is the geocoder's
+# name for the Monday "County" field; ``connecteam_user`` is the PII-free
+# stand-in for name/identity carried onto each record (tri-state True/False/None,
+# where None == unknown but the KEY must still be present).
+REQUIRED_COORDS_FIELDS = (
+    "lat",
+    "lon",
+    "home_county",
+    "win_area",
+    "roles",
+    "available",
+    "connecteam_user",
+)
+
+# How far a re-geocode may drift from the stored coords before we flag it.
+GEOCODE_ACCURACY_TOLERANCE_MI = 1.0
+
+
+class RecordIntegrityError(RuntimeError):
+    """Raised (by the caller, after collecting all failures) when any coords
+    record fails the required-field / cross-volunteer-association check. The
+    pipeline must exit non-zero on this so partial / scrambled data is never
+    written or uploaded."""
+
+
+def validate_record_integrity(
+    coords: Sequence[Dict[str, Any]],
+) -> List[str]:
+    """Check 1 — record integrity. Returns a list of human-readable error
+    strings (empty == all records valid).
+
+    For each coords record we assert:
+      1. all REQUIRED_COORDS_FIELDS keys are present (``None`` is allowed ONLY
+         for ``win_area`` — an unknown county — and ``connecteam_user`` — an
+         unknown Connecteam membership; every other field must be non-None),
+      2. ``lat`` / ``lon`` are finite numbers,
+      3. ``roles`` is a list,
+      4. fields still belong to the SAME volunteer: ``win_area`` must equal the
+         WIN area that ``home_county`` resolves to via county_win. A mismatch is
+         the tell-tale of cross-volunteer field bleed (coords/roles from person
+         A stitched onto person B's county), so it is flagged as an integrity
+         error rather than a soft warning.
+
+    The function NEVER raises — it returns the full list of problems so the
+    caller can log every failure (which volunteer index, which field) in one
+    pass before deciding to abort.
+    """
+    errors: List[str] = []
+    # win_area and connecteam_user may legitimately be None (unknown).
+    nullable = {"win_area", "connecteam_user"}
+
+    for idx, rec in enumerate(coords):
+        # A stable, PII-free label for the offending record. home_county +
+        # win_area + roles are non-identifying, so they are safe to log.
+        label = (
+            f"record #{idx} "
+            f"(home_county={rec.get('home_county')!r}, "
+            f"win_area={rec.get('win_area')!r})"
+            if isinstance(rec, dict)
+            else f"record #{idx}"
+        )
+
+        if not isinstance(rec, dict):
+            errors.append(f"{label}: not a dict (got {type(rec).__name__}).")
+            continue
+
+        # 1. Required-field presence.
+        for field in REQUIRED_COORDS_FIELDS:
+            if field not in rec:
+                errors.append(f"{label}: missing required field {field!r}.")
+                continue
+            if rec.get(field) is None and field not in nullable:
+                errors.append(
+                    f"{label}: required field {field!r} is None."
+                )
+
+        # 2. lat/lon must be finite numbers.
+        for coord_field in ("lat", "lon"):
+            val = rec.get(coord_field)
+            if val is None:
+                continue  # already reported above
+            try:
+                fval = float(val)
+            except (TypeError, ValueError):
+                errors.append(
+                    f"{label}: {coord_field}={val!r} is not numeric."
+                )
+                continue
+            if not math.isfinite(fval):
+                errors.append(
+                    f"{label}: {coord_field}={val!r} is not finite."
+                )
+
+        # 3. roles must be a list.
+        if "roles" in rec and not isinstance(rec.get("roles"), list):
+            errors.append(
+                f"{label}: roles must be a list, got "
+                f"{type(rec.get('roles')).__name__}."
+            )
+
+        # 4. Cross-volunteer association: win_area must match the area that
+        # home_county resolves to. A blank county legitimately yields
+        # win_area=None (no county to resolve), so only check when a county
+        # is present.
+        home_county = (rec.get("home_county") or "").strip()
+        if home_county:
+            info = county_win.lookup_county(home_county)
+            expected_area = info.area if info is not None else None
+            actual_area = rec.get("win_area")
+            if expected_area != actual_area:
+                errors.append(
+                    f"{label}: win_area {actual_area!r} does not match the "
+                    f"area {expected_area!r} that home_county "
+                    f"{home_county!r} resolves to — possible cross-volunteer "
+                    f"field mismatch."
+                )
+
+    return errors
+
+
+def validate_geocode_accuracy(
+    coords: Sequence[Dict[str, Any]],
+    geocode_inputs: Optional[Sequence[Dict[str, Any]]] = None,
+    session: Optional[requests.Session] = None,
+    re_geocode: bool = False,
+    tolerance_mi: float = GEOCODE_ACCURACY_TOLERANCE_MI,
+) -> List[str]:
+    """Check 2 — geocode accuracy (reverse sanity check). Returns a list of
+    human-readable WARNING strings (empty == nothing suspicious).
+
+    Two complementary modes (both PII-free in their output):
+
+      * county match (always): the stored (lat, lon) is reverse-looked-up to a
+        PA county via point-in-polygon (county_pip). If that county differs
+        from the volunteer's stated ``home_county`` the coords are likely wrong
+        (gross error — wrong town/state). Border edge-effects (PIP returns
+        None) are reported as a soft "could not confirm", not a hard mismatch.
+
+      * re-geocode (when ``re_geocode`` and ``geocode_inputs`` are supplied):
+        re-run the address through the Census geocoder and compare to the
+        stored coords. A drift greater than ``tolerance_mi`` (~1 mile) is
+        flagged. ``geocode_inputs`` must be positionally aligned with
+        ``coords`` is NOT assumed — instead each input is matched by its
+        address signature so re-ordering can't cause a false mismatch.
+
+    This is intentionally NON-fatal: it returns warnings for the caller to log.
+    The refresh pipeline only fails on Check 1 (integrity); accuracy drift is
+    surfaced for a human to investigate.
+    """
+    warnings: List[str] = []
+    provider = dispatch_core.HaversineProvider()
+
+    # Index geocode inputs by address signature for the optional re-geocode
+    # pass. Only built when needed.
+    inputs_by_sig: Dict[str, Dict[str, Any]] = {}
+    if re_geocode and geocode_inputs:
+        for gin in geocode_inputs:
+            if not isinstance(gin, dict):
+                continue
+            sig = geocoder._address_signature(
+                gin.get("street", ""),
+                gin.get("city", ""),
+                gin.get("state", ""),
+                gin.get("zip", ""),
+            )
+            inputs_by_sig[sig] = gin
+        session = session or requests.Session()
+
+    for idx, rec in enumerate(coords):
+        if not isinstance(rec, dict):
+            continue
+        home_county = (rec.get("home_county") or "").strip()
+        lat = rec.get("lat")
+        lon = rec.get("lon")
+        label = (
+            f"record #{idx} (home_county={home_county!r}, "
+            f"win_area={rec.get('win_area')!r})"
+        )
+        if lat is None or lon is None:
+            continue
+        try:
+            flat = float(lat)
+            flon = float(lon)
+        except (TypeError, ValueError):
+            warnings.append(f"{label}: lat/lon not numeric; skipping accuracy check.")
+            continue
+
+        # (a) County match via reverse point-in-polygon.
+        if home_county:
+            pip = county_pip.lookup_latlon(flat, flon)
+            if pip is None:
+                warnings.append(
+                    f"{label}: coords ({flat:.5f}, {flon:.5f}) fall outside "
+                    f"every PA county polygon — could not confirm against "
+                    f"home_county {home_county!r} (border edge or bad coords)."
+                )
+            elif _normalize_county(pip.get("county")) != _normalize_county(home_county):
+                warnings.append(
+                    f"{label}: coords reverse-geocode to county "
+                    f"{pip.get('county')!r} but home_county is "
+                    f"{home_county!r} — county mismatch."
+                )
+
+        # (b) Optional re-geocode drift check.
+        if re_geocode and inputs_by_sig:
+            sig = rec.get("_addr_sig")
+            gin = inputs_by_sig.get(str(sig)) if sig else None
+            if gin is None:
+                continue
+            fresh = geocoder.geocode_address(
+                gin.get("street", ""),
+                gin.get("city", ""),
+                gin.get("state", ""),
+                gin.get("zip", ""),
+                session=session,
+            )
+            if fresh is None:
+                warnings.append(
+                    f"{label}: re-geocode returned no match; cannot verify "
+                    f"stored coords."
+                )
+                continue
+            drift = provider.distance_mi(flat, flon, fresh[0], fresh[1])
+            if drift > tolerance_mi:
+                warnings.append(
+                    f"{label}: re-geocode landed {drift:.2f} mi from the "
+                    f"stored coords (> {tolerance_mi:.1f} mi tolerance)."
+                )
+
+    return warnings
+
+
+def _normalize_county(name: Optional[str]) -> str:
+    """Case/whitespace-insensitive county-name key (mirrors county_win)."""
+    return str(name or "").strip().casefold()
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -1701,6 +1962,28 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         help="Print the resolved column id mapping for the configured titles and exit.",
     )
     parser.add_argument("--verbose", action="store_true", help="DEBUG logging.")
+    parser.add_argument(
+        "--validate",
+        action="store_true",
+        help=(
+            "Run the geocode-accuracy reverse sanity check (Check 2) after "
+            "geocoding: confirm each volunteer's stored coords fall in their "
+            "stated home county (point-in-polygon). Logs warnings only — does "
+            "NOT block the refresh. Intended for CI / on-demand runs. The "
+            "blocking record-integrity check (Check 1) always runs regardless "
+            "of this flag."
+        ),
+    )
+    parser.add_argument(
+        "--revalidate-geocode",
+        action="store_true",
+        help=(
+            "With --validate, also re-geocode each address via the Census API "
+            "and warn when the fresh result drifts > ~1 mile from the stored "
+            "coords. Slower (one network call per volunteer) and best run on "
+            "demand / in CI."
+        ),
+    )
     parser.add_argument(
         "--if-stale",
         action="store_true",
@@ -1858,6 +2141,55 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     coords = geocoder.batch_geocode_volunteers(
         geocode_inputs, existing=existing_coord_records, session=session
     )
+
+    # Check 1 — record integrity (BLOCKING). Validate every coords record has
+    # all required fields and that each field still belongs to the SAME
+    # volunteer (no cross-volunteer field bleed) BEFORE we write/upload. Any
+    # failure aborts the pipeline with a non-zero exit so scrambled / partial
+    # data never reaches the private coords file or KV.
+    integrity_errors = validate_record_integrity(coords)
+    if integrity_errors:
+        logger.error(
+            "Record integrity check FAILED — %d problem(s); refusing to "
+            "write/upload coords:",
+            len(integrity_errors),
+        )
+        for err in integrity_errors:
+            logger.error("  integrity: %s", err)
+        print(
+            f"ERROR: record integrity check failed "
+            f"({len(integrity_errors)} problem(s)) — see log; not writing "
+            f"coords.",
+            file=sys.stderr,
+        )
+        return 10
+    logger.info(
+        "Record integrity check passed for %d coord records.", len(coords)
+    )
+
+    # Check 2 — geocode accuracy (NON-BLOCKING). On-demand via --validate: a
+    # reverse sanity check that stored coords match the stated home county
+    # (and, with --revalidate-geocode, that a re-geocode lands within ~1 mile).
+    # Warnings only — accuracy drift never blocks a refresh.
+    if getattr(args, "validate", False):
+        accuracy_warnings = validate_geocode_accuracy(
+            coords,
+            geocode_inputs=geocode_inputs,
+            session=session,
+            re_geocode=getattr(args, "revalidate_geocode", False),
+        )
+        if accuracy_warnings:
+            logger.warning(
+                "Geocode accuracy check flagged %d record(s):",
+                len(accuracy_warnings),
+            )
+            for warn in accuracy_warnings:
+                logger.warning("  accuracy: %s", warn)
+        else:
+            logger.info(
+                "Geocode accuracy check passed for %d coord records.",
+                len(coords),
+            )
 
     if args.dry_run:
         logger.info(

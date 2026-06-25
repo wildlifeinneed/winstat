@@ -126,6 +126,22 @@ jobs:
         run: |
           python3 refresh_monday.py
 
+      # Check 2 — geocode-accuracy reverse sanity check (NON-BLOCKING). Re-runs
+      # the pipeline in --validate --dry-run mode so it reuses the coords just
+      # written above (no re-write, no KV upload) and logs warnings when a
+      # volunteer's stored coords don't fall in their stated home county (and,
+      # with --revalidate-geocode, when a re-geocode drifts > ~1 mile). This is
+      # informational only: continue-on-error keeps a flagged record from
+      # blocking the refresh. Check 1 (record integrity) is enforced INSIDE the
+      # "Refresh Monday datasets" step above and DOES fail the job on bad data.
+      - name: Validate geocode accuracy (non-blocking)
+        if: steps.sentinel.outputs.refresh == 'true'
+        continue-on-error: true
+        env:
+          MONDAY_API_TOKEN: ${{ secrets.MONDAY_TOKEN }}
+        run: |
+          python3 refresh_monday.py --validate --revalidate-geocode --dry-run
+
       # Push ONLY the PRIVATE volunteer coords to Cloudflare KV under the exact
       # key the Worker reads. wrangler is used (not the REST API): the repo
       # already ships worker/wrangler.toml with account_id + the VOLUNTEER_COORDS
