@@ -3364,6 +3364,46 @@ async function driveTier1RecommendSnapshot(snapshot, county, base) {
   return { window, doc };
 }
 
+// Like driveTier1RecommendSnapshot but ALSO serves a data/policy.json payload so
+// the county-policy DOWNGRADE post-step runs. `policy` is the full policy.json
+// object ({ counties: { ... } }). `extra` may carry { facilities, nameMap } to
+// serve facilities.json + facility_name_map.json (referral-phone source of
+// truth).
+async function driveTier1RecommendWithPolicy(snapshot, policy, county, base, extra) {
+  extra = extra || {};
+  const dataRoutes = {
+    'county_capacity.json': snapshot,
+    'county_win.json': COUNTY_WIN,
+    'coordinators.json': COORDINATORS,
+    'policy.json': policy,
+  };
+  if (extra.facilities) dataRoutes['facilities.json'] = extra.facilities;
+  if (extra.nameMap) dataRoutes['facility_name_map.json'] = extra.nameMap;
+  const { window } = loadDom({ data: dataRoutes });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  const countySel = doc.getElementById('county');
+  countySel.value = county;
+  countySel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+
+  if (base) {
+    const rvsVal = base.rvs ? 'yes' : 'no';
+    const rvsEl = doc.querySelector('input[name="rvs"][value="' + rvsVal + '"]');
+    if (rvsEl) { rvsEl.checked = true; rvsEl.dispatchEvent(new window.Event('change', { bubbles: true })); }
+    const issueEl = doc.querySelector('input[name="issue"][value="' + base.issue + '"]');
+    if (issueEl) { issueEl.checked = true; issueEl.dispatchEvent(new window.Event('change', { bubbles: true })); }
+    await flush(window);
+  }
+
+  doc.getElementById('recommend-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  return { window, doc };
+}
+
 // ── Tier 1 RECOMMENDATION SCOPE BUTTONS: the #rec-output recommendation panel
 //    carries TWO scope buttons — "In-County" (#t1-rec-toggle-county) and "WIN
 //    Area" (#t1-rec-toggle-area) — mirroring the volunteer-list scope toggles.
@@ -4020,6 +4060,117 @@ async function runScopeButtonHoverFill() {
   console.log('PASS: scope-button has exactly two visual states — inactive (outline, neutral hover, NO green) vs active (.is-active solid green fill). No confusing green hover/third state.');
 }
 
+// ── COUNTY POLICY DOWNGRADE: a county whose policy.json block sets
+//    dispatch_enabled=false must show REFERRAL info (who to call + special
+//    instructions) INSTEAD of a dispatch recommendation, even when capacity is
+//    healthy. This proves the DOWNGRADE-ONLY post-step runs through the live
+//    fetch → recommend → render pipeline. ────────────────────────────────────
+async function runCountyPolicyReferOut() {
+  // Allegheny has HEALTHY non-RVS capacity, so the count-based base would be a
+  // connecteam_task DISPATCH. The policy disables dispatch for Allegheny, so the
+  // final recommendation must be refer_out with the referral target + notes.
+  const SNAPSHOT = {
+    generated_at: '2024-01-01T00:00:00Z',
+    counties: {
+      Allegheny: {
+        ct_no_rvs: { available: 4, total: 5, marginal_volunteers: [] },
+        ct_rvs: { available: 2, total: 3, marginal_volunteers: [] },
+        courier: { available: 1, total: 1, marginal_volunteers: [] },
+      },
+    },
+  };
+  const POLICY = {
+    counties: {
+      Allegheny: {
+        dispatch_enabled: false,
+        allowed_issues: 'all',
+        referral_targets: [
+          { name: 'PA Game Commission', phone: '8337429453' },
+          { name: 'Raven Ridge', phone: '7173274811', notes: 'RVS, waterfowl, birds of prey' },
+        ],
+        species_scope: null,
+        special_notes: 'Do Not Enter Dispatch. No volunteers in this county.',
+      },
+    },
+  };
+
+  // facilities.json is the SOURCE OF TRUTH for referral phones. Here the policy
+  // lists Raven Ridge at 717-327-4811 but facilities.json says 717-808-2652;
+  // the display must SHOW the facilities number and FLAG the policy mismatch.
+  const FACILITIES = [
+    { name: 'Raven Ridge Wildlife Center', phone: '7178082652' },
+  ];
+  const NAME_MAP = { 'Raven Ridge': 'Raven Ridge Wildlife Center' };
+
+  const { window, doc } = await driveTier1RecommendWithPolicy(
+    SNAPSHOT, POLICY, 'Allegheny', { rvs: false, issue: 'capture' },
+    { facilities: FACILITIES, nameMap: NAME_MAP });
+
+  const out = doc.getElementById('rec-output');
+  assert.ok(out && out.classList.contains('show'),
+    'recommendation panel shown after clicking "Get Recommendation"');
+
+  // Open the In-County scope to render the recommendation body.
+  const countyBtn = doc.getElementById('t1-rec-toggle-county');
+  assert.ok(countyBtn, 'In-County scope button exists');
+  countyBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
+
+  // The headline action is the refer_out downgrade, NOT a dispatch — and it
+  // carries the escalate (warning) tone, not the green "go" dispatch tone.
+  const actionEl = doc.querySelector('#rec-output .rec-action');
+  assert.ok(actionEl, 'recommendation action headline rendered');
+  assert.ok(/refer out|do not dispatch/i.test(actionEl.textContent),
+    'dispatch_enabled=false county shows a refer_out headline (got: "' + actionEl.textContent + '")');
+  assert.ok(!/Dispatch via Connecteam/i.test(actionEl.textContent),
+    'refer_out replaces the count-based dispatch headline (no "Dispatch via Connecteam")');
+  assert.ok(actionEl.classList.contains('escalate'),
+    'refer_out action carries the escalate (warning) tone');
+  // No dispatch target role row is shown for a referral.
+  assert.strictEqual(doc.querySelector('#rec-output .rec-target'), null,
+    'refer_out shows no dispatch target role');
+
+  // Referral block: who to call + phone (as a tel: link) + per-target notes.
+  const referralEl = doc.querySelector('#rec-output .rec-referral');
+  assert.ok(referralEl, 'referral block rendered for refer_out');
+  assert.ok(/Allegheny/i.test(referralEl.textContent),
+    'referral intro names the county');
+  const names = Array.prototype.map.call(
+    referralEl.querySelectorAll('.rec-referral-name'),
+    function (n) { return n.textContent; }).join(' | ');
+  assert.ok(/PA Game Commission/i.test(names) && /Raven Ridge/i.test(names),
+    'both referral target names shown (got: "' + names + '")');
+  // Phones shown as formatted tel: links. PA Game Commission has NO facilities
+  // entry, so it keeps the policy phone (833-742-9453). Raven Ridge HAS a
+  // facilities entry whose phone DIFFERS, so the facilities phone wins.
+  const phoneLinks = Array.prototype.map.call(
+    referralEl.querySelectorAll('.rec-referral-phone a[href^="tel:"]'),
+    function (a) { return a.textContent; }).join(' | ');
+  assert.ok(/833-742-9453/.test(phoneLinks),
+    'unmatched PA Game Commission keeps its policy phone (got: "' + phoneLinks + '")');
+  // facilities.json is the source of truth: the Raven Ridge phone shown is the
+  // facilities number, NOT the policy number.
+  assert.ok(/717-808-2652/.test(phoneLinks),
+    'Raven Ridge shows the facilities.json phone 717-808-2652 (got: "' + phoneLinks + '")');
+  assert.ok(!/717-327-4811/.test(phoneLinks),
+    'the stale policy phone 717-327-4811 is NOT used as the displayed Raven Ridge number');
+  // The discrepancy is flagged inline, naming the differing policy number.
+  const flagEl = referralEl.querySelector('.rec-referral-flag');
+  assert.ok(flagEl, 'phone discrepancy is flagged');
+  assert.ok(/717-327-4811/.test(flagEl.textContent),
+    'discrepancy flag names the differing policy phone (got: "' + flagEl.textContent + '")');
+  assert.ok(/source of truth/i.test(flagEl.textContent),
+    'discrepancy flag explains facilities directory is the source of truth');
+  // Per-target notes shown.
+  assert.ok(/RVS, waterfowl, birds of prey/i.test(referralEl.textContent),
+    'per-target referral notes shown');
+  // County-wide special instructions shown.
+  const specialEl = referralEl.querySelector('.rec-referral-special');
+  assert.ok(specialEl && /Do Not Enter Dispatch/i.test(specialEl.textContent),
+    'county special_notes shown as special instructions');
+
+  console.log('PASS: county policy refer_out — a dispatch_enabled=false county shows REFERRAL info (target name + tel: phone + notes + special instructions) instead of a Connecteam dispatch; facilities.json is the phone source of truth (Raven Ridge shows 717-808-2652, the differing policy number is flagged).');
+}
+
 async function run() {
   await runHelpLink();
   await runHelpViewerRenders();
@@ -4077,10 +4228,11 @@ async function run() {
   await runTier1VolunteerListAllQualifiedNoCap();
   await runTier1VolunteerScopeButtons();
   await runTier1RecommendationScopeButtons();
+  await runCountyPolicyReferOut();
   await runTier2CountyBreakdown();
   await runScriptCacheBusting();
   await runScopeButtonHoverFill();
-  console.log('\nALL DOM TESTS PASSED (57 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (58 scenarios).');
 }
 
 run().then(function () {

@@ -1,0 +1,1449 @@
+{
+  "_comment": "Per-county WIN dispatch policy, seeded from 'Spreadsheet of WIN Volunteers for dispatchers update March 24.xlsx' (17 sheets, Areas 01-16). Policy is a standing overlay that can only tighten the count-based recommendation (turn a dispatch into a named referral); it never invents a dispatch. County keys match docs/data/county_capacity.json where present. dispatch_enabled is the only required field. allowed_issues is 'all' or a subset of ['capture','transport','rvs_capture']. species_scope null = all species. time_windows reserved for future use.",
+  "_source_spreadsheet": "data/Spreadsheet of WIN Volunteers for dispatchers update March 24.xlsx",
+  "_generated_note": "Hand-transcribed from the Instructions column; referral phone numbers cross-referenced against docs/data/facilities.json and docs/data/rehabbers.json. Phone numbers stored as digit-only strings.",
+  "counties": {
+    "Adams": {
+      "dispatch_enabled": false,
+      "allowed_issues": "all",
+      "referral_targets": [
+        {
+          "name": "PA Game Commission (PGC)",
+          "phone": "8337429453",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "Raven Ridge",
+          "phone": "7173274811",
+          "notes": "RVS, Waterfowl, Water Birds and Birds of Prey (phone per spreadsheet; facilities.json lists Raven Ridge at 717-808-2652 / Acorn Acres at 717-327-4811)",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "West Shore Wildlife Center",
+          "phone": "7172689574",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Do Not Enter Dispatch. No volunteers. Refer other calls to PGC 833-742-9453, Raven Ridge 717-327-4811 (RVS, Waterfowl, Water Birds and Birds of Prey), West Shore Rehabilitation 717-268-9574. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Allegheny": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Julia Meredith 312-448-0664.",
+      "time_windows": null
+    },
+    "Armstrong": {
+      "dispatch_enabled": true,
+      "allowed_issues": [
+        "transport"
+      ],
+      "referral_targets": [
+        {
+          "name": "Wildbird Recovery",
+          "phone": "7248981788",
+          "notes": "Songbirds; refer captures here",
+          "for_issues": [
+            "capture"
+          ]
+        },
+        {
+          "name": "Forest Friends",
+          "phone": "4127324076",
+          "notes": "RVS and Fawn; refer captures here",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "Humane Animal Rescue Wildlife Center",
+          "phone": "4123455616",
+          "notes": "Refer captures here",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for transports only. Refer capture calls to Wildbird Recovery (Songbirds) 724-898-1788, Forest Friends (RVS and Fawn) 412-732-4076, Humane Animal Rescue Wildlife Center 412-345-5616. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Beaver": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Julia or Sue may respond depending on availability. Area Coordinator: Julia Meredith 312-448-0664.",
+      "time_windows": null
+    },
+    "Bedford": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Janice Chippendale 240-362-6628.",
+      "time_windows": null
+    },
+    "Berks": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Blair": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Jane Pierzga 814-574-3447.",
+      "time_windows": null
+    },
+    "Bradford": {
+      "dispatch_enabled": true,
+      "allowed_issues": [
+        "capture",
+        "transport"
+      ],
+      "referral_targets": [
+        {
+          "name": "PA Game Commission (PGC)",
+          "phone": "8337429453",
+          "notes": "Refer RVS calls here",
+          "for_issues": [
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "No volunteers. Enter dispatch for captures and transports. Refer RVS calls to PGC (833-742-9453). Area Coordinator: Kelly Catalano 203-979-5566.",
+      "time_windows": null
+    },
+    "Bucks": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Butler": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Cambria": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Jane Pierzga 814-574-3447.",
+      "time_windows": null
+    },
+    "Cameron": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Jane may respond depending on availability. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Carbon": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Judith Ullman 347-216-2764.",
+      "time_windows": null
+    },
+    "Centre": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Jane Pierzga 814-574-3447.",
+      "time_windows": null
+    },
+    "Chester": {
+      "dispatch_enabled": true,
+      "allowed_issues": [
+        "capture",
+        "transport"
+      ],
+      "referral_targets": [
+        {
+          "name": "Schuylkill Wildlife Rehab. Center",
+          "phone": "2154827300",
+          "notes": "No RVS",
+          "for_issues": [
+            "capture"
+          ]
+        },
+        {
+          "name": "Cricket Wildlife Center",
+          "phone": "4849080231",
+          "for_issues": [
+            "capture"
+          ]
+        },
+        {
+          "name": "Philadelphia Metro Wildlife Center",
+          "phone": "2674169453",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "AARK Wildlife Center",
+          "phone": "2152491938",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": {
+        "capture": [
+          "birds"
+        ]
+      },
+      "special_notes": "Dispatch C&T for birds only, plus transports. Other wildlife captures refer to Schuylkill Wildlife Rehab. Center (no RVS) 215-482-7300, Cricket Wildlife Center 484-908-0231, Philadelphia Metro Wildlife Center 267-416-9453, AARK Wildlife Center 215-249-1938. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Clarion": {
+      "dispatch_enabled": true,
+      "allowed_issues": [
+        "capture",
+        "transport",
+        "rvs_capture"
+      ],
+      "referral_targets": [
+        {
+          "name": "Wildbird Recovery",
+          "phone": "7248981788",
+          "notes": "Songbirds",
+          "for_issues": [
+            "capture"
+          ]
+        },
+        {
+          "name": "Humane Animal Rescue Wildlife Center",
+          "phone": "4123455616",
+          "notes": "Refer non-bat RVS here",
+          "for_issues": [
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": {
+        "rvs": [
+          "bats"
+        ]
+      },
+      "special_notes": "No volunteers. Enter dispatch for captures and transports; RVS bats only. Refer songbirds to Wildbird Recovery (724-898-1788); refer non-bat RVS to Humane Animal Rescue Wildlife Center (412-345-5616). Sue may respond depending on availability. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Clearfield": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Jane Pierzga 814-574-3447.",
+      "time_windows": null
+    },
+    "Clinton": {
+      "dispatch_enabled": true,
+      "allowed_issues": [
+        "capture"
+      ],
+      "referral_targets": [
+        {
+          "name": "Centre Wildlife Care",
+          "phone": "8146940004",
+          "notes": "Refer transports and RVS here",
+          "for_issues": [
+            "transport",
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures only. Refer transports and RVS to Centre Wildlife Care (814-694-0004). Area Coordinator: Kelly Catalano 203-979-5566.",
+      "time_windows": null
+    },
+    "Columbia": {
+      "dispatch_enabled": true,
+      "allowed_issues": [
+        "transport"
+      ],
+      "referral_targets": [
+        {
+          "name": "Good Samaritan Wildlife Center",
+          "phone": "5704472785",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "Red Creek Wildlife Center",
+          "phone": "5707394393",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "Helping Hands Wildlife Center",
+          "phone": "5704976414",
+          "notes": "Mammals & RVS; alt 570-385-3775",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "Episode 4 Wildlife Rehabilitation",
+          "phone": "5709055737",
+          "notes": "Mammals only",
+          "for_issues": [
+            "capture"
+          ]
+        },
+        {
+          "name": "T & D Cats of the World",
+          "phone": "5708373377",
+          "notes": "Songbirds only",
+          "for_issues": [
+            "capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for transports only. Refer capture/RVS calls to Good Samaritan Wildlife Center 570-447-2785, Red Creek Wildlife Center 570-739-4393, Helping Hands Wildlife Center (Mammals & RVS) 570-497-6414 or 570-385-3775, Episode 4 Wildlife Rehabilitation (Mammals only) 570-905-5737, T & D Cats of the World (Songbirds only) 570-837-3377. Area Coordinator: Kelly Catalano 203-979-5566.",
+      "time_windows": null
+    },
+    "Crawford": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Cumberland": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Gary Shimmel 717-743-6662.",
+      "time_windows": null
+    },
+    "Dauphin": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Gary Shimmel 717-743-6662.",
+      "time_windows": null
+    },
+    "Delaware": {
+      "dispatch_enabled": true,
+      "allowed_issues": [
+        "capture",
+        "transport"
+      ],
+      "referral_targets": [
+        {
+          "name": "Philadelphia Metro Wildlife Center",
+          "phone": "2674169453",
+          "notes": "RVS finders + off-window",
+          "for_issues": [
+            "rvs_capture",
+            "capture",
+            "transport"
+          ]
+        },
+        {
+          "name": "AARK Wildlife Center",
+          "phone": "2152491938",
+          "notes": "RVS finders + off-window",
+          "for_issues": [
+            "rvs_capture",
+            "capture",
+            "transport"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures and transports. C&T avail Wed 12PM-8PM, Thur 2PM-8PM, Sun 2PM-6PM; all calls outside those times need referred to rehab centers. Refer RVS finders to Philadelphia Metro Wildlife Center 267-416-9453, AARK Wildlife Center 215-249-1938. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Elk": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Jane or Sue may respond depending on availability. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Erie": {
+      "dispatch_enabled": true,
+      "allowed_issues": [
+        "capture",
+        "rvs_capture"
+      ],
+      "referral_targets": [
+        {
+          "name": "Tamarack Wildlife Center",
+          "phone": "8147632574",
+          "notes": "Refer transports here",
+          "for_issues": [
+            "transport"
+          ]
+        },
+        {
+          "name": "Humane Animal Wildlife Rescue",
+          "phone": "4123457300",
+          "notes": "Refer non-bat RVS calls here",
+          "for_issues": [
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "PA Game Commission (PGC)",
+          "phone": "8337429453",
+          "notes": "Refer non-bat RVS calls here",
+          "for_issues": [
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": {
+        "rvs": [
+          "bats"
+        ]
+      },
+      "special_notes": "Enter dispatch for captures; RVS bats only. Refer transports to Tamarack Wildlife (814-763-2574). Refer non-bat RVS to Humane Animal Wildlife Rescue (412-345-7300) or PGC (833-742-9453). Sue to respond to Erie County as well. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Fayette": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Janice Chippendale 240-362-6628.",
+      "time_windows": null
+    },
+    "Forest": {
+      "dispatch_enabled": true,
+      "allowed_issues": [
+        "capture"
+      ],
+      "referral_targets": [
+        {
+          "name": "Tamarack Wildlife Center",
+          "phone": "8147632574",
+          "notes": "Refer transports here",
+          "for_issues": [
+            "transport"
+          ]
+        },
+        {
+          "name": "Humane Animal Wildlife Rescue",
+          "phone": "4123457300",
+          "notes": "Refer RVS calls here",
+          "for_issues": [
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "PA Game Commission (PGC)",
+          "phone": "8337429453",
+          "notes": "Refer RVS calls here",
+          "for_issues": [
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "No volunteers. Enter dispatch for captures only. Refer transports to Tamarack Wildlife (814-763-2574). Refer RVS to Humane Animal Wildlife Rescue (412-345-7300) or PGC (833-742-9453). Sue to respond to Forest County as well. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Franklin": {
+      "dispatch_enabled": false,
+      "allowed_issues": "all",
+      "referral_targets": [
+        {
+          "name": "PA Game Commission (PGC)",
+          "phone": "8337429453",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "Raven Ridge",
+          "phone": "7173274811",
+          "notes": "RVS, Waterfowl, Water Birds and Birds of Prey (phone per spreadsheet; facilities.json lists Raven Ridge at 717-808-2652 / Acorn Acres at 717-327-4811)",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "West Shore Wildlife Center",
+          "phone": "7172689574",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Do Not Enter Dispatch. No volunteers. Refer other calls to PGC 833-742-9453, Raven Ridge 717-327-4811 (RVS, Waterfowl, Water Birds and Birds of Prey), West Shore Rehabilitation 717-268-9574. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Fulton": {
+      "dispatch_enabled": false,
+      "allowed_issues": "all",
+      "referral_targets": [
+        {
+          "name": "PA Game Commission (PGC)",
+          "phone": "8337429453",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "Raven Ridge",
+          "phone": "7173274811",
+          "notes": "RVS, Waterfowl, Water Birds and Birds of Prey (phone per spreadsheet; facilities.json lists Raven Ridge at 717-808-2652 / Acorn Acres at 717-327-4811)",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "West Shore Wildlife Center",
+          "phone": "7172689574",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "Centre Wildlife Care",
+          "phone": "8146940004",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Do Not Enter Dispatch. No volunteers. Refer other calls to PGC 833-742-9453, Raven Ridge 717-327-4811 (RVS, Waterfowl, Water Birds and Birds of Prey), West Shore Rehabilitation 717-268-9574, Centre Wildlife Care 814-694-0004. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Greene": {
+      "dispatch_enabled": false,
+      "allowed_issues": "all",
+      "referral_targets": [
+        {
+          "name": "Humane Animal Rescue Wildlife Center",
+          "phone": "4123455616",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "Forest Friends",
+          "phone": "4127324076",
+          "notes": "RVS & Fawns",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "PA Game Commission (PGC)",
+          "phone": "8337429453",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Do Not Enter Dispatch. No volunteers. Refer calls to Humane Animal Rescue Wildlife Center 412-345-5616, Forest Friends (RVS & Fawns) 412-732-4076, PGC 833-742-9453. Area Coordinator: Julia Meredith 312-448-0664.",
+      "time_windows": null
+    },
+    "Huntingdon": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Jane Pierzga 814-574-3447.",
+      "time_windows": null
+    },
+    "Indiana": {
+      "dispatch_enabled": true,
+      "allowed_issues": [
+        "transport"
+      ],
+      "referral_targets": [
+        {
+          "name": "Wildbird Recovery",
+          "phone": "7248981788",
+          "notes": "Songbirds",
+          "for_issues": [
+            "capture"
+          ]
+        },
+        {
+          "name": "Forest Friends",
+          "phone": "4127324076",
+          "notes": "RVS and Fawn",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "Centre Wildlife Care",
+          "phone": "8146940004",
+          "notes": "Refer other calls here",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "Humane Animal Rescue Wildlife Center",
+          "phone": "4123455616",
+          "notes": "Refer other calls here",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for transports only. Refer all other calls to Wildbird Recovery (Songbirds) 724-898-1788, Forest Friends (RVS and Fawn) 412-732-4076, Centre Wildlife Care 814-694-0004, Humane Animal Rescue Wildlife Center 412-345-5616. Area Coordinator: Jane Pierzga 814-574-3447.",
+      "time_windows": null
+    },
+    "Jefferson": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Either Jane or Sue may respond depending on availability. Area Coordinator: Jane Pierzga 814-574-3447.",
+      "time_windows": null
+    },
+    "Juniata": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Gary Shimmel may respond depending on availability. Area Coordinator: Gary Shimmel 717-743-6662.",
+      "time_windows": null
+    },
+    "Lackawanna": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [
+        {
+          "name": "PA Game Commission (PGC)",
+          "phone": "8337429453",
+          "notes": "Blackout May 29-31: refer captures/RVS here",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, RVS and transports. BLACKOUT: No C&T nor RVS C&T May 29-31; refer those callers to PGC (833-742-9453). Area Coordinator: Sue DeArment.",
+      "time_windows": null
+    },
+    "Lancaster": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Lawrence": {
+      "dispatch_enabled": true,
+      "allowed_issues": [
+        "capture",
+        "transport"
+      ],
+      "referral_targets": [
+        {
+          "name": "Wildbird Recovery",
+          "phone": "7248981788",
+          "notes": "Songbirds; refer other calls here",
+          "for_issues": [
+            "capture"
+          ]
+        },
+        {
+          "name": "Tamarack Wildlife Center",
+          "phone": "8147632574",
+          "notes": "No RVS or Nestling Songbirds; refer other calls here",
+          "for_issues": [
+            "capture",
+            "transport"
+          ]
+        },
+        {
+          "name": "Humane Animal Rescue Wildlife Center",
+          "phone": "4123455616",
+          "notes": "Refer other calls here",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures and transports. W.C. avail after 4PM and weekends. Refer all other calls to Wildbird Recovery (Songbirds) 724-898-1788, Tamarack Wildlife Center 814-763-2574 (No RVS or Nestling Songbirds), Humane Animal Rescue Wildlife Center 412-345-5616. Sue may respond depending on availability. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Lebanon": {
+      "dispatch_enabled": true,
+      "allowed_issues": [
+        "capture",
+        "transport"
+      ],
+      "referral_targets": [
+        {
+          "name": "Red Creek Wildlife Center",
+          "phone": "5707394393",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "Helping Hands Wildlife Center",
+          "phone": "5704976414",
+          "notes": "Mammals & RVS; alt 570-385-3775",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "Raven Ridge",
+          "phone": "7173274811",
+          "notes": "RVS, Waterfowl, Water Birds and Birds of Prey (phone per spreadsheet)",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "West Shore Wildlife Center",
+          "phone": "7172689574",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": {
+        "capture": [
+          "waterfowl",
+          "water birds",
+          "birds of prey"
+        ]
+      },
+      "special_notes": "Enter dispatch for Waterfowl, Water Birds and Birds of Prey only. All other wildlife refer to Red Creek Wildlife Center 570-739-4393, Helping Hands Wildlife Center (Mammals & RVS) 570-497-6414 or 570-385-3775, Raven Ridge 717-327-4811 (RVS, Waterfowl, Water Birds and Birds of Prey), West Shore Rehabilitation 717-268-9574. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Lehigh": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [
+        {
+          "name": "Cricket Wildlife Center",
+          "phone": "4849080231",
+          "notes": "Off-window referral",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "AARK Wildlife Center",
+          "phone": "2152491938",
+          "notes": "Off-window referral",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "Red Creek Wildlife Center",
+          "phone": "5707394393",
+          "notes": "Off-window referral",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "Helping Hands Wildlife Center",
+          "phone": "5704976414",
+          "notes": "Off-window referral; alt 570-385-3775",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "Pocono Wildlife Rehab. Center",
+          "phone": "5704020223",
+          "notes": "Off-window referral",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. C&T available after 5PM weekdays and weekends. Mon-Thurs before 5PM and Fri before 1PM refer caller to Cricket Wildlife Center 484-908-0231, AARK Wildlife Center 215-249-1938, Red Creek Wildlife Center 570-739-4393, Helping Hands Wildlife Center 570-497-6414 or 570-385-3775, Pocono Wildlife Rehab. Center 570-402-0223. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Luzerne": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Judith Ullman 347-216-2764.",
+      "time_windows": null
+    },
+    "Lycoming": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Kelly Catalano 203-979-5566.",
+      "time_windows": null
+    },
+    "McKean": {
+      "dispatch_enabled": false,
+      "allowed_issues": "all",
+      "referral_targets": [
+        {
+          "name": "Center Wildlife Care",
+          "phone": "8146940004",
+          "notes": "Refer captures, transports and RVS here",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "Tamarack Wildlife Center",
+          "phone": "8147632574",
+          "notes": "Refer captures and transports here",
+          "for_issues": [
+            "capture",
+            "transport"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Do Not Enter Dispatch. No volunteers. Refer captures, transports and RVS to Center Wildlife Care (814-694-0004). Refer captures and transports to Tamarack Wildlife (814-763-2574). Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Mercer": {
+      "dispatch_enabled": true,
+      "allowed_issues": [
+        "capture",
+        "rvs_capture"
+      ],
+      "referral_targets": [
+        {
+          "name": "Tamarack Wildlife Center",
+          "phone": "8147632574",
+          "notes": "Refer transports here",
+          "for_issues": [
+            "transport"
+          ]
+        },
+        {
+          "name": "Humane Animal Wildlife Rescue",
+          "phone": "4123457300",
+          "notes": "Refer non-bat RVS calls here",
+          "for_issues": [
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "PA Game Commission (PGC)",
+          "phone": "8337429453",
+          "notes": "Refer non-bat RVS calls here",
+          "for_issues": [
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": {
+        "rvs": [
+          "bats"
+        ]
+      },
+      "special_notes": "Enter dispatch for captures; RVS bats only. Refer transports to Tamarack Wildlife (814-763-2574). Refer non-bat RVS to Humane Animal Wildlife Rescue (412-345-7300) or PGC (833-742-9453). Sue to respond to Mercer County as well. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Mifflin": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Jane may respond depending on availability. Area Coordinator: Jane Pierzga 814-574-3447.",
+      "time_windows": null
+    },
+    "Monroe": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Note: a transporter is unavailable 10/3/26-10/18/26 (volunteer-level; reflected in live counts). Area Coordinator: Judith Ullman 347-216-2764.",
+      "time_windows": null
+    },
+    "Montgomery": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Montour": {
+      "dispatch_enabled": false,
+      "allowed_issues": "all",
+      "referral_targets": [
+        {
+          "name": "Good Samaritan Wildlife Center",
+          "phone": "5704472785",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "Red Creek Wildlife Center",
+          "phone": "5707394393",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "Helping Hands Wildlife Center",
+          "phone": "5704976414",
+          "notes": "Mammals & RVS; alt 570-385-3775",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "Episode 4 Wildlife Rehabilitation",
+          "phone": "5709055737",
+          "notes": "Mammals only",
+          "for_issues": [
+            "capture"
+          ]
+        },
+        {
+          "name": "T & D Cats of the World",
+          "phone": "5708373377",
+          "notes": "Songbirds only",
+          "for_issues": [
+            "capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Do Not Enter Dispatch. No volunteers. Refer all calls to Good Samaritan Wildlife Center 570-447-2785, Red Creek Wildlife Center 570-739-4393, Helping Hands Wildlife Center (Mammals & RVS) 570-497-6414 or 570-385-3775, Episode 4 Wildlife Rehabilitation (Mammals only) 570-905-5737, T & D Cats of the World (Songbirds only) 570-837-3377. Area Coordinator: Kelly Catalano 203-979-5566.",
+      "time_windows": null
+    },
+    "Northampton": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Northumberland": {
+      "dispatch_enabled": true,
+      "allowed_issues": [
+        "capture",
+        "transport"
+      ],
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures and transports (no RVS line). Area Coordinator: Kelly Catalano 203-979-5566.",
+      "time_windows": null
+    },
+    "Perry": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Gary Shimmel 717-743-6662.",
+      "time_windows": null
+    },
+    "Philadelphia": {
+      "dispatch_enabled": true,
+      "allowed_issues": [
+        "transport"
+      ],
+      "referral_targets": [
+        {
+          "name": "Schuylkill Wildlife Rehab. Center",
+          "phone": "2154827300",
+          "notes": "No RVS",
+          "for_issues": [
+            "capture"
+          ]
+        },
+        {
+          "name": "Philadelphia Metro Wildlife Center",
+          "phone": "2674169453",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "AARK Wildlife Center",
+          "phone": "2152491938",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "ACCT Philly",
+          "phone": "2673853800",
+          "for_issues": [
+            "capture"
+          ]
+        },
+        {
+          "name": "Philly Pigeon Rescue",
+          "phone": "2679964505",
+          "notes": "alt 860-796-0324",
+          "for_issues": [
+            "capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for transports only, after 2:00PM weekdays. Refer other calls to Schuylkill Wildlife Rehab. Center (no RVS) 215-482-7300, Philadelphia Metro Wildlife Center 267-416-9453, AARK Wildlife Center 215-249-1938, ACCT Philly 267-385-3800, Philly Pigeon Rescue 267-996-4505 or 860-796-0324. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Pike": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [
+        {
+          "name": "Pocono Wildlife Rehab. Center",
+          "phone": "5704020223",
+          "notes": "Blackout May 29-31 referral",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "PA Game Commission (PGC)",
+          "phone": "8337429453",
+          "notes": "Blackout May 29-31 referral",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. BLACKOUT: No C&T nor RVS C&T May 29-31; refer callers to Pocono Wildlife 570-402-0223 or PGC 833-742-9453. Area Coordinator: Judith Ullman 347-216-2764.",
+      "time_windows": null
+    },
+    "Potter": {
+      "dispatch_enabled": false,
+      "allowed_issues": "all",
+      "referral_targets": [
+        {
+          "name": "PA Game Commission (PGC)",
+          "phone": "8337429453",
+          "notes": "Refer all calls here",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Do Not Enter Dispatch. No volunteers. Refer all calls to PGC (833-742-9453). Area Coordinator: Kelly Catalano 203-979-5566.",
+      "time_windows": null
+    },
+    "Schuylkill": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Snyder": {
+      "dispatch_enabled": true,
+      "allowed_issues": [
+        "transport"
+      ],
+      "referral_targets": [
+        {
+          "name": "Good Samaritan Wildlife Center",
+          "phone": "5704472785",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "Centre Wildlife Care",
+          "phone": "8146940004",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "T & D Cats of the World",
+          "phone": "5708373377",
+          "notes": "Songbirds only",
+          "for_issues": [
+            "capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for transports only. Transporter available evenings and weekends. Refer capture/RVS calls to Good Samaritan Wildlife Center 570-447-2785, Centre Wildlife Care 814-694-0004, T & D Cats of the World (Songbirds only) 570-837-3377. Area Coordinator: Kelly Catalano 203-979-5566.",
+      "time_windows": null
+    },
+    "Somerset": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Other volunteers may respond depending on availability. Area Coordinator: Janice Chippendale 240-362-6628.",
+      "time_windows": null
+    },
+    "Sullivan": {
+      "dispatch_enabled": false,
+      "allowed_issues": "all",
+      "referral_targets": [
+        {
+          "name": "PA Game Commission (PGC)",
+          "phone": "8337429453",
+          "notes": "Refer all calls here",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Do Not Enter Dispatch. No volunteers. Refer all calls to PGC (833-742-9453). Area Coordinator: Kelly Catalano 203-979-5566.",
+      "time_windows": null
+    },
+    "Susquehanna": {
+      "dispatch_enabled": false,
+      "allowed_issues": "all",
+      "referral_targets": [
+        {
+          "name": "PA Game Commission (PGC)",
+          "phone": "8337429453",
+          "notes": "Refer all calls here",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Do Not Enter Dispatch. No volunteers. Refer all calls to PGC (833-742-9453). Area Coordinator: Sue DeArment.",
+      "time_windows": null
+    },
+    "Tioga": {
+      "dispatch_enabled": true,
+      "allowed_issues": [
+        "capture",
+        "transport"
+      ],
+      "referral_targets": [
+        {
+          "name": "Good Samaritan Wildlife Center",
+          "phone": "5704472785",
+          "notes": "Refer RVS calls here",
+          "for_issues": [
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "PA Game Commission (PGC)",
+          "phone": "8337429453",
+          "notes": "Refer RVS calls here",
+          "for_issues": [
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures and transports. Refer RVS to Good Samaritan Wildlife Center (570-447-2785) or PGC (833-742-9453). [Spreadsheet listed 5770-447-2785; corrected to 570-447-2785 per facilities.json.] Area Coordinator: Kelly Catalano 203-979-5566.",
+      "time_windows": null
+    },
+    "Union": {
+      "dispatch_enabled": false,
+      "allowed_issues": "all",
+      "referral_targets": [
+        {
+          "name": "Good Samaritan Wildlife Center",
+          "phone": "5704472785",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "Centre Wildlife Care",
+          "phone": "8146940004",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "T & D Cats of the World",
+          "phone": "5708373377",
+          "notes": "Songbirds only",
+          "for_issues": [
+            "capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Do Not Enter Dispatch. No volunteers. Refer all calls to Good Samaritan Wildlife Center 570-447-2785, Centre Wildlife Care 814-694-0004, T & D Cats of the World (Songbirds only) 570-837-3377. Area Coordinator: Kelly Catalano 203-979-5566.",
+      "time_windows": null
+    },
+    "Venango": {
+      "dispatch_enabled": true,
+      "allowed_issues": [
+        "capture",
+        "transport",
+        "rvs_capture"
+      ],
+      "referral_targets": [
+        {
+          "name": "Humane Animal Wildlife Rescue",
+          "phone": "4123457300",
+          "notes": "Refer non-bat RVS calls here",
+          "for_issues": [
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "PA Game Commission (PGC)",
+          "phone": "8337429453",
+          "notes": "Refer non-bat RVS calls here",
+          "for_issues": [
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": {
+        "rvs": [
+          "bats"
+        ]
+      },
+      "special_notes": "Enter dispatch for captures and transports; RVS bats only. Refer non-bat RVS to Humane Animal Wildlife Rescue (412-345-7300) or PGC (833-742-9453). Sue to respond to Venango County as well. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Warren": {
+      "dispatch_enabled": true,
+      "allowed_issues": [
+        "capture",
+        "transport",
+        "rvs_capture"
+      ],
+      "referral_targets": [
+        {
+          "name": "Humane Animal Wildlife Rescue",
+          "phone": "4123457300",
+          "notes": "Refer non-bat RVS calls here",
+          "for_issues": [
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "PA Game Commission (PGC)",
+          "phone": "8337429453",
+          "notes": "Refer non-bat RVS calls here",
+          "for_issues": [
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": {
+        "rvs": [
+          "bats"
+        ]
+      },
+      "special_notes": "Enter dispatch for captures and transports; RVS bats only. Refer non-bat RVS to Humane Animal Wildlife Rescue (412-345-7300) or PGC (833-742-9453). Sue to respond to Warren County as well. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    },
+    "Washington": {
+      "dispatch_enabled": true,
+      "allowed_issues": [
+        "capture",
+        "transport"
+      ],
+      "referral_targets": [
+        {
+          "name": "Humane Animal Rescue Wildlife Center",
+          "phone": "4123455616",
+          "notes": "HARP not accepting Waterfowl from Washington County",
+          "for_issues": [
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "Forest Friends",
+          "phone": "4127324076",
+          "notes": "RVS & Fawns",
+          "for_issues": [
+            "rvs_capture"
+          ]
+        },
+        {
+          "name": "PA Game Commission (PGC)",
+          "phone": "8337429453",
+          "for_issues": [
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures and transports. Refer RVS calls to Humane Animal Rescue Wildlife Center 412-345-5616, Forest Friends (RVS & Fawns) 412-732-4076, PGC 833-742-9453. HARP not accepting Waterfowl from Washington County. Area Coordinator: Julia Meredith 312-448-0664.",
+      "time_windows": null
+    },
+    "Wayne": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [
+        {
+          "name": "PA Game Commission (PGC)",
+          "phone": "8337429453",
+          "notes": "Blackout May 29-31: refer captures/RVS here",
+          "for_issues": [
+            "capture",
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, RVS and transports. BLACKOUT: No C&T nor RVS C&T May 29-31; refer those callers to PGC (833-742-9453). Area Coordinator: Sue DeArment.",
+      "time_windows": null
+    },
+    "Westmoreland": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Janice Chippendale 240-362-6628.",
+      "time_windows": null
+    },
+    "Wyoming": {
+      "dispatch_enabled": false,
+      "allowed_issues": "all",
+      "referral_targets": [
+        {
+          "name": "PA Game Commission (PGC)",
+          "phone": "8337429453",
+          "notes": "Refer all calls here",
+          "for_issues": [
+            "capture",
+            "transport",
+            "rvs_capture"
+          ]
+        }
+      ],
+      "species_scope": null,
+      "special_notes": "Do Not Enter Dispatch. No volunteers. Refer all calls to PGC (833-742-9453). Area Coordinator: Sue DeArment.",
+      "time_windows": null
+    },
+    "York": {
+      "dispatch_enabled": true,
+      "allowed_issues": "all",
+      "referral_targets": [],
+      "species_scope": null,
+      "special_notes": "Enter dispatch for captures, transports and RVS. Area Coordinator: Sue DeArment 814-671-6594.",
+      "time_windows": null
+    }
+  }
+}

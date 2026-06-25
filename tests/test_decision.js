@@ -347,4 +347,195 @@ assert.deepStrictEqual(qualifyingRoles(false, 'unknown'), [],
 });
 passed++;
 
+// ── applyCountyPolicy: DOWNGRADE-ONLY county-policy post-step ────────────────
+// applyCountyPolicy runs AFTER the count-based recommend(). It can ONLY turn a
+// count-based dispatch (connecteam_task) into a named referral (refer_out); it
+// never invents a dispatch and never alters a non-dispatch base.
+var applyCountyPolicy = mod.applyCountyPolicy;
+assert.strictEqual(typeof applyCountyPolicy, 'function', 'applyCountyPolicy is exported');
+
+// refer_out action registered with an escalate/warning tone.
+assert.ok(ACTIONS.refer_out, 'ACTIONS.refer_out registered');
+assert.strictEqual(ACTIONS.refer_out.tone, 'escalate', 'refer_out tone is escalate');
+
+// A healthy non-RVS capture produces a count-based dispatch we can downgrade.
+var dispatchCap = cap(bk(5, 3), bk(0, 0), bk(0, 0));
+
+// 1. dispatch_enabled === false -> ALWAYS refer_out, with referral targets +
+//    special_notes attached, regardless of capacity.
+var disabledPolicy = {
+  dispatch_enabled: false,
+  allowed_issues: 'all',
+  referral_targets: [
+    { name: 'PA Game Commission', phone: '8337429453' },
+    { name: 'Raven Ridge', phone: '7173274811', for_issues: ['capture', 'rvs_capture'] }
+  ],
+  special_notes: 'Do Not Enter Dispatch. No volunteers.'
+};
+var baseDisabled = recommend(dispatchCap, false, 'capture', DEFAULTS);
+assert.strictEqual(baseDisabled.action, 'connecteam_task',
+  'precondition: healthy capacity yields a count-based dispatch');
+var disabledRec = applyCountyPolicy(baseDisabled, disabledPolicy, 'capture', false);
+assert.strictEqual(disabledRec.action, 'refer_out',
+  'dispatch_enabled=false downgrades dispatch -> refer_out');
+assert.strictEqual(disabledRec.target, null, 'refer_out clears the dispatch target');
+assert.ok(Array.isArray(disabledRec.referral_targets) && disabledRec.referral_targets.length === 2,
+  'disabled county attaches both referral targets (no for_issues = all issues)');
+assert.strictEqual(disabledRec.special_notes, 'Do Not Enter Dispatch. No volunteers.',
+  'disabled county attaches special_notes');
+assert.ok(disabledRec.reasoning.some(function (r) { return r.indexOf('dispatch is disabled') !== -1; }),
+  'disabled county appends a policy reasoning line');
+passed++;
+
+// disabled county also downgrades through the full recommend() pipeline when the
+// policy is passed as the 5th arg.
+var pipelineDisabled = recommend(dispatchCap, false, 'capture', DEFAULTS, disabledPolicy);
+assert.strictEqual(pipelineDisabled.action, 'refer_out',
+  'recommend(...policy) applies the disabled-county downgrade end-to-end');
+passed++;
+
+// 2. allowed_issues filtering: dispatch_enabled=true but the current issue is
+//    NOT in allowed_issues -> refer_out for THAT issue; an ALLOWED issue passes
+//    through unchanged.
+var transportOnlyPolicy = {
+  dispatch_enabled: true,
+  allowed_issues: ['transport'],
+  referral_targets: [
+    { name: 'Wildbird Recovery', phone: '7248981788', for_issues: ['capture'] },
+    { name: 'Courier Hub', phone: '5551234567', for_issues: ['transport'] }
+  ],
+  special_notes: 'Captures referred out; transport dispatched.'
+};
+// capture is NOT allowed -> downgrade to refer_out, only capture-tagged targets.
+var captureBase = recommend(dispatchCap, false, 'capture', DEFAULTS);
+var captureReferred = applyCountyPolicy(captureBase, transportOnlyPolicy, 'capture', false);
+assert.strictEqual(captureReferred.action, 'refer_out',
+  'allowed_issues excludes capture -> refer_out');
+assert.strictEqual(captureReferred.referral_targets.length, 1,
+  'only the capture-tagged referral target is attached');
+assert.strictEqual(captureReferred.referral_targets[0].name, 'Wildbird Recovery',
+  'capture referral target is Wildbird Recovery');
+assert.ok(captureReferred.reasoning.some(function (r) { return r.indexOf('capture') !== -1; }),
+  'allowed_issues downgrade reasoning names the issue');
+
+// transport IS allowed -> passthrough unchanged.
+var transportCap = cap(bk(0, 0), bk(0, 0), bk(2, 2));
+var transportBase = recommend(transportCap, false, 'transport', DEFAULTS);
+assert.strictEqual(transportBase.action, 'connecteam_task',
+  'precondition: transport capacity yields a dispatch');
+var transportPassed = applyCountyPolicy(transportBase, transportOnlyPolicy, 'transport', false);
+assert.strictEqual(transportPassed.action, 'connecteam_task',
+  'allowed_issues includes transport -> dispatch passes through');
+assert.ok(!('referral_targets' in transportPassed),
+  'passthrough dispatch carries no referral_targets');
+passed++;
+
+// 2b. RVS capture maps to the 'rvs_capture' policy issue, distinct from plain
+//     'capture'. A policy allowing only 'capture' still refers an RVS capture.
+var captureNoRvsPolicy = {
+  dispatch_enabled: true,
+  allowed_issues: ['capture'],
+  referral_targets: [
+    { name: 'RVS Facility', phone: '5559990000', for_issues: ['rvs_capture'] }
+  ]
+};
+var rvsCap = cap(bk(0, 0), bk(2, 2), bk(0, 0));
+var rvsBase = recommend(rvsCap, true, 'capture', DEFAULTS);
+assert.strictEqual(rvsBase.action, 'connecteam_task',
+  'precondition: RVS capture with RVS capacity dispatches');
+var rvsReferred = applyCountyPolicy(rvsBase, captureNoRvsPolicy, 'capture', true);
+assert.strictEqual(rvsReferred.action, 'refer_out',
+  'allowed_issues=[capture] still refers an rvs_capture');
+assert.strictEqual(rvsReferred.referral_targets[0].name, 'RVS Facility',
+  'rvs_capture referral target attached');
+// Non-RVS capture under the SAME policy IS allowed -> passthrough.
+var nonRvsBase = recommend(dispatchCap, false, 'capture', DEFAULTS);
+var nonRvsPassed = applyCountyPolicy(nonRvsBase, captureNoRvsPolicy, 'capture', false);
+assert.strictEqual(nonRvsPassed.action, 'connecteam_task',
+  'allowed_issues=[capture] passes a plain (non-RVS) capture through');
+passed++;
+
+// 3. Unrestricted passthrough: enabled + allowed_issues 'all' (or absent) ->
+//    base action unchanged.
+var openPolicy = { dispatch_enabled: true, allowed_issues: 'all', referral_targets: [] };
+var openBase = recommend(dispatchCap, false, 'capture', DEFAULTS);
+var openPassed = applyCountyPolicy(openBase, openPolicy, 'capture', false);
+assert.strictEqual(openPassed.action, 'connecteam_task',
+  'unrestricted policy passes the dispatch through unchanged');
+assert.strictEqual(openPassed.target, openBase.target,
+  'unrestricted passthrough preserves the dispatch target');
+
+// No policy at all -> base unchanged.
+var noPolicyPassed = applyCountyPolicy(recommend(dispatchCap, false, 'capture', DEFAULTS), null, 'capture', false);
+assert.strictEqual(noPolicyPassed.action, 'connecteam_task',
+  'null policy -> base action unchanged');
+passed++;
+
+// 4. DOWNGRADE-ONLY: policy NEVER upgrades a non-dispatch base into a dispatch.
+//    A disabled county over a count-based call_pa_game_comm (no capacity) stays
+//    call_pa_game_comm — refer_out only replaces an ACTUAL dispatch.
+var emptyCap = cap(bk(0, 0), bk(0, 0), bk(0, 0));
+var escalateBase = recommend(emptyCap, true, 'capture', DEFAULTS);
+assert.strictEqual(escalateBase.action, 'call_pa_game_comm',
+  'precondition: empty capacity yields call_pa_game_comm (non-dispatch)');
+var escalateAfter = applyCountyPolicy(escalateBase, disabledPolicy, 'capture', true);
+assert.strictEqual(escalateAfter.action, 'call_pa_game_comm',
+  'policy never upgrades/replaces a non-dispatch base (no refer_out injected)');
+assert.ok(!('referral_targets' in escalateAfter),
+  'non-dispatch base gets no referral_targets attached');
+passed++;
+
+// ── Referral phone: facilities.json is the SOURCE OF TRUTH ──────────────────
+// resolveReferralPhone must prefer facilities.json phones over the
+// (spreadsheet-sourced) policy phones, flag discrepancies, and fall back to the
+// policy phone only when there is NO facilities match.
+var buildFacilityPhoneIndex = mod.buildFacilityPhoneIndex;
+var resolveReferralPhone = mod.resolveReferralPhone;
+assert.strictEqual(typeof buildFacilityPhoneIndex, 'function', 'buildFacilityPhoneIndex exported');
+assert.strictEqual(typeof resolveReferralPhone, 'function', 'resolveReferralPhone exported');
+
+var FACILITIES = [
+  { name: 'Raven Ridge Wildlife Center', phone: '7178082652' },
+  { name: 'Humane Animal Rescue Wildlife Center', phone: '4123457300' }
+];
+var NAME_MAP = {
+  'Raven Ridge': 'Raven Ridge Wildlife Center',
+  'HAR': 'Humane Animal Rescue Wildlife Center'
+};
+var facIndex = buildFacilityPhoneIndex(FACILITIES, NAME_MAP);
+
+// 1. Exact facilities-name match whose phone DIFFERS from policy -> use
+//    facilities phone, flag discrepancy, never the policy phone.
+var rrExact = resolveReferralPhone(
+  { name: 'Raven Ridge Wildlife Center', phone: '7173274811' }, facIndex);
+assert.strictEqual(rrExact.source, 'facilities', 'exact name match resolves to facilities');
+assert.strictEqual(rrExact.phone, '7178082652', 'facilities phone wins over policy phone');
+assert.strictEqual(rrExact.discrepancy, true, 'phone mismatch flagged as discrepancy');
+assert.strictEqual(rrExact.policyPhone, '7173274811', 'policy phone preserved for the flag');
+
+// 2. Alias / short-name match (policy uses "Raven Ridge", facilities uses the
+//    canonical name) still resolves via facility_name_map.json.
+var rrAlias = resolveReferralPhone({ name: 'Raven Ridge', phone: '7173274811' }, facIndex);
+assert.strictEqual(rrAlias.phone, '7178082652', 'alias name resolves to canonical facilities phone');
+assert.strictEqual(rrAlias.discrepancy, true, 'alias match still flags the policy discrepancy');
+
+// 3. Matching phone -> facilities source, NO discrepancy flag.
+var harMatch = resolveReferralPhone(
+  { name: 'Humane Animal Rescue Wildlife Center', phone: '4123457300' }, facIndex);
+assert.strictEqual(harMatch.source, 'facilities', 'HAR resolves to facilities');
+assert.strictEqual(harMatch.discrepancy, false, 'identical phones -> no discrepancy flag');
+
+// 4. No facilities match (e.g. PA Game Commission) -> fall back to policy phone,
+//    source 'policy', no discrepancy.
+var pgc = resolveReferralPhone({ name: 'PA Game Commission', phone: '8337429453' }, facIndex);
+assert.strictEqual(pgc.source, 'policy', 'unmatched target falls back to policy source');
+assert.strictEqual(pgc.phone, '8337429453', 'unmatched target keeps the policy phone');
+assert.strictEqual(pgc.discrepancy, false, 'unmatched target is not a discrepancy');
+
+// 5. Null / missing index -> graceful policy-phone passthrough.
+var noIndex = resolveReferralPhone({ name: 'Raven Ridge', phone: '7173274811' }, null);
+assert.strictEqual(noIndex.source, 'policy', 'null index -> policy source');
+assert.strictEqual(noIndex.phone, '7173274811', 'null index -> policy phone verbatim');
+passed++;
+
 console.log('OK: ' + passed + ' tests passed');

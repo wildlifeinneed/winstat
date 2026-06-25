@@ -31,6 +31,16 @@
       id: 'tbd_escalate',
       label: T1.actionLabels.tbd_escalate,
       tone: 'unknown'
+    },
+    // Policy downgrade target: the county's standing policy says don't dispatch
+    // (dispatch off, or this issue not allowed), so refer the caller to a named
+    // facility instead. tone 'escalate' reuses the warning styling of the other
+    // non-dispatch actions. Set ONLY by applyCountyPolicy(), never by the count
+    // logic in recommend().
+    refer_out: {
+      id: 'refer_out',
+      label: T1.actionLabels.refer_out,
+      tone: 'escalate'
     }
   };
 
@@ -161,7 +171,191 @@
     return out;
   }
 
-  function recommend(capacity, animalRvs, issue, resolvedConfig) {
+  // ─── County POLICY post-step (DOWNGRADE-ONLY) ───────────────────────────
+  // Map an animal's RVS flag + Issue onto the policy's allowed_issues vocabulary
+  // (['capture','transport','rvs_capture']). An RVS capture is its OWN policy
+  // issue ('rvs_capture'); a non-RVS capture is 'capture'. This is matching ONLY
+  // and does not touch the count logic.
+  function policyIssueKey(animalRvs, issue) {
+    var issueNorm = (typeof issue === 'string') ? issue.toLowerCase().trim() : '';
+    if (issueNorm === 'capture') {
+      return (animalRvs === true) ? 'rvs_capture' : 'capture';
+    }
+    if (issueNorm === 'transport') {
+      return 'transport';
+    }
+    return issueNorm; // unknown issue -> passthrough handled by caller
+  }
+
+  // Pull referral_targets relevant to a policy issue. A target with no
+  // `for_issues` (or a non-array) is treated as applying to ALL issues; a target
+  // WITH a for_issues array is included only when it lists this issue. Targets
+  // are returned as shallow copies so callers can attach them to the rec without
+  // aliasing the shared policy object.
+  function referralsForIssue(targets, policyIssue) {
+    if (!Array.isArray(targets)) return [];
+    var out = [];
+    for (var i = 0; i < targets.length; i++) {
+      var t = targets[i];
+      if (!t || typeof t !== 'object') continue;
+      var fi = t.for_issues;
+      var applies = !Array.isArray(fi) || fi.indexOf(policyIssue) !== -1;
+      if (!applies) continue;
+      out.push({
+        name: t.name,
+        phone: t.phone,
+        notes: (typeof t.notes !== 'undefined') ? t.notes : '',
+        for_issues: Array.isArray(fi) ? fi.slice() : null
+      });
+    }
+    return out;
+  }
+
+  // ─── Referral phone: facilities.json is the SOURCE OF TRUTH ──────────────
+  // policy.json referral_targets carry phone numbers sourced from a spreadsheet,
+  // which can be stale. When the refer_out display shows a phone, we prefer the
+  // matching facilities.json phone and treat the policy phone as advisory only.
+  //
+  // normName: collapse a facility name to a comparison key (lowercase,
+  // alphanumerics only) so "Raven Ridge", "Raven Ridge Wildlife Center" and
+  // "raven-ridge" all line up after alias expansion.
+  function normName(s) {
+    return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  // buildFacilityPhoneIndex: index facilities.json (the source of truth) by
+  // normalized name for phone lookup. `aliasMap` is the optional
+  // facility_name_map.json (short alias -> canonical facilities.json name);
+  // both the alias key AND the canonical value are registered as lookup keys so
+  // policy names that use either form resolve. Returns { byName: {normKey ->
+  // {name, phone}} }.
+  function buildFacilityPhoneIndex(facilities, aliasMap) {
+    var byName = {};
+    if (Array.isArray(facilities)) {
+      for (var i = 0; i < facilities.length; i++) {
+        var f = facilities[i];
+        if (!f || typeof f !== 'object' || !f.name) continue;
+        var entry = { name: f.name, phone: (f.phone == null ? '' : String(f.phone)) };
+        byName[normName(f.name)] = entry;
+      }
+    }
+    if (aliasMap && typeof aliasMap === 'object') {
+      var keys = Object.keys(aliasMap);
+      for (var j = 0; j < keys.length; j++) {
+        var alias = keys[j];
+        var canonical = aliasMap[alias];
+        var canonEntry = byName[normName(canonical)];
+        if (canonEntry) {
+          // Register the alias spelling so a policy target using the short
+          // alias resolves to the canonical facility's phone.
+          if (!byName[normName(alias)]) byName[normName(alias)] = canonEntry;
+        }
+      }
+    }
+    return { byName: byName };
+  }
+
+  // digitsOnly: strip to bare digits for phone comparison/matching.
+  function digitsOnly(s) {
+    return String(s == null ? '' : s).replace(/[^0-9]/g, '');
+  }
+
+  // resolveReferralPhone: given a policy referral target and a facilities index,
+  // return { phone, source, facilityName, discrepancy, policyPhone }:
+  //   - source 'facilities' when the target name matches a facilities.json entry
+  //     (its phone wins, even if it differs from the policy phone);
+  //   - source 'policy' when there's no facilities match (fall back to the
+  //     policy phone, e.g. PA Game Commission which isn't a rehab facility);
+  //   - discrepancy=true when a facilities match exists AND its digits differ
+  //     from the policy phone digits, so the UI can flag it.
+  // NEVER returns the spreadsheet/policy phone over a facilities.json phone.
+  function resolveReferralPhone(target, facIndex) {
+    var policyPhone = (target && target.phone != null) ? String(target.phone) : '';
+    var result = {
+      phone: policyPhone,
+      source: 'policy',
+      facilityName: null,
+      discrepancy: false,
+      policyPhone: policyPhone
+    };
+    if (!target || !facIndex || !facIndex.byName) return result;
+    var match = facIndex.byName[normName(target.name)];
+    if (!match) return result; // no facilities entry -> keep policy phone
+    result.facilityName = match.name;
+    result.source = 'facilities';
+    result.phone = match.phone || '';
+    if (digitsOnly(match.phone) !== digitsOnly(policyPhone) &&
+        (digitsOnly(match.phone) || digitsOnly(policyPhone))) {
+      result.discrepancy = true;
+    }
+    return result;
+  }
+
+  // applyCountyPolicy: DOWNGRADE-ONLY post-step run AFTER the count-based
+  // recommend(). Given the base recommendation, the county's policy block, and
+  // the animal's RVS flag + Issue, it returns the FINAL action. Rules:
+  //   - No policy (null/undefined/empty) -> base action unchanged.
+  //   - dispatch_enabled === false -> always refer_out (with referral targets).
+  //   - allowed_issues is an array AND this issue is NOT in it -> refer_out.
+  //   - Otherwise -> base action passes through unchanged.
+  // It NEVER upgrades: a non-dispatch base (call_pa_game_comm / tbd_escalate /
+  // already refer_out) is returned untouched — policy can only restrict/redirect
+  // a dispatch into a referral, never invent a dispatch. referral_targets and
+  // special_notes from the policy are attached to the returned object so the UI
+  // can display who to call. Mutates and returns `rec` for convenience.
+  function applyCountyPolicy(rec, countyPolicy, issue, animalRvs) {
+    if (!rec) return rec;
+    if (!countyPolicy || typeof countyPolicy !== 'object') return rec;
+
+    var policyIssue = policyIssueKey(animalRvs, issue);
+
+    // Determine whether policy forbids dispatching for THIS call.
+    var dispatchOff = (countyPolicy.dispatch_enabled === false);
+    var issueNotAllowed = false;
+    if (!dispatchOff && Array.isArray(countyPolicy.allowed_issues)) {
+      issueNotAllowed = (countyPolicy.allowed_issues.indexOf(policyIssue) === -1);
+    }
+
+    if (!dispatchOff && !issueNotAllowed) {
+      // Policy permits this dispatch: pass the base action through unchanged.
+      return rec;
+    }
+
+    // DOWNGRADE-ONLY: only a count-based DISPATCH can be turned into a referral.
+    // A base that is already a non-dispatch (escalate/unknown/refer_out) is left
+    // exactly as the count logic produced it — policy never upgrades.
+    if (rec.action !== 'connecteam_task') {
+      return rec;
+    }
+
+    rec.action = 'refer_out';
+    rec.target = null;
+    rec.referral_targets = referralsForIssue(countyPolicy.referral_targets, policyIssue);
+    if (typeof countyPolicy.special_notes !== 'undefined') {
+      rec.special_notes = countyPolicy.special_notes;
+    }
+    rec.reasoning = Array.isArray(rec.reasoning) ? rec.reasoning : [];
+    if (dispatchOff) {
+      rec.reasoning.push(T1.policyDispatchDisabled);
+    } else {
+      rec.reasoning.push(fmt(T1.policyIssueNotAllowed, { issue: policyIssue }));
+    }
+    return rec;
+  }
+
+  // recommend(): COUNT-BASED recommendation, then the DOWNGRADE-ONLY county
+  // policy post-step. The count logic (branches A–E below) is unchanged and
+  // remains the single source of "is anyone available." When a `countyPolicy`
+  // block is passed, applyCountyPolicy() runs AFTER it and can only turn a
+  // count-based dispatch into a named referral (refer_out) — it never invents a
+  // dispatch. `countyPolicy` is optional, so existing call sites/tests that omit
+  // it keep today's behavior exactly.
+  function recommend(capacity, animalRvs, issue, resolvedConfig, countyPolicy) {
+    var rec = recommendByCount(capacity, animalRvs, issue, resolvedConfig);
+    return applyCountyPolicy(rec, countyPolicy, issue, animalRvs);
+  }
+
+  function recommendByCount(capacity, animalRvs, issue, resolvedConfig) {
     var cfg = resolveConfig(resolvedConfig);
     var rec = {
       action: null,
@@ -246,6 +440,9 @@
 
   var api = {
     recommend: recommend,
+    applyCountyPolicy: applyCountyPolicy,
+    buildFacilityPhoneIndex: buildFacilityPhoneIndex,
+    resolveReferralPhone: resolveReferralPhone,
     qualifiesForAnimal: qualifiesForAnimal,
     qualifyingRoles: qualifyingRoles,
     ACTIONS: ACTIONS

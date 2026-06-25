@@ -82,6 +82,10 @@
     loadError: false,
     config: null,           // parsed config.json (or null = use defaults)
     configError: false,     // true when config.json was present but malformed
+    policy: null,           // parsed policy.json (per-county dispatch overlay) or null
+    facilities: null,       // parsed facilities.json (source of truth for referral phones)
+    facilityNameMap: null,  // parsed facility_name_map.json (alias -> canonical name)
+    facilityPhoneIndex: null, // built lookup index { byName } for referral phone resolution
     coordinators: {},       // area-string -> coordinator NAME (public-safe, no phone)
     countyWin: {},          // county name -> WIN area (PII-free, from county_win.json)
     rehabbers: [],          // public rehabber dataset (may be empty)
@@ -452,6 +456,78 @@
       html += '<div class="rec-target">' + fmt(REC.targetRole, { label: escapeHtml(targetLabel) }) + '</div>';
     }
 
+    // refer_out (county-policy downgrade): show WHO to call — referral target
+    // name + phone + per-target notes — plus any county-wide special
+    // instructions. Set ONLY by applyCountyPolicy(); a non-refer_out rec skips
+    // this block entirely so the existing dispatch/escalate markup is untouched.
+    if (rec.action === 'refer_out') {
+      var countyName = state.t1RecCountyName || '';
+      html += '<div class="rec-referral">';
+      html += '<div class="rec-referral-header">' + escapeHtml(REC.referralHeader) + '</div>';
+      html += '<p class="rec-referral-intro">' +
+        escapeHtml(fmt(REC.referralIntro, { county: countyName })) + '</p>';
+      var targets = Array.isArray(rec.referral_targets) ? rec.referral_targets : [];
+      if (targets.length) {
+        html += '<ul class="rec-referral-list">';
+        targets.forEach(function (t) {
+          if (!t) return;
+          html += '<li class="rec-referral-item">';
+          html += '<div class="rec-referral-name">' +
+            fmt(REC.referralTarget, { name: escapeHtml(t.name || '') }) + '</div>';
+          // Phone: facilities.json is the SOURCE OF TRUTH. Resolve the target
+          // name against the facilities index and prefer that phone over the
+          // (spreadsheet-sourced) policy phone. If they differ, still SHOW the
+          // facilities phone and FLAG the discrepancy inline. Targets with no
+          // facilities match (e.g. PA Game Commission) keep the policy phone.
+          var resolved = null;
+          try {
+            resolved = window.WildlifeDecision.resolveReferralPhone(t, state.facilityPhoneIndex);
+          } catch (e) { resolved = null; }
+          var shownRaw = (resolved && resolved.phone != null) ? String(resolved.phone) : (t.phone || '');
+          if (shownRaw) {
+            // Policy phones are digit-only strings (e.g. "8337429453"). Format
+            // 10-digit US numbers as 833-742-9453 for display; keep the tel:
+            // href as digits-only. Non-10-digit values fall back to verbatim.
+            var rawPhone = String(shownRaw).trim();
+            var digits = rawPhone.replace(/[^0-9]/g, '');
+            var shownPhone = (digits.length === 10)
+              ? (digits.slice(0, 3) + '-' + digits.slice(3, 6) + '-' + digits.slice(6))
+              : rawPhone;
+            var telHref = rawPhone.replace(/[^0-9+]/g, '');
+            html += '<div class="rec-referral-phone">' +
+              fmt(REC.referralPhone, {
+                phone: '<a href="tel:' + escapeHtml(telHref) + '">' + escapeHtml(shownPhone) + '</a>'
+              }) + '</div>';
+            // Discrepancy flag: the policy phone disagreed with facilities.json.
+            // We used facilities.json (source of truth) and note the difference.
+            if (resolved && resolved.discrepancy) {
+              var polDigits = String(resolved.policyPhone || '').replace(/[^0-9]/g, '');
+              var polShown = (polDigits.length === 10)
+                ? (polDigits.slice(0, 3) + '-' + polDigits.slice(3, 6) + '-' + polDigits.slice(6))
+                : (resolved.policyPhone || '');
+              html += '<div class="rec-referral-flag">' +
+                escapeHtml(fmt(REC.referralPhoneDiscrepancy, { policyPhone: polShown })) + '</div>';
+            }
+          }
+          if (t.notes) {
+            html += '<div class="rec-referral-notes">' +
+              escapeHtml(fmt(REC.referralNotes, { notes: t.notes })) + '</div>';
+          }
+          html += '</li>';
+        });
+        html += '</ul>';
+      } else {
+        html += '<p class="rec-referral-empty">' + escapeHtml(REC.referralNoTargets) + '</p>';
+      }
+      if (rec.special_notes) {
+        html += '<div class="rec-referral-special">';
+        html += '<div class="rec-referral-special-header">' + escapeHtml(REC.referralSpecialHeader) + '</div>';
+        html += '<p>' + escapeHtml(fmt(REC.referralSpecialNotes, { notes: rec.special_notes })) + '</p>';
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+
     if (rec.marginal && rec.marginal_volunteers && rec.marginal_volunteers.length) {
       html += '<div class="rec-marginal">';
       html += '<div class="rec-marginal-header">' + REC.lowCapacityHeader + '</div>';
@@ -743,8 +819,13 @@
     var base = readAnimalBaseInfo();
 
     var resolved = resolveForCounty(state.config, county);
-    var recArea = window.WildlifeDecision.recommend(areaCapacity, base.rvs, base.issue, resolved);
-    var recCounty = window.WildlifeDecision.recommend(countyCapacity, base.rvs, base.issue, resolved);
+    // County-level policy overlay (DOWNGRADE-ONLY) applied AFTER the count-based
+    // recommendation. The selected county's policy governs BOTH scopes — the WIN
+    // Area pool is just a wider capacity count, but the dispatch decision still
+    // belongs to the selected county's standing policy.
+    var countyPolicy = policyForCounty(county);
+    var recArea = window.WildlifeDecision.recommend(areaCapacity, base.rvs, base.issue, resolved, countyPolicy);
+    var recCounty = window.WildlifeDecision.recommend(countyCapacity, base.rvs, base.issue, resolved, countyPolicy);
     renderRecommendation(recCounty, recArea, base, county);
 
     // NOTE: the Tier 1 qualified-volunteer list is NO LONGER loaded here. It now
@@ -3659,6 +3740,71 @@
       });
   }
 
+  // loadPolicy(): fetch the per-county dispatch policy overlay (policy.json),
+  // loaded exactly like config.json. Stored as state.policy = { counties: {...} }
+  // (or null when missing/malformed). The recommendation flow looks up the
+  // selected county in this map and passes that county's block to recommend()
+  // as the DOWNGRADE-ONLY post-step. Missing/malformed policy → null → no
+  // overlay → today's count-based behavior is preserved.
+  function loadPolicy() {
+    return fetch('data/policy.json', { cache: 'no-store' })
+      .then(function (resp) {
+        if (resp.status === 404) { state.policy = null; return null; }
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        return resp.text().then(function (txt) {
+          try { return JSON.parse(txt); }
+          catch (e) { return null; }
+        });
+      })
+      .then(function (json) { state.policy = json; })
+      .catch(function () {
+        state.policy = null;
+      });
+  }
+
+  // policyForCounty(): return the policy block for a county name, or null. The
+  // map lives under policy.json's `counties` key.
+  function policyForCounty(countyName) {
+    var pol = state.policy;
+    if (!pol || !countyName) return null;
+    var counties = pol.counties || pol;
+    if (!counties || typeof counties !== 'object') return null;
+    var block = counties[countyName];
+    return (block && typeof block === 'object') ? block : null;
+  }
+
+  // loadFacilities(): fetch facilities.json — the SOURCE OF TRUTH for referral
+  // phone numbers — plus facility_name_map.json (alias -> canonical name). Both
+  // are optional; on any miss the index is left null and the referral display
+  // falls back to the policy.json phone verbatim. Builds state.facilityPhoneIndex
+  // once both are resolved so resolveReferralPhone() can prefer facilities phones
+  // over the (spreadsheet-sourced) policy phones.
+  function loadFacilities() {
+    function getJson(path) {
+      return fetch(path, { cache: 'no-store' })
+        .then(function (resp) {
+          if (!resp || !resp.ok) return null;
+          return resp.text().then(function (txt) {
+            try { return JSON.parse(txt); } catch (e) { return null; }
+          });
+        })
+        .catch(function () { return null; });
+    }
+    return Promise.all([
+      getJson('data/facilities.json'),
+      getJson('data/facility_name_map.json')
+    ]).then(function (res) {
+      state.facilities = res[0];
+      state.facilityNameMap = res[1];
+      try {
+        state.facilityPhoneIndex = window.WildlifeDecision.buildFacilityPhoneIndex(
+          state.facilities, state.facilityNameMap);
+      } catch (e) {
+        state.facilityPhoneIndex = null;
+      }
+    });
+  }
+
   function init() {
     populateCounties();
     // Inject the finder-fallback footer note from the single message source so
@@ -3793,7 +3939,7 @@
     restoreMapPanelState();
 
     Promise.all([
-      loadSnapshot(), loadConfig(), loadCoordinators(), loadRehabbers(), loadCountyWin(), loadMap()
+      loadSnapshot(), loadConfig(), loadPolicy(), loadFacilities(), loadCoordinators(), loadRehabbers(), loadCountyWin(), loadMap()
     ]).then(function () {
       renderBanner();
       renderConfigError();

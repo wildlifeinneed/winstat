@@ -65,7 +65,10 @@
       actionLabels: {
         connecteam_task: 'Dispatch via Connecteam',
         call_pa_game_comm: 'Call PA Game Commission',
-        tbd_escalate: 'No automatic action - escalate to supervisor'
+        tbd_escalate: 'No automatic action - escalate to supervisor',
+        // Set ONLY by applyCountyPolicy(): county policy forbids dispatch for
+        // this call, so refer the finder to a named facility instead.
+        refer_out: 'Refer out - county policy: do not dispatch'
       },
       // enrichMarginal low-capacity note ({count} = available count).
       lowCapacityWarning: 'Low capacity warning: only {count} available; consider calling PA Game Commission.',
@@ -86,7 +89,11 @@
       transportCourierAndCt: '{courier} courier(s) + {ct} C&T(s) available for transport.',
       transportCourierDispatch: 'Recommended: dispatch a courier via Connecteam.',
       transportCtFallback: 'No couriers available; dispatching C&T for transport.',
-      transportNone: 'No courier or C&T transport capacity available - ask the finder to transport the animal themselves, or call PA Game Commission.'
+      transportNone: 'No courier or C&T transport capacity available - ask the finder to transport the animal themselves, or call PA Game Commission.',
+      // applyCountyPolicy() DOWNGRADE reasoning fragments.
+      policyDispatchDisabled: 'County policy: dispatch is disabled for this county - refer the finder out.',
+      // {issue} = policy issue key (capture / rvs_capture / transport).
+      policyIssueNotAllowed: 'County policy: dispatch not allowed for {issue} in this county - refer the finder out.'
     },
 
     // ── renderRecommendation (Tier 1 modal) wording (dispatcher.js) ────────
@@ -118,7 +125,28 @@
         ct_no_rvs: 'C&T',
         ct_any: 'C&T (any)',
         courier: 'Courier'
-      }
+      },
+      // ── refer_out (county-policy downgrade) display wording. Shown by
+      //    renderRecommendation when action === 'refer_out': who to call, their
+      //    phone + notes, plus any county special instructions. {county} =
+      //    selected county name.
+      referralHeader: 'County policy: do not dispatch - refer out',
+      referralIntro: '{county} County policy says do not dispatch for this call. Refer the finder to:',
+      // One referral target row. {name} = facility name, {phone} = phone,
+      // {notes} = optional per-target notes.
+      referralTarget: '<strong>{name}</strong>',
+      referralPhone: 'Phone: <strong>{phone}</strong>',
+      // Shown under the phone when the policy.json (spreadsheet) phone disagreed
+      // with facilities.json. facilities.json is the source of truth, so the
+      // number above IS the facilities phone; this flags the stale policy value.
+      // {policyPhone} = the differing policy.json phone.
+      referralPhoneDiscrepancy: 'Note: county policy lists {policyPhone}, but facilities directory is the source of truth - use the number above.',
+      referralNotes: 'Notes: {notes}',
+      // Fallback when policy disables dispatch but lists no referral target.
+      referralNoTargets: 'No referral target on file - ask the finder to call PA Game Commission.',
+      // County-wide special instructions header + body. {notes} = special_notes.
+      referralSpecialHeader: 'Special instructions',
+      referralSpecialNotes: '{notes}'
     },
 
     // ── Tier 1 capacity cards / empty + coordinator line (dispatcher.js) ───

@@ -410,6 +410,45 @@
     .rec-marginal li { margin-bottom: 3px; }
     .rec-marginal em { color: var(--text-muted); font-size: 12.5px; }
 
+    /* refer_out (county-policy downgrade) referral block: who to call. Reuses
+       the amber warning treatment of .rec-marginal so it reads as a redirect,
+       not a green "go" dispatch. */
+    .rec-referral {
+      background: var(--amber-light);
+      border: 1px solid #f0c070;
+      border-left: 4px solid var(--amber);
+      padding: 10px 12px;
+      border-radius: 8px;
+      margin-bottom: 12px;
+    }
+    .rec-referral-header {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--amber);
+      margin-bottom: 6px;
+    }
+    .rec-referral-intro { font-size: 13px; color: var(--text); margin: 0 0 8px; }
+    .rec-referral-list { list-style: none; padding-left: 0; margin: 0 0 8px; }
+    .rec-referral-item { margin-bottom: 8px; }
+    .rec-referral-name { font-size: 14px; color: var(--text); }
+    .rec-referral-phone { font-size: 13.5px; }
+    .rec-referral-phone a { color: var(--text); }
+    .rec-referral-flag { font-size: 12px; color: var(--amber); font-style: italic; margin-top: 2px; }
+    .rec-referral-notes { font-size: 12.5px; color: var(--text-muted); }
+    .rec-referral-empty { font-size: 13px; color: var(--text-muted); margin: 0 0 8px; }
+    .rec-referral-special { margin-top: 8px; border-top: 1px solid #f0c070; padding-top: 8px; }
+    .rec-referral-special-header {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+    .rec-referral-special p { font-size: 13px; color: var(--text); margin: 0; }
+
     .rec-reasoning-header {
       font-size: 12px;
       font-weight: 700;
@@ -1380,6 +1419,7 @@
     <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
       <a class="home-link" href="index.html">← Back to WIN home</a>
       <a class="home-link" id="help-link" href="help.html" style="margin-bottom:10px;">User Manual</a>
+      <a class="home-link" id="policy-editor-link" href="policy-editor.html" style="margin-bottom:10px;">Policy Editor</a>
     </div>
     <div style="display:flex; align-items:center; gap:14px;">
       <div class="header-icon"><img src="assets/winlogo.jpg" alt="Wildlife In Need PA logo" /></div>

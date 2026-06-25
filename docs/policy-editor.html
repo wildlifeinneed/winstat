@@ -1,0 +1,1488 @@
+<!DOCTYPE html>
+<!-- For local development, run: cd docs && python3 -m http.server 8000  -- some browsers block fetch() of file:// JSON. -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wildlife In Need PA — Policy Editor</title>
+  <meta name="description" content="Admin editor for per-county WIN dispatch policy rules. Live volunteer counts are read-only; strategy rules are editable." />
+  <meta name="theme-color" content="#154d2a" />
+  <link rel="icon" type="image/jpeg" href="assets/winlogo.jpg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Bitter:wght@600;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --green:       #1e6b3a;
+      --green-dark:  #154d2a;
+      --green-deep:  #0e3a1f;
+      --green-light: #e8f5ed;
+      --amber:       #d4730a;
+      --amber-light: #fff3e0;
+      --red:         #c0392b;
+      --red-light:   #fdecea;
+      --bg:          #f5f2ec;
+      --surface:     #ffffff;
+      --border:      #e2dcd4;
+      --text:        #1a1a1a;
+      --text-muted:  #6b6560;
+      --text-light:  #9e9892;
+      --radius:      10px;
+      --shadow:      0 1px 3px rgba(0,0,0,.08), 0 2px 8px rgba(0,0,0,.06);
+      --shadow-lg:   0 8px 24px rgba(0,0,0,.12), 0 2px 6px rgba(0,0,0,.06);
+      --transition:  0.18s ease;
+    }
+
+    body {
+      font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ─── Header (matches dispatcher.html) ───────────────────── */
+    .site-header {
+      background: var(--green-dark);
+      color: #fff;
+      padding: 20px 16px 18px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.25);
+    }
+    .home-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12.5px;
+      color: rgba(255,255,255,.8);
+      text-decoration: none;
+      margin-bottom: 10px;
+      transition: color var(--transition);
+    }
+    .home-link:hover { color: #fff; text-decoration: underline; }
+    .header-inner {
+      max-width: 940px;
+      margin: 0 auto;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .header-icon {
+      flex-shrink: 0;
+      width: 60px; height: 60px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .header-icon img { max-width: 100%; max-height: 100%; display: block; filter: drop-shadow(0 2px 4px rgba(0,0,0,.35)); }
+    .header-text h1 {
+      font-family: 'Bitter', Georgia, serif;
+      font-size: clamp(18px, 4vw, 24px);
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      line-height: 1.2;
+    }
+    .header-text p { font-size: 12.5px; opacity: 0.78; margin-top: 3px; }
+
+    /* ─── Status strip ───────────────────────────────────────── */
+    .status-strip {
+      padding: 9px 16px;
+      text-align: center;
+      font-size: 13px;
+      line-height: 1.35;
+      border-bottom: 1px solid transparent;
+    }
+    .status-strip strong {
+      display: inline-block;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      font-size: 11.5px;
+      margin-right: 8px;
+      padding: 2px 9px;
+      border-radius: 999px;
+      vertical-align: 1px;
+    }
+    .status-strip.beta         { background: var(--amber-light); color: #7a4900; border-bottom-color: #f0c070; }
+    .status-strip.beta strong  { background: var(--amber); color: #fff; }
+
+    /* ─── Banner ─────────────────────────────────────────────── */
+    .refresh-banner {
+      max-width: 940px;
+      margin: 12px auto 0;
+      padding: 8px 14px;
+      background: var(--green-light);
+      border: 1px solid #c8e6d2;
+      border-radius: 8px;
+      font-size: 13px;
+      color: var(--green-dark);
+    }
+    .refresh-banner.warn {
+      background: var(--amber-light);
+      border-color: #f0c070;
+      color: #7a4900;
+    }
+
+    /* ─── Main layout ────────────────────────────────────────── */
+    main {
+      max-width: 940px;
+      margin: 0 auto;
+      padding: 18px 16px 64px;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 18px;
+      box-shadow: var(--shadow);
+      margin-bottom: 18px;
+    }
+
+    label.field-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    select, input[type=text], input[type=tel], textarea {
+      width: 100%;
+      padding: 9px 12px;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 14.5px;
+      background: var(--bg);
+      color: var(--text);
+      outline: none;
+      transition: border-color var(--transition);
+    }
+    select:focus, input:focus, textarea:focus { border-color: var(--green); background: #fff; }
+    textarea { resize: vertical; min-height: 70px; line-height: 1.45; }
+
+    /* ─── Toolbar ────────────────────────────────────────────── */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .toolbar .grow { flex: 1 1 240px; min-width: 200px; }
+    .toolbar .spacer { flex: 1 1 auto; }
+
+    .btn-primary {
+      background: var(--green);
+      color: #fff;
+      border: none;
+      padding: 11px 22px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 14.5px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background var(--transition);
+    }
+    .btn-primary:hover { background: var(--green-dark); }
+    .btn-primary:disabled { background: var(--text-light); cursor: not-allowed; }
+
+    .btn-secondary {
+      background: var(--surface);
+      color: var(--green-deep);
+      border: 1.5px solid var(--green-deep);
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 13.5px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background var(--transition), color var(--transition);
+    }
+    .btn-secondary:hover { background: var(--green-deep); color: #fff; }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-muted);
+      border: 1.5px solid var(--border);
+      padding: 7px 13px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background var(--transition), border-color var(--transition), color var(--transition);
+    }
+    .btn-ghost:hover { background: var(--bg); color: var(--text); border-color: var(--text-light); }
+
+    .btn-danger {
+      background: transparent;
+      color: var(--red);
+      border: 1.5px solid #f0b8b0;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 12.5px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background var(--transition);
+    }
+    .btn-danger:hover { background: var(--red-light); }
+
+    /* ─── County progress dots ───────────────────────────────── */
+    .county-meta {
+      margin-top: 10px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .county-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      border-radius: 999px;
+      background: var(--green-light);
+      color: var(--green-dark);
+      border: 1px solid #c8e6d2;
+    }
+    .dirty-flag {
+      display: none;
+      padding: 4px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      border-radius: 999px;
+      background: var(--amber-light);
+      color: var(--amber);
+      border: 1px solid #f0c070;
+    }
+    .dirty-flag.show { display: inline-block; }
+
+    /* ─── Section cards (LIVE vs RULES) ──────────────────────── */
+    .section-card {
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+    .section-card .section-head {
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .section-card .section-head .tag {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      padding: 3px 10px;
+      border-radius: 999px;
+    }
+    .section-card .section-head .section-title {
+      font-family: 'Bitter', Georgia, serif;
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .section-card .section-head .section-note {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      margin-left: auto;
+      font-style: italic;
+    }
+    .section-card .section-body { padding: 16px; }
+
+    /* LIVE DATA card — muted/greyed to signal auto-updating, not editable */
+    .section-card.live { background: #f4f3f0; border-color: #ddd7cf; }
+    .section-card.live .section-head { background: #eceae5; border-bottom: 1px solid #ddd7cf; }
+    .section-card.live .section-head .tag { background: #d9d4cc; color: #5c574f; }
+    .section-card.live .section-head .section-title { color: #5c574f; }
+
+    /* RULES card — full-color, editable */
+    .section-card.rules { background: var(--surface); border-color: #c8e6d2; }
+    .section-card.rules .section-head { background: var(--green-light); border-bottom: 1px solid #c8e6d2; }
+    .section-card.rules .section-head .tag { background: var(--green); color: #fff; }
+    .section-card.rules .section-head .section-title { color: var(--green-deep); }
+
+    /* ─── Live capacity cards (read-only) ────────────────────── */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+    @media (max-width: 560px) { .cards-grid { gap: 8px; } }
+    .cap-card {
+      background: #fbfaf8;
+      border: 1px dashed #cfc9c0;
+      border-radius: var(--radius);
+      padding: 14px 14px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      min-width: 0;
+    }
+    .cap-card .role {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: #7a746c;
+    }
+    .cap-card .num {
+      font-family: 'Bitter', Georgia, serif;
+      font-size: 15px;
+      font-weight: 700;
+      color: #5c574f;
+      line-height: 1.15;
+    }
+    .cap-card .num .total { color: #948e85; font-weight: 600; }
+    .cap-card .sub { font-size: 12px; color: #948e85; }
+    @media (max-width: 560px) {
+      .cap-card { padding: 9px 8px; }
+      .cap-card .role { font-size: 9.5px; }
+      .cap-card .num { font-size: 13px; }
+      .cap-card .sub { font-size: 10.5px; }
+    }
+    .live-foot {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #948e85;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .live-foot .lock { font-size: 13px; }
+
+    /* ─── Rules fields ───────────────────────────────────────── */
+    .rule-field { margin-bottom: 18px; }
+    .rule-field:last-child { margin-bottom: 0; }
+    .rule-field > .field-label { margin-bottom: 8px; }
+    .rule-hint {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 5px;
+      line-height: 1.4;
+    }
+
+    /* Toggle switch */
+    .switch-row { display: flex; align-items: center; gap: 12px; }
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 50px;
+      height: 28px;
+      flex-shrink: 0;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .switch .slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background: #cfc9c0;
+      border-radius: 999px;
+      transition: background var(--transition);
+    }
+    .switch .slider::before {
+      content: '';
+      position: absolute;
+      height: 22px; width: 22px;
+      left: 3px; top: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform var(--transition);
+      box-shadow: 0 1px 3px rgba(0,0,0,.3);
+    }
+    .switch input:checked + .slider { background: var(--green); }
+    .switch input:checked + .slider::before { transform: translateX(22px); }
+    .switch input:focus-visible + .slider { outline: 2px solid var(--green); outline-offset: 2px; }
+    .switch-label { font-size: 14.5px; font-weight: 600; }
+    .switch-label .on  { color: var(--green-deep); }
+    .switch-label .off { color: var(--red); }
+
+    /* Issue checkboxes */
+    .issue-grid { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+    .check-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 7px 13px;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      user-select: none;
+      transition: border-color var(--transition), background var(--transition);
+    }
+    .check-pill:has(input:checked) {
+      border-color: var(--green);
+      background: var(--green-light);
+      color: var(--green-deep);
+    }
+    .check-pill input { width: 16px; height: 16px; accent-color: var(--green); cursor: pointer; }
+    .issue-divider { color: var(--text-light); font-size: 13px; }
+    .all-pill:has(input:checked) { border-color: var(--green-dark); background: var(--green); color: #fff; }
+    .all-pill:has(input:checked) input { accent-color: #fff; }
+
+    /* Referral targets */
+    .referral-list { display: flex; flex-direction: column; gap: 12px; }
+    .referral-card {
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--amber);
+      border-radius: 8px;
+      background: #fffdfa;
+      padding: 12px 12px 14px;
+    }
+    .referral-card .ref-top {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .referral-card .ref-top .ref-name-wrap { flex: 1 1 auto; min-width: 0; }
+    .ref-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    @media (max-width: 560px) { .ref-grid { grid-template-columns: 1fr; } }
+    .ref-sub-label {
+      display: block;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+    .ref-issues { display: flex; gap: 12px; flex-wrap: wrap; }
+    .ref-issues label { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; cursor: pointer; }
+    .ref-issues input { width: 15px; height: 15px; accent-color: var(--amber); }
+    .referral-empty {
+      font-size: 13px;
+      color: var(--text-muted);
+      font-style: italic;
+      padding: 8px 2px;
+    }
+
+    /* Tag list (species scope) */
+    .tag-input-wrap {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 7px 8px;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      align-items: center;
+    }
+    .tag-input-wrap:focus-within { border-color: var(--green); background: #fff; }
+    .tag-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 6px 3px 10px;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 999px;
+      background: var(--green-light);
+      color: var(--green-dark);
+      border: 1px solid #c8e6d2;
+    }
+    .tag-chip button {
+      border: none;
+      background: transparent;
+      color: var(--green-dark);
+      cursor: pointer;
+      font-size: 15px;
+      line-height: 1;
+      padding: 0 2px;
+    }
+    .tag-chip button:hover { color: var(--red); }
+    .tag-input-wrap input.tag-entry {
+      border: none;
+      background: transparent;
+      padding: 4px;
+      flex: 1 1 120px;
+      min-width: 80px;
+      font-size: 14px;
+      outline: none;
+    }
+    .scope-mode {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .scope-mode label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+    .scope-all-note {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    /* ─── Validation warnings ────────────────────────────────── */
+    .warn-box {
+      background: var(--amber-light);
+      border: 1px solid #f0c070;
+      border-left: 4px solid var(--amber);
+      color: #7a4900;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 13.5px;
+      margin-bottom: 16px;
+    }
+    .warn-box ul { list-style: none; padding: 0; margin: 6px 0 0; }
+    .warn-box li { padding: 2px 0 2px 18px; position: relative; }
+    .warn-box li::before { content: '⚠'; position: absolute; left: 0; }
+    .warn-box.hidden { display: none; }
+
+    /* ─── Preview output (reuses dispatcher rec styles, slim) ── */
+    .preview-block { margin-top: 4px; }
+    .preview-grid { display: flex; flex-direction: column; gap: 8px; }
+    .prev-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border-left: 4px solid var(--text-light);
+      background: #f0efeb;
+      font-size: 13.5px;
+      flex-wrap: wrap;
+    }
+    .prev-row.go       { background: var(--green-light); border-left-color: var(--green); color: var(--green-deep); }
+    .prev-row.escalate { background: var(--amber-light); border-left-color: var(--amber); color: #7a4900; }
+    .prev-row.unknown  { background: #ececec; border-left-color: var(--text-light); color: #444; }
+    .prev-row .prev-scenario { font-weight: 700; min-width: 150px; flex: 0 0 auto; }
+    .prev-row .prev-result { flex: 1 1 200px; min-width: 0; }
+    .prev-row .prev-result .prev-detail { display: block; font-size: 12.5px; opacity: .85; margin-top: 2px; font-weight: 500; }
+    .preview-foot { font-size: 12px; color: var(--text-muted); margin-top: 8px; font-style: italic; }
+
+    /* ─── Errors ─────────────────────────────────────────────── */
+    .inline-error {
+      background: var(--red-light);
+      border: 1px solid #f0b8b0;
+      border-left: 4px solid var(--red);
+      color: var(--red);
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 13.5px;
+      margin-top: 12px;
+    }
+
+    .add-row { margin-top: 12px; }
+
+    .help-text {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      margin-top: 6px;
+      line-height: 1.45;
+    }
+
+    /* ─── Save bar (sticky bottom) ───────────────────────────── */
+    .save-bar {
+      position: sticky;
+      bottom: 0;
+      z-index: 20;
+      margin: 0 -16px -64px;
+      padding: 14px 16px;
+      background: rgba(255,255,255,.96);
+      border-top: 1px solid var(--border);
+      box-shadow: 0 -4px 16px rgba(0,0,0,.06);
+      backdrop-filter: blur(4px);
+    }
+    .save-bar-inner {
+      max-width: 940px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .save-bar .save-note { font-size: 12.5px; color: var(--text-muted); flex: 1 1 220px; min-width: 0; }
+    .save-status { font-size: 12.5px; font-weight: 600; }
+    .save-status.ok { color: var(--green-dark); }
+
+    /* ─── Footer ─────────────────────────────────────────────── */
+    .site-footer {
+      background: #0a2915;
+      color: rgba(255,255,255,.6);
+      padding: 22px 16px;
+      text-align: center;
+      font-size: 12.5px;
+    }
+    .site-footer .footer-logo {
+      width: 44px; height: auto; margin: 0 auto 8px; display: block; opacity: .9;
+    }
+
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-inner" style="flex-direction:column; gap:6px;">
+    <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+      <a class="home-link" href="index.html">← Back to WIN home</a>
+      <a class="home-link" href="dispatcher.html" style="margin-bottom:10px;">Dispatcher Console</a>
+    </div>
+    <div style="display:flex; align-items:center; gap:14px;">
+      <div class="header-icon"><img src="assets/winlogo.jpg" alt="Wildlife In Need PA logo" /></div>
+      <div class="header-text">
+        <h1>Policy Editor</h1>
+        <p>View and edit per-county dispatch strategy rules — no raw JSON required.</p>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="status-strip beta" role="status">
+  <strong>Admin Tool</strong><span class="sub">Edits here are downloaded as <code>policy.json</code> and committed by hand — nothing saves to the live site automatically.</span>
+</div>
+
+<div id="load-banner" class="refresh-banner">Loading policy &amp; live counts…</div>
+
+<main>
+  <!-- County selector toolbar -->
+  <section class="panel">
+    <div class="toolbar">
+      <div class="grow">
+        <label class="field-label" for="county-select">County</label>
+        <select id="county-select" aria-label="County">
+          <option value="">— select a county —</option>
+        </select>
+      </div>
+      <div class="spacer"></div>
+      <button id="prev-county" class="btn-ghost" type="button" title="Previous county">← Prev</button>
+      <button id="next-county" class="btn-ghost" type="button" title="Next county">Next →</button>
+    </div>
+    <div class="county-meta" id="county-meta" hidden>
+      <span class="county-badge" id="county-area-badge"></span>
+      <span id="county-counter"></span>
+      <span class="dirty-flag" id="dirty-flag">Unsaved edits</span>
+    </div>
+  </section>
+
+  <div id="editor-root" hidden>
+
+    <!-- Validation warnings -->
+    <div id="warn-box" class="warn-box hidden" role="status" aria-live="polite">
+      <strong>Check these before committing:</strong>
+      <ul id="warn-list"></ul>
+    </div>
+
+    <!-- LIVE DATA (auto) -->
+    <div class="section-card live">
+      <div class="section-head">
+        <span class="tag">Live data · auto</span>
+        <span class="section-title">Volunteer counts</span>
+        <span class="section-note">from last refresh snapshot — read only</span>
+      </div>
+      <div class="section-body">
+        <div class="cards-grid">
+          <div class="cap-card" data-role="ct_no_rvs">
+            <div class="role">C&amp;T</div>
+            <div class="num"><span class="avail">—</span> of <span class="total">—</span> avail</div>
+            <div class="sub"></div>
+          </div>
+          <div class="cap-card" data-role="ct_rvs">
+            <div class="role">RVS C&amp;T</div>
+            <div class="num"><span class="avail">—</span> of <span class="total">—</span> avail</div>
+            <div class="sub"></div>
+          </div>
+          <div class="cap-card" data-role="courier">
+            <div class="role">Courier</div>
+            <div class="num"><span class="avail">—</span> of <span class="total">—</span> avail</div>
+            <div class="sub"></div>
+          </div>
+        </div>
+        <div class="live-foot">
+          <span class="lock">🔒</span>
+          <span id="live-foot-text">These numbers update themselves from the Monday volunteer snapshot. You never count volunteers here — you set the rules below.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- STRATEGY RULES (editable) -->
+    <div class="section-card rules">
+      <div class="section-head">
+        <span class="tag">Strategy rules · editable</span>
+        <span class="section-title">Dispatch policy for <span id="rules-county-name">this county</span></span>
+        <span class="section-note">you control these</span>
+      </div>
+      <div class="section-body">
+
+        <!-- dispatch_enabled -->
+        <div class="rule-field">
+          <label class="field-label">Dispatch enabled?</label>
+          <div class="switch-row">
+            <label class="switch">
+              <input type="checkbox" id="f-dispatch-enabled" />
+              <span class="slider"></span>
+            </label>
+            <span class="switch-label" id="dispatch-label"></span>
+          </div>
+          <p class="rule-hint">When OFF, every call in this county is referred out to the targets below instead of dispatched to a volunteer.</p>
+        </div>
+
+        <!-- allowed_issues -->
+        <div class="rule-field">
+          <label class="field-label">Allowed issues</label>
+          <div class="issue-grid" id="issue-grid">
+            <label class="check-pill all-pill"><input type="checkbox" id="f-issue-all" /> All issues</label>
+            <span class="issue-divider">or pick specific:</span>
+            <label class="check-pill"><input type="checkbox" class="issue-cb" value="capture" /> Capture</label>
+            <label class="check-pill"><input type="checkbox" class="issue-cb" value="transport" /> Transport</label>
+            <label class="check-pill"><input type="checkbox" class="issue-cb" value="rvs_capture" /> RVS capture</label>
+          </div>
+          <p class="rule-hint">Issues NOT listed here are referred out even when dispatch is enabled. “All issues” stores the string <code>"all"</code>.</p>
+        </div>
+
+        <!-- referral_targets -->
+        <div class="rule-field">
+          <label class="field-label">Referral targets</label>
+          <div id="referral-list" class="referral-list"></div>
+          <div id="referral-empty" class="referral-empty">No referral targets yet. Add one if dispatch is off or some issues are referred out.</div>
+          <div class="add-row">
+            <button id="add-referral" class="btn-secondary" type="button">+ Add referral target</button>
+          </div>
+        </div>
+
+        <!-- species_scope -->
+        <div class="rule-field">
+          <label class="field-label">Species scope</label>
+          <div class="scope-mode">
+            <label><input type="radio" name="scope-mode" value="all" id="scope-all" /> All species</label>
+            <label><input type="radio" name="scope-mode" value="custom" id="scope-custom" /> Limit by tags</label>
+          </div>
+          <div id="scope-tags-wrap">
+            <div class="tag-input-wrap" id="species-tag-wrap">
+              <input type="text" class="tag-entry" id="species-entry" placeholder="type a species/taxon, press Enter…" aria-label="Add species tag" />
+            </div>
+            <p class="rule-hint">Free-text tags (e.g. <em>bats</em>, <em>waterfowl</em>, <em>birds of prey</em>). Stored as <code>{ "capture": [ … ] }</code>. Leave empty + choose “All species” to store <code>null</code>.</p>
+          </div>
+          <p class="scope-all-note" id="scope-all-note" hidden>Stored as <code>null</code> — policy applies to all species.</p>
+        </div>
+
+        <!-- special_notes -->
+        <div class="rule-field">
+          <label class="field-label" for="f-special-notes">Special notes</label>
+          <textarea id="f-special-notes" placeholder="Free text shown to dispatchers (e.g. who to refer to, blackout dates, coordinator)."></textarea>
+          <p class="rule-hint">This is the human-readable instruction dispatchers see. Phone numbers here are display-only.</p>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- PREVIEW -->
+    <div class="section-card rules">
+      <div class="section-head">
+        <span class="tag" style="background:#1a7ab5;">Preview</span>
+        <span class="section-title">What would <code>recommend()</code> say?</span>
+        <span class="section-note">uses live counts + your edits</span>
+      </div>
+      <div class="section-body">
+        <div class="add-row" style="margin-top:0;">
+          <button id="preview-btn" class="btn-secondary" type="button">Preview recommendation</button>
+        </div>
+        <div id="preview-out" class="preview-block" hidden>
+          <div class="preview-grid" id="preview-grid"></div>
+          <p class="preview-foot">Runs the same decision engine the dispatcher uses, against this county’s current live counts and your in-progress rule edits.</p>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /#editor-root -->
+
+  <div id="editor-error" class="inline-error" hidden></div>
+
+  <!-- Sticky save bar -->
+  <div class="save-bar">
+    <div class="save-bar-inner">
+      <span class="save-note">Download the full <code>policy.json</code>, then commit it to the repo via the GitHub web UI.</span>
+      <span class="save-status" id="save-status" aria-live="polite"></span>
+      <button id="reset-county" class="btn-ghost" type="button">Revert county</button>
+      <button id="download-btn" class="btn-primary" type="button">Download policy.json</button>
+    </div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <img class="footer-logo" src="assets/winlogo.jpg" alt="Wildlife In Need PA" />
+  <p>Wildlife In Need PA · Policy Editor (internal admin tool)</p>
+</footer>
+
+<!-- Reuse the SAME decision engine the dispatcher uses, so the preview never
+     drifts from production behavior. messages.js must load before decision.js. -->
+<script src="assets/messages.js?v=20260625b"></script>
+<script src="assets/decision.js?v=20260625"></script>
+<script>
+(function () {
+  'use strict';
+
+  var ISSUE_KEYS = ['capture', 'transport', 'rvs_capture'];
+
+  var state = {
+    policyDoc: null,    // full parsed policy.json (preserves _comment etc.)
+    counties: {},       // working copy of policyDoc.counties (edited in place)
+    capacity: {},       // county_capacity.json -> counties
+    countyWin: {},      // county -> WIN area (optional)
+    order: [],          // sorted county names
+    current: null,      // selected county name
+    dirty: {}           // county -> true once edited
+  };
+
+  function $(sel, ctx) { return (ctx || document).querySelector(sel); }
+  function $all(sel, ctx) { return Array.prototype.slice.call((ctx || document).querySelectorAll(sel)); }
+
+  function el(tag, attrs, children) {
+    var node = document.createElement(tag);
+    if (attrs) {
+      Object.keys(attrs).forEach(function (k) {
+        if (k === 'class') node.className = attrs[k];
+        else if (k === 'text') node.textContent = attrs[k];
+        else if (k === 'html') node.innerHTML = attrs[k];
+        else node.setAttribute(k, attrs[k]);
+      });
+    }
+    (children || []).forEach(function (c) {
+      if (c == null) return;
+      node.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+    });
+    return node;
+  }
+
+  // ── Load all data, mirroring dispatcher.js's no-store fetch pattern ──────
+  function fetchJson(path) {
+    return fetch(path, { cache: 'no-store' }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status + ' for ' + path);
+      return r.json();
+    });
+  }
+
+  function init() {
+    Promise.all([
+      fetchJson('data/policy.json'),
+      fetchJson('data/county_capacity.json'),
+      fetchJson('data/county_win.json').catch(function () { return {}; })
+    ]).then(function (res) {
+      var policyDoc = res[0] || {};
+      var cap = res[1] || {};
+      var win = res[2] || {};
+
+      state.policyDoc = policyDoc;
+      state.counties = (policyDoc && policyDoc.counties && typeof policyDoc.counties === 'object')
+        ? policyDoc.counties : {};
+      state.capacity = (cap && cap.counties && typeof cap.counties === 'object') ? cap.counties : {};
+      state.countyWin = (win && typeof win === 'object' && !Array.isArray(win)) ? win : {};
+
+      // Union of counties present in policy OR capacity, sorted.
+      var names = {};
+      Object.keys(state.counties).forEach(function (n) { names[n] = true; });
+      Object.keys(state.capacity).forEach(function (n) { names[n] = true; });
+      state.order = Object.keys(names).sort();
+
+      populateSelect();
+      var banner = $('#load-banner');
+      banner.textContent = 'Loaded ' + state.order.length + ' counties · ' +
+        Object.keys(state.counties).length + ' with policy. Select a county to begin.';
+      banner.classList.remove('warn');
+
+      wireGlobalControls();
+    }).catch(function (err) {
+      var banner = $('#load-banner');
+      banner.className = 'refresh-banner warn';
+      banner.textContent = 'Could not load data: ' + err.message +
+        '. If opening from disk, run a local server (cd docs && python3 -m http.server 8000).';
+    });
+  }
+
+  function populateSelect() {
+    var sel = $('#county-select');
+    state.order.forEach(function (name) {
+      var hasPolicy = !!state.counties[name];
+      var opt = el('option', { value: name },
+        [name + (hasPolicy ? '' : '  (no policy yet)')]);
+      sel.appendChild(opt);
+    });
+  }
+
+  // ── Selection ────────────────────────────────────────────────────────────
+  function selectCounty(name) {
+    if (!name) {
+      state.current = null;
+      $('#editor-root').hidden = true;
+      $('#county-meta').hidden = true;
+      return;
+    }
+    // Ensure a working policy object exists (author from scratch for absent ones).
+    if (!state.counties[name]) {
+      state.counties[name] = blankPolicy();
+    }
+    state.current = name;
+    $('#county-select').value = name;
+    $('#editor-root').hidden = false;
+    $('#county-meta').hidden = false;
+
+    var idx = state.order.indexOf(name);
+    $('#county-counter').textContent = 'County ' + (idx + 1) + ' of ' + state.order.length;
+    var area = state.countyWin[name];
+    var badge = $('#county-area-badge');
+    badge.textContent = area ? ('WIN Area ' + area) : 'WIN Area —';
+    $('#rules-county-name').textContent = name;
+
+    renderLiveCounts(name);
+    renderRules(state.counties[name]);
+    updateDirtyFlag();
+    runValidation();
+    // Hide any stale preview from a previous county.
+    $('#preview-out').hidden = true;
+  }
+
+  function blankPolicy() {
+    return {
+      dispatch_enabled: true,
+      allowed_issues: 'all',
+      referral_targets: [],
+      species_scope: null,
+      special_notes: '',
+      time_windows: null
+    };
+  }
+
+  // ── LIVE counts (read-only) ──────────────────────────────────────────────
+  function renderLiveCounts(name) {
+    var cap = state.capacity[name];
+    var foot = $('#live-foot-text');
+    $all('.cap-card').forEach(function (card) {
+      var role = card.getAttribute('data-role');
+      var bucket = cap && cap[role];
+      var avail = (bucket && typeof bucket.available === 'number') ? bucket.available : 0;
+      var total = (bucket && typeof bucket.total === 'number') ? bucket.total : 0;
+      $('.avail', card).textContent = String(avail);
+      $('.total', card).textContent = String(total);
+      var marg = (bucket && Array.isArray(bucket.marginal_volunteers)) ? bucket.marginal_volunteers.length : 0;
+      $('.sub', card).textContent = marg ? (marg + ' marginal') : '';
+    });
+    if (!cap) {
+      foot.textContent = 'No live snapshot entry for ' + name + ' (0 volunteers on file). Counts shown as 0 — set referral rules below.';
+    } else {
+      foot.textContent = 'These numbers update themselves from the Monday volunteer snapshot. You never count volunteers here — you set the rules below.';
+    }
+  }
+
+  // ── RULES (editable) ─────────────────────────────────────────────────────
+  function renderRules(p) {
+    // dispatch_enabled
+    var enabled = p.dispatch_enabled !== false;
+    $('#f-dispatch-enabled').checked = enabled;
+    renderDispatchLabel(enabled);
+
+    // allowed_issues
+    var ai = p.allowed_issues;
+    var isAll = (ai === 'all' || ai == null);
+    $('#f-issue-all').checked = isAll;
+    $all('.issue-cb').forEach(function (cb) {
+      cb.checked = !isAll && Array.isArray(ai) && ai.indexOf(cb.value) !== -1;
+      cb.disabled = isAll;
+    });
+
+    // referral_targets
+    renderReferrals(Array.isArray(p.referral_targets) ? p.referral_targets : []);
+
+    // species_scope
+    renderScope(p.species_scope);
+
+    // special_notes
+    $('#f-special-notes').value = (typeof p.special_notes === 'string') ? p.special_notes : '';
+  }
+
+  function renderDispatchLabel(enabled) {
+    var lbl = $('#dispatch-label');
+    lbl.innerHTML = enabled
+      ? '<span class="on">ON — dispatch volunteers</span>'
+      : '<span class="off">OFF — refer all calls out</span>';
+  }
+
+  function renderReferrals(targets) {
+    var list = $('#referral-list');
+    list.innerHTML = '';
+    if (!targets.length) {
+      $('#referral-empty').hidden = false;
+    } else {
+      $('#referral-empty').hidden = true;
+    }
+    targets.forEach(function (t, i) { list.appendChild(buildReferralCard(t, i)); });
+  }
+
+  function buildReferralCard(t, idx) {
+    var forIssues = Array.isArray(t.for_issues) ? t.for_issues : [];
+
+    var nameInput = el('input', {
+      type: 'text', value: t.name || '', placeholder: 'Facility / contact name',
+      'data-field': 'name', 'aria-label': 'Referral name'
+    });
+    var phoneInput = el('input', {
+      type: 'tel', value: t.phone || '', placeholder: 'digits only, e.g. 8337429453',
+      'data-field': 'phone', 'aria-label': 'Referral phone'
+    });
+    var notesInput = el('input', {
+      type: 'text', value: (typeof t.notes === 'string') ? t.notes : '', placeholder: 'optional notes',
+      'data-field': 'notes', 'aria-label': 'Referral notes'
+    });
+
+    var issueBoxes = ISSUE_KEYS.map(function (key) {
+      var cb = el('input', { type: 'checkbox', value: key, 'data-issue': key });
+      if (forIssues.indexOf(key) !== -1) cb.checked = true;
+      return el('label', {}, [cb, ' ' + issueLabel(key)]);
+    });
+
+    var removeBtn = el('button', { class: 'btn-danger', type: 'button', 'aria-label': 'Remove referral' }, ['Remove']);
+    removeBtn.addEventListener('click', function () {
+      var p = state.counties[state.current];
+      p.referral_targets.splice(idx, 1);
+      markDirty();
+      renderReferrals(p.referral_targets);
+      runValidation();
+    });
+
+    var card = el('div', { class: 'referral-card' }, [
+      el('div', { class: 'ref-top' }, [
+        el('div', { class: 'ref-name-wrap' }, [
+          el('span', { class: 'ref-sub-label' }, ['Name']),
+          nameInput
+        ]),
+        removeBtn
+      ]),
+      el('div', { class: 'ref-grid' }, [
+        el('div', {}, [el('span', { class: 'ref-sub-label' }, ['Phone']), phoneInput]),
+        el('div', {}, [el('span', { class: 'ref-sub-label' }, ['Notes']), notesInput])
+      ]),
+      el('div', {}, [
+        el('span', { class: 'ref-sub-label' }, ['For issues']),
+        el('div', { class: 'ref-issues' }, issueBoxes)
+      ])
+    ]);
+
+    // Wire field edits straight into the model.
+    [nameInput, phoneInput, notesInput].forEach(function (input) {
+      input.addEventListener('input', function () {
+        var p = state.counties[state.current];
+        var tgt = p.referral_targets[idx];
+        tgt[input.getAttribute('data-field')] = input.value;
+        markDirty();
+        runValidation();
+      });
+    });
+    $all('input[type=checkbox]', card).forEach(function (cb) {
+      var issue = cb.getAttribute('data-issue');
+      if (!issue) return;
+      cb.addEventListener('change', function () {
+        var p = state.counties[state.current];
+        var tgt = p.referral_targets[idx];
+        var fi = Array.isArray(tgt.for_issues) ? tgt.for_issues : [];
+        if (cb.checked) {
+          if (fi.indexOf(issue) === -1) fi.push(issue);
+        } else {
+          fi = fi.filter(function (x) { return x !== issue; });
+        }
+        // Keep canonical order.
+        tgt.for_issues = ISSUE_KEYS.filter(function (k) { return fi.indexOf(k) !== -1; });
+        markDirty();
+      });
+    });
+
+    return card;
+  }
+
+  function issueLabel(key) {
+    if (key === 'rvs_capture') return 'RVS capture';
+    return key.charAt(0).toUpperCase() + key.slice(1);
+  }
+
+  // species_scope: null = all; otherwise an object like { capture: [...] } /
+  // { rvs: [...] }. The editor stores tags under a single key while preserving
+  // the original key when one already exists.
+  function renderScope(scope) {
+    var hasScope = scope && typeof scope === 'object';
+    $('#scope-all').checked = !hasScope;
+    $('#scope-custom').checked = !!hasScope;
+    toggleScopeMode(!!hasScope);
+    var wrap = $('#species-tag-wrap');
+    // remove existing chips (keep the entry input)
+    $all('.tag-chip', wrap).forEach(function (c) { c.remove(); });
+    var tags = flattenScope(scope);
+    var entry = $('#species-entry');
+    tags.forEach(function (tag) { wrap.insertBefore(buildTagChip(tag), entry); });
+  }
+
+  function flattenScope(scope) {
+    if (!scope || typeof scope !== 'object') return [];
+    var out = [];
+    Object.keys(scope).forEach(function (k) {
+      var arr = scope[k];
+      if (Array.isArray(arr)) arr.forEach(function (v) { out.push(v); });
+    });
+    return out;
+  }
+
+  function buildTagChip(tag) {
+    var rm = el('button', { type: 'button', 'aria-label': 'Remove ' + tag }, ['×']);
+    var chip = el('span', { class: 'tag-chip' }, [tag, rm]);
+    rm.addEventListener('click', function () {
+      chip.remove();
+      commitScope();
+      markDirty();
+    });
+    return chip;
+  }
+
+  function toggleScopeMode(custom) {
+    $('#scope-tags-wrap').hidden = !custom;
+    $('#scope-all-note').hidden = custom;
+  }
+
+  // Read the chips back into the model. Preserves the existing scope key
+  // (e.g. "capture"/"rvs") when present; defaults new scopes to "capture".
+  function commitScope() {
+    var p = state.counties[state.current];
+    var custom = $('#scope-custom').checked;
+    if (!custom) { p.species_scope = null; return; }
+    var tags = $all('.tag-chip', $('#species-tag-wrap')).map(function (c) {
+      return c.firstChild.textContent;
+    });
+    if (!tags.length) { p.species_scope = {}; return; }
+    var key = 'capture';
+    if (p.species_scope && typeof p.species_scope === 'object') {
+      var keys = Object.keys(p.species_scope);
+      if (keys.length) key = keys[0];
+    }
+    var obj = {};
+    obj[key] = tags;
+    p.species_scope = obj;
+  }
+
+  // ── Dirty tracking ───────────────────────────────────────────────────────
+  function markDirty() {
+    if (state.current) state.dirty[state.current] = true;
+    updateDirtyFlag();
+    setSaveStatus('');
+  }
+  function updateDirtyFlag() {
+    var f = $('#dirty-flag');
+    if (state.current && state.dirty[state.current]) f.classList.add('show');
+    else f.classList.remove('show');
+  }
+
+  function setSaveStatus(msg, ok) {
+    var s = $('#save-status');
+    s.textContent = msg;
+    s.className = 'save-status' + (ok ? ' ok' : '');
+  }
+
+  // ── Validation ───────────────────────────────────────────────────────────
+  function runValidation() {
+    var p = state.counties[state.current];
+    if (!p) return;
+    var warnings = [];
+
+    var enabled = p.dispatch_enabled !== false;
+    var refs = Array.isArray(p.referral_targets) ? p.referral_targets : [];
+    var nonEmptyRefs = refs.filter(function (t) { return t && (t.name || '').trim(); });
+
+    if (!enabled && nonEmptyRefs.length === 0) {
+      warnings.push('Dispatch is OFF but there are no referral targets — callers would have nobody to be referred to.');
+    }
+
+    if (Array.isArray(p.allowed_issues) && p.allowed_issues.length === 0) {
+      warnings.push('Allowed issues is an empty list — every call would be referred out. Pick at least one issue, or turn dispatch OFF on purpose.');
+    }
+
+    // Soft hints (still warnings, helpful):
+    refs.forEach(function (t, i) {
+      if (t && (t.name || '').trim() && !(t.phone || '').trim()) {
+        warnings.push('Referral “' + t.name + '” has no phone number.');
+      }
+    });
+
+    var box = $('#warn-box');
+    var list = $('#warn-list');
+    list.innerHTML = '';
+    if (!warnings.length) {
+      box.classList.add('hidden');
+      return;
+    }
+    warnings.forEach(function (w) { list.appendChild(el('li', { text: w })); });
+    box.classList.remove('hidden');
+  }
+
+  // ── Preview (reuses the production decision engine) ──────────────────────
+  function runPreview() {
+    var name = state.current;
+    var cap = state.capacity[name] || null;
+    var policy = state.counties[name];
+    var policyForEngine = serializeCounty(policy); // normalized shape
+
+    var engine = window.WildlifeDecision;
+    var out = $('#preview-out');
+    var grid = $('#preview-grid');
+    grid.innerHTML = '';
+
+    if (!engine || typeof engine.recommend !== 'function') {
+      grid.appendChild(el('div', { class: 'prev-row unknown' },
+        ['Preview engine unavailable (decision.js failed to load).']));
+      out.hidden = false;
+      return;
+    }
+
+    var scenarios = [
+      { label: 'Capture (non-RVS)', rvs: false, issue: 'capture' },
+      { label: 'Transport',          rvs: false, issue: 'transport' },
+      { label: 'RVS capture',        rvs: true,  issue: 'capture' }
+    ];
+
+    scenarios.forEach(function (sc) {
+      var rec = engine.recommend(cap, sc.rvs, sc.issue, null, policyForEngine);
+      grid.appendChild(buildPreviewRow(sc, rec, engine));
+    });
+    out.hidden = false;
+  }
+
+  function buildPreviewRow(sc, rec, engine) {
+    var action = engine.ACTIONS[rec.action] || { label: rec.action || 'Unknown', tone: 'unknown' };
+    var tone = action.tone || 'unknown';
+    var detail = '';
+    if (rec.action === 'refer_out') {
+      var refs = Array.isArray(rec.referral_targets) ? rec.referral_targets : [];
+      detail = refs.length
+        ? ('Refer to: ' + refs.map(function (r) { return r.name; }).filter(Boolean).join(', '))
+        : 'Referred out (no specific target listed).';
+    } else if (rec.action === 'connecteam_task') {
+      detail = 'Dispatch target: ' + (rec.target || '—') + (rec.marginal ? ' · low capacity' : '');
+    } else if (rec.reasoning && rec.reasoning.length) {
+      detail = rec.reasoning[rec.reasoning.length - 1];
+    }
+
+    return el('div', { class: 'prev-row ' + tone }, [
+      el('span', { class: 'prev-scenario' }, [sc.label]),
+      el('span', { class: 'prev-result' }, [
+        el('strong', {}, [action.label]),
+        detail ? el('span', { class: 'prev-detail' }, [detail]) : null
+      ])
+    ]);
+  }
+
+  // ── Serialize one county to the canonical policy shape ───────────────────
+  function serializeCounty(p) {
+    var enabled = p.dispatch_enabled !== false;
+
+    // allowed_issues — model is kept in sync by the form handlers.
+    var allowed;
+    if (p.allowed_issues === 'all' || p.allowed_issues == null) {
+      allowed = 'all';
+    } else if (Array.isArray(p.allowed_issues)) {
+      allowed = ISSUE_KEYS.filter(function (k) { return p.allowed_issues.indexOf(k) !== -1; });
+    } else {
+      allowed = 'all';
+    }
+
+    var refs = (Array.isArray(p.referral_targets) ? p.referral_targets : []).map(function (t) {
+      var o = { name: (t.name || '').trim(), phone: (t.phone || '').trim() };
+      if (typeof t.notes === 'string' && t.notes.trim()) o.notes = t.notes.trim();
+      var fi = Array.isArray(t.for_issues)
+        ? ISSUE_KEYS.filter(function (k) { return t.for_issues.indexOf(k) !== -1; })
+        : [];
+      o.for_issues = fi;
+      return o;
+    }).filter(function (o) { return o.name; });
+
+    var scope = p.species_scope;
+    if (scope && typeof scope === 'object') {
+      // Drop empty arrays / empty object -> null.
+      var keys = Object.keys(scope).filter(function (k) {
+        return Array.isArray(scope[k]) && scope[k].length;
+      });
+      if (!keys.length) scope = null;
+    } else {
+      scope = null;
+    }
+
+    return {
+      dispatch_enabled: enabled,
+      allowed_issues: allowed,
+      referral_targets: refs,
+      species_scope: scope,
+      special_notes: (typeof p.special_notes === 'string') ? p.special_notes : '',
+      time_windows: (typeof p.time_windows !== 'undefined') ? p.time_windows : null
+    };
+  }
+
+  // ── Build the full policy.json for download ──────────────────────────────
+  function buildExport() {
+    var doc = {};
+    // Preserve top-level metadata keys (e.g. _comment, _source_spreadsheet).
+    Object.keys(state.policyDoc || {}).forEach(function (k) {
+      if (k !== 'counties') doc[k] = state.policyDoc[k];
+    });
+    var counties = {};
+    // Keep counties sorted for a stable, reviewable diff.
+    Object.keys(state.counties).sort().forEach(function (name) {
+      counties[name] = serializeCounty(state.counties[name]);
+    });
+    doc.counties = counties;
+    return doc;
+  }
+
+  function downloadPolicy() {
+    // Commit any in-flight live-form edits for the active county first.
+    if (state.current) commitScope();
+    var doc = buildExport();
+    var json = JSON.stringify(doc, null, 2) + '\n';
+    var blob = new Blob([json], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = el('a', { href: url, download: 'policy.json' });
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+    setSaveStatus('Downloaded — commit it to docs/data/policy.json via GitHub.', true);
+  }
+
+  // ── Wire form controls (active county) ───────────────────────────────────
+  function wireRuleControls() {
+    $('#f-dispatch-enabled').addEventListener('change', function () {
+      var p = state.counties[state.current];
+      p.dispatch_enabled = this.checked;
+      renderDispatchLabel(this.checked);
+      markDirty();
+      runValidation();
+    });
+
+    $('#f-issue-all').addEventListener('change', function () {
+      var p = state.counties[state.current];
+      if (this.checked) {
+        p.allowed_issues = 'all';
+        $all('.issue-cb').forEach(function (cb) { cb.checked = false; cb.disabled = true; });
+      } else {
+        // Switch to explicit list; start from whatever is checked (none yet).
+        $all('.issue-cb').forEach(function (cb) { cb.disabled = false; });
+        p.allowed_issues = collectIssues();
+      }
+      markDirty();
+      runValidation();
+    });
+
+    $all('.issue-cb').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        var p = state.counties[state.current];
+        p.allowed_issues = collectIssues();
+        markDirty();
+        runValidation();
+      });
+    });
+
+    $('#add-referral').addEventListener('click', function () {
+      var p = state.counties[state.current];
+      if (!Array.isArray(p.referral_targets)) p.referral_targets = [];
+      p.referral_targets.push({ name: '', phone: '', for_issues: [] });
+      markDirty();
+      renderReferrals(p.referral_targets);
+      runValidation();
+    });
+
+    $('#scope-all').addEventListener('change', function () {
+      if (this.checked) { toggleScopeMode(false); commitScope(); markDirty(); }
+    });
+    $('#scope-custom').addEventListener('change', function () {
+      if (this.checked) { toggleScopeMode(true); commitScope(); markDirty(); }
+    });
+
+    var entry = $('#species-entry');
+    entry.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ',') {
+        e.preventDefault();
+        addSpeciesTag(entry.value);
+        entry.value = '';
+      }
+    });
+    entry.addEventListener('blur', function () {
+      if (entry.value.trim()) { addSpeciesTag(entry.value); entry.value = ''; }
+    });
+
+    $('#f-special-notes').addEventListener('input', function () {
+      var p = state.counties[state.current];
+      p.special_notes = this.value;
+      markDirty();
+    });
+  }
+
+  function addSpeciesTag(raw) {
+    var tag = (raw || '').trim();
+    if (!tag) return;
+    // ensure custom mode
+    $('#scope-custom').checked = true;
+    $('#scope-all').checked = false;
+    toggleScopeMode(true);
+    var wrap = $('#species-tag-wrap');
+    var existing = $all('.tag-chip', wrap).map(function (c) { return c.firstChild.textContent.toLowerCase(); });
+    if (existing.indexOf(tag.toLowerCase()) !== -1) return;
+    wrap.insertBefore(buildTagChip(tag), $('#species-entry'));
+    commitScope();
+    markDirty();
+  }
+
+  function collectIssues() {
+    return $all('.issue-cb').filter(function (cb) { return cb.checked; })
+      .map(function (cb) { return cb.value; });
+  }
+
+  // ── Global controls ──────────────────────────────────────────────────────
+  function wireGlobalControls() {
+    $('#county-select').addEventListener('change', function () { selectCounty(this.value); });
+
+    $('#prev-county').addEventListener('click', function () { step(-1); });
+    $('#next-county').addEventListener('click', function () { step(1); });
+
+    $('#preview-btn').addEventListener('click', runPreview);
+    $('#download-btn').addEventListener('click', downloadPolicy);
+
+    $('#reset-county').addEventListener('click', function () {
+      if (!state.current) return;
+      var name = state.current;
+      var original = state.policyDoc && state.policyDoc.counties && state.policyDoc.counties[name];
+      // Deep-clone from the originally loaded doc; if none, blank.
+      state.counties[name] = original ? JSON.parse(JSON.stringify(original)) : blankPolicy();
+      delete state.dirty[name];
+      renderRules(state.counties[name]);
+      updateDirtyFlag();
+      runValidation();
+      $('#preview-out').hidden = true;
+      setSaveStatus('Reverted ' + name + ' to last loaded values.', true);
+    });
+
+    wireRuleControls();
+  }
+
+  function step(dir) {
+    if (!state.order.length) return;
+    var idx = state.current ? state.order.indexOf(state.current) : -1;
+    idx = (idx + dir + state.order.length) % state.order.length;
+    selectCounty(state.order[idx]);
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+})();
+</script>
+</body>
+</html>
