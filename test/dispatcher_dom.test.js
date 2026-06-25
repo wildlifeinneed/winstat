@@ -3611,24 +3611,31 @@ async function runTier1VolunteerScopeButtons() {
   };
   const { window, doc } = await driveTier1Recommend(agg, 'Allegheny', { rvs: false, issue: 'transport' });
 
-  // Both scope buttons exist and are visually distinct (county = filled class,
-  // area = outline). The section is visible; the block starts COLLAPSED.
+  // Both scope buttons exist. FILLED == ACTIVE (.is-active): on load, NEITHER
+  // button is active, so neither is filled, and the block is COLLAPSED. The two
+  // buttons are told apart by LABEL (+ scope marker class), not by a permanent
+  // fill.
   const countyBtn = doc.getElementById('t1-vol-toggle-county');
   const areaBtn = doc.getElementById('t1-vol-toggle-area');
   assert.ok(countyBtn && areaBtn, 'both scope buttons (county + area) exist');
   assert.ok(/In-County/i.test(countyBtn.textContent), 'county button is labeled "In-County Volunteers"');
+  assert.ok(/WIN Area/i.test(areaBtn.textContent), 'area button is labeled "WIN Area Volunteers"');
+  // Scope-marker classes are retained (used as identity hooks, NOT as fill).
   assert.ok(countyBtn.classList.contains('btn-t1-vol-county'),
-    'county button carries the distinct .btn-t1-vol-county (filled) class');
+    'county button carries the .btn-t1-vol-county scope marker');
   assert.ok(areaBtn.classList.contains('btn-t1-vol-area'),
-    'area button carries the distinct .btn-t1-vol-area (outline) class');
+    'area button carries the .btn-t1-vol-area scope marker');
   const blockEl = doc.getElementById('t1-vol-block');
   assert.ok(blockEl && blockEl.style.display === 'none',
     'volunteer block starts collapsed until a scope button is clicked');
+  // ON LOAD: neither button is active/filled (fill must match list visibility).
+  assert.ok(!countyBtn.classList.contains('is-active') && !areaBtn.classList.contains('is-active'),
+    'on load BOTH buttons are inactive (unfilled) since no list is shown');
 
   // Click IN-COUNTY: only the 2 Allegheny rows show (Beaver + Butler dropped).
   countyBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
   assert.ok(blockEl.style.display !== 'none', 'In-County click reveals the block');
-  assert.ok(countyBtn.classList.contains('is-active'), 'In-County button marked active');
+  assert.ok(countyBtn.classList.contains('is-active'), 'In-County button marked active (filled)');
   assert.ok(!areaBtn.classList.contains('is-active'), 'Area button NOT active while In-County open');
   let rows = Array.prototype.slice.call(doc.querySelectorAll('#t1-vol-list .ctx-row'));
   assert.strictEqual(rows.length, 2,
@@ -3649,24 +3656,35 @@ async function runTier1VolunteerScopeButtons() {
   assert.strictEqual(inCountyDimmed.length, 1,
     'In-County list preserves dimming for the unavailable Allegheny row');
 
-  // Click WIN AREA: the full 4-row area list returns (county filter dropped).
+  // Click IN-COUNTY AGAIN (the active button): list collapses AND the button
+  // unfills (back to the no-selection state). This is the core fill==visibility
+  // bug the user reported.
+  countyBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
+  assert.ok(blockEl.style.display === 'none', 'clicking the active In-County button again collapses the list');
+  assert.ok(!countyBtn.classList.contains('is-active'),
+    'In-County button UNFILLS (loses is-active) when its own list is collapsed');
+  assert.ok(!areaBtn.classList.contains('is-active'), 'Area button still inactive after In-County collapse');
+
+  // Re-open via IN-COUNTY, then click WIN AREA: focus moves — Area fills, the
+  // full 4-row list returns, and In-County unfills (only one filled at a time).
+  countyBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
   areaBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
   assert.ok(blockEl.style.display !== 'none', 'Area click keeps the block open');
-  assert.ok(areaBtn.classList.contains('is-active'), 'Area button marked active after switch');
-  assert.ok(!countyBtn.classList.contains('is-active'), 'County button cleared after switching to Area');
+  assert.ok(areaBtn.classList.contains('is-active'), 'Area button marked active (filled) after switch');
+  assert.ok(!countyBtn.classList.contains('is-active'), 'County button UNFILLS when switching to Area (only one filled)');
   rows = Array.prototype.slice.call(doc.querySelectorAll('#t1-vol-list .ctx-row'));
   assert.strictEqual(rows.length, 4,
     'WIN Area scope shows ALL 4 area volunteers (got ' + rows.length + ')');
   const hasSibling = rows.some(function (r) { return /Beaver|Butler/.test(r.textContent); });
   assert.ok(hasSibling, 'WIN Area list includes sibling-county rows (full-area scope preserved)');
 
-  // Clicking the OPEN area button again collapses the block.
+  // Clicking the OPEN area button again collapses the block AND unfills it.
   areaBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
   assert.ok(blockEl.style.display === 'none', 'clicking the open scope again collapses the block');
   assert.ok(!areaBtn.classList.contains('is-active') && !countyBtn.classList.contains('is-active'),
-    'both buttons inactive after collapse');
+    'both buttons inactive (unfilled) after collapse');
 
-  console.log('PASS: Tier 1 scope buttons — In-County button lists ONLY selected-county volunteers (siblings dropped, dimming preserved, county-scoped header); WIN Area button restores the full-area list; same #t1-vol-block + single fetch; toggle collapses on re-click.');
+  console.log('PASS: Tier 1 scope buttons — filled==active==list-visible: on load both unfilled; opening a scope fills only that button; re-clicking the active button collapses + unfills; switching scopes moves the fill so at most one is filled.');
 }
 
 // ── COUNTY BREAKDOWN: per-role county list inside each role card's .sub. ────

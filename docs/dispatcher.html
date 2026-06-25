@@ -617,11 +617,11 @@
     }
     .btn-widen:hover { background: var(--amber); color: #fff; }
 
-    /* Tier 1 qualified-volunteer scope toggles. Two buttons sit side-by-side:
-       the IN-COUNTY button (filled green = the tighter, usually-preferred scope)
-       and the WIN AREA button (outline = the broader fallback scope). The
-       distinct fill vs. outline treatment tells the dispatcher at a glance which
-       scope each button opens. The currently-OPEN button gets .is-active. */
+    /* Tier 1 qualified-volunteer scope toggles. Two buttons sit side-by-side
+       (In-County and WIN Area). FILLED == ACTIVE: a button is filled green ONLY
+       while its list is the one currently visible; both start UNFILLED (outline)
+       and at most one is ever filled. The scope is told apart by the button
+       LABEL, not by a permanent fill. */
     .t1-vol-toggles {
       display: flex;
       flex-wrap: wrap;
@@ -640,17 +640,14 @@
       transition: background var(--transition), color var(--transition);
     }
     .btn-t1-vol-toggle:hover { background: var(--green-deep); color: #fff; }
-    /* IN-COUNTY = filled green (tighter scope, visually primary). */
-    .btn-t1-vol-county {
+    /* ACTIVE == the scope whose list is currently shown: filled green. This is
+       the ONLY thing that fills a button, so the fill always matches list
+       visibility and only one button can be filled at a time. */
+    .btn-t1-vol-toggle.is-active {
       background: var(--green-deep);
       color: #fff;
     }
-    .btn-t1-vol-county:hover { background: var(--green-dark); color: #fff; }
-    /* The open scope is emphasized with a focus ring so the dispatcher can see
-       which list is currently showing. */
-    .btn-t1-vol-toggle.is-active {
-      box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--green-deep);
-    }
+    .btn-t1-vol-toggle.is-active:hover { background: var(--green-dark); color: #fff; }
 
     /* ─── Tier 2 out-of-county context list ───────────────────── */
     .ctx-header {
