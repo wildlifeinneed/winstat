@@ -3316,6 +3316,11 @@ async function driveTier1Recommend(agg, county, base) {
     if (rvsEl2) rvsEl2.dispatchEvent(new window.Event('change', { bubbles: true }));
     const issueEl2 = doc.querySelector('input[name="issue"][value="' + base.issue + '"]');
     if (issueEl2) issueEl2.dispatchEvent(new window.Event('change', { bubbles: true }));
+    // Animal Type dropdown drives the premise-line label + rehabber filter.
+    if (base.animalType) {
+      const typeEl = doc.getElementById('animal-type');
+      if (typeEl) { typeEl.value = base.animalType; typeEl.dispatchEvent(new window.Event('change', { bubbles: true })); }
+    }
     await flush(window);
     await flush(window);
   }
