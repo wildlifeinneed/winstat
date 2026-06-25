@@ -528,6 +528,28 @@
     return inCty.concat(siblings);
   }
 
+  // ─── Rehabber accepted-animal CODES (display) ────────────────────────────
+  // Extract the standard species abbreviations a rehabber accepts from its free
+  // -text `availability` field so the dispatch summary can SHOW them after the
+  // name/phone (e.g. "… — M, P, R, RA, RVS"). Tokenizes on non-letter
+  // boundaries (so "RA"/"RVS" match as whole tokens and letters inside the
+  // facility name — e.g. "AARK" — are never mistaken for codes), keeps only the
+  // recognized codes, de-dupes, and returns them in the canonical legend order.
+  var REHAB_CODE_ORDER = ['M', 'P', 'R', 'RA', 'RVS', 'END'];
+  function rehabberCodes(availability) {
+    var text = String(availability == null ? '' : availability).toUpperCase();
+    var tokens = text.split(/[^A-Z]+/);
+    var present = {};
+    for (var i = 0; i < tokens.length; i++) {
+      if (tokens[i]) present[tokens[i]] = true;
+    }
+    var out = [];
+    for (var j = 0; j < REHAB_CODE_ORDER.length; j++) {
+      if (present[REHAB_CODE_ORDER[j]]) out.push(REHAB_CODE_ORDER[j]);
+    }
+    return out;
+  }
+
   // Render one rehabber list <li> (name + formatted tel-linked phone + county),
   // reused by the summary and the transport-PGC block so the markup is identical.
   function rehabberRowHtml(r, liClass) {
@@ -542,12 +564,20 @@
     } else {
       phoneTxt = escapeHtml(REC.summaryRehabNoPhone);
     }
+    // Accepted-animal codes (M, P, R, RA, RVS, END) extracted from the
+    // `availability` field. When the rehabber lists at least one recognized
+    // code, append them after the county so the dispatcher sees what each
+    // facility accepts at a glance; otherwise fall back to the bare row.
+    var codes = rehabberCodes(r.availability);
+    var rowTpl = codes.length ? REC.summaryRehabRowCodes : REC.summaryRehabRow;
+    var fields = {
+      name: escapeHtml(name),
+      phone: phoneTxt,
+      county: escapeHtml(String(r.county || ''))
+    };
+    if (codes.length) fields.codes = escapeHtml(codes.join(', '));
     return '<li class="' + liClass + '">' +
-      fmt(REC.summaryRehabRow, {
-        name: escapeHtml(name),
-        phone: phoneTxt,
-        county: escapeHtml(String(r.county || ''))
-      }) + '</li>';
+      fmt(rowTpl, fields) + '</li>';
   }
 
   // ─── Dispatch summary block (Tier-2-depth detail for Tier 1) ──────────────
@@ -661,10 +691,10 @@
       }
     } else {
       // capture / rvs (and any non-transport): PGC handles the capture.
+      // The PGC phone is already in the explanatory "tell" line, so we do NOT
+      // render a separate standalone phone line here (avoids duplication).
       html += '<p class="rec-pgc-tell">' +
         escapeHtml(fmt(REC.pgcCaptureTell, { phone: pgc })) + '</p>';
-      html += '<div class="rec-pgc-phone">' +
-        fmt(REC.pgcPhoneLine, { phone: escapeHtml(pgc) }) + '</div>';
     }
     html += '</div>';
     return html;
@@ -831,7 +861,16 @@
       var ISSUE_LABELS = { capture: 'Capture', transport: 'Transport' };
       var issueLabel = ISSUE_LABELS[base.issue] || base.issue;
       var rvsLabel = base.rvs ? 'RVS' : 'non-RVS';
-      html += '<div class="rec-premise">' + escapeHtml(fmt(REC.premiseLine, { issue: issueLabel, rvsLabel: rvsLabel })) + '</div>';
+      // Append the selected Animal Type in parentheses when a SPECIFIC type is
+      // chosen (Other/Unknown or nothing -> append nothing). The short label
+      // comes from the animalTypeLabels map keyed by the dropdown value.
+      var animalLabels = REC.animalTypeLabels || {};
+      var animalKey = base.animalType ? String(base.animalType).toLowerCase().trim() : '';
+      var animalLabel = animalLabels[animalKey] || '';
+      var premiseTxt = animalLabel
+        ? fmt(REC.premiseLineWithAnimal, { issue: issueLabel, rvsLabel: rvsLabel, animal: animalLabel })
+        : fmt(REC.premiseLine, { issue: issueLabel, rvsLabel: rvsLabel });
+      html += '<div class="rec-premise">' + escapeHtml(premiseTxt) + '</div>';
     }
 
     // The recommendation body, with the county-level referral guidance shown

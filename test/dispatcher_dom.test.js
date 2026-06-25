@@ -3682,11 +3682,20 @@ async function runTier1DispatchSummary() {
     'first rehabber row is the in-county one (Tamarack — Allegheny County)');
   assert.ok(/814-763-7676/.test(rehabRows[0]),
     'in-county rehabber phone is formatted XXX-XXX-XXXX (got: "' + rehabRows[0] + '")');
+  // Accepted-animal CODES are appended after the county, extracted from the
+  // `availability` field. Tamarack ("M, R, RA, RVS") shows M, R, RA, RVS in the
+  // canonical legend order; the "AARK"-style false positive is impossible here,
+  // but the order/dedup is what the row must show.
+  assert.ok(/Allegheny County \u2014 M, R, RA, RVS\b/.test(rehabRows[0]),
+    'in-county rehabber row appends accepted-animal codes "M, R, RA, RVS" after the county (got: "' + rehabRows[0] + '")');
   const telLink = summary.querySelector('.rec-summary-rehab a[href^="tel:"]');
   assert.ok(telLink, 'rehabber phone is a tel: link');
   // Sibling-area rehabber with no phone shows the no-phone fallback.
   assert.ok(/Beaver County Rehab/.test(rehabRows[1]) && /no phone on file/i.test(rehabRows[1]),
     'sibling-area rehabber with no phone shows the no-phone fallback (got: "' + rehabRows[1] + '")');
+  // Codes still append after the county even on the no-phone row (Beaver "M").
+  assert.ok(/Beaver County \u2014 M\b/.test(rehabRows[1]),
+    'no-phone sibling rehabber row still appends its accepted-animal code "M" (got: "' + rehabRows[1] + '")');
   const joined = rehabRows.join(' | ');
   assert.ok(!/Songbird Haven/.test(joined),
     'bird-only in-county rehabber (Songbird Haven) is EXCLUDED by the Mammal animal-type filter');
@@ -3732,7 +3741,61 @@ async function runTier1DispatchSummary() {
     'Bat filter keeps only Tamarack (RVS); Beaver (M only, no RVS) drops out (got ' + batRows.length + ')');
   assert.ok(/Tamarack/.test(batRows[0]), 'the single Bat row is Tamarack (matched via RVS)');
 
-  console.log('PASS: Tier 1 dispatch summary — qualified-volunteer counts (in-county 3 / in-area 4, COURIER excluded; matches the list filter) + nearby rehabbers FILTERED by animal type (Mammal -> M|RVS keeps Tamarack+Beaver, bird-only Songbird Haven excluded; Raptor -> R; Reptile/Amphibian -> RA; Bat -> RVS keeps Tamarack, drops M-only Beaver), in-county first, formatted tel link, no-phone fallback, out-of-area excluded, no stale caveat.');
+  console.log('PASS: Tier 1 dispatch summary — qualified-volunteer counts (in-county 3 / in-area 4, COURIER excluded; matches the list filter) + nearby rehabbers FILTERED by animal type (Mammal -> M|RVS keeps Tamarack+Beaver, bird-only Songbird Haven excluded; Raptor -> R; Reptile/Amphibian -> RA; Bat -> RVS keeps Tamarack, drops M-only Beaver), in-county first, formatted tel link, no-phone fallback, accepted-animal codes appended after county (Tamarack "M, R, RA, RVS"; Beaver "M"), out-of-area excluded, no stale caveat.');
+}
+
+// ── TIER 1 PREMISE LINE: the In-County recommendation header restates the
+//    call as "{Issue} of {RVS}Animal" and now APPENDS the selected Animal Type
+//    in parentheses when a SPECIFIC type is chosen (Bird/Waterfowl/Raptor/Bat/
+//    Mammal/Reptile/Amphibian). Other/Unknown (or nothing) appends nothing.
+//    ─────────────────────────────────────────────────────────────────────────
+async function runTier1PremiseLineAnimalType() {
+  // A minimal aggregate that yields a renderable In-County recommendation.
+  const agg = {
+    total_in_range: 1,
+    role_counts: { 'C&T': 1 },
+    win_areas: ['10'],
+    out_of_county: [
+      { roles: ['C&T'], distance_mi: 2.0, win_area: '10', county: 'Allegheny', availability_note: '' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+
+  // (1) Raptor capture, non-RVS -> "Capture of non-RVS Animal (Raptor)".
+  const { doc } = await driveTier1Recommend(
+    agg, 'Allegheny', { rvs: false, issue: 'capture', animalType: 'raptor' });
+  const premiseEl = doc.querySelector('#rec-output .rec-premise');
+  assert.ok(premiseEl, 'Tier 1 premise element (.rec-premise) exists');
+  const txt = (premiseEl.textContent || '').replace(/\s+/g, ' ').trim();
+  assert.strictEqual(txt, 'Capture of non-RVS Animal (Raptor)',
+    'Tier 1 premise appends the selected animal type for Raptor (got: "' + txt + '")');
+
+  // (2) Bat capture -> "Capture of non-RVS Animal (Bat)".
+  const { doc: doc2 } = await driveTier1Recommend(
+    agg, 'Allegheny', { rvs: false, issue: 'capture', animalType: 'bat' });
+  const txt2 = (doc2.querySelector('#rec-output .rec-premise').textContent || '')
+    .replace(/\s+/g, ' ').trim();
+  assert.strictEqual(txt2, 'Capture of non-RVS Animal (Bat)',
+    'Tier 1 premise appends the selected animal type for Bat (got: "' + txt2 + '")');
+
+  // (3) Reptile/Amphibian transport -> "Transport of non-RVS Animal (Reptile/Amphibian)".
+  const { doc: doc3 } = await driveTier1Recommend(
+    agg, 'Allegheny', { rvs: false, issue: 'transport', animalType: 'reptile_amphibian' });
+  const txt3 = (doc3.querySelector('#rec-output .rec-premise').textContent || '')
+    .replace(/\s+/g, ' ').trim();
+  assert.strictEqual(txt3, 'Transport of non-RVS Animal (Reptile/Amphibian)',
+    'Tier 1 premise appends the Reptile/Amphibian label (got: "' + txt3 + '")');
+
+  // (4) Other/Unknown -> appends NOTHING: "Capture of non-RVS Animal".
+  const { doc: doc4 } = await driveTier1Recommend(
+    agg, 'Allegheny', { rvs: false, issue: 'capture', animalType: 'other' });
+  const txt4 = (doc4.querySelector('#rec-output .rec-premise').textContent || '')
+    .replace(/\s+/g, ' ').trim();
+  assert.strictEqual(txt4, 'Capture of non-RVS Animal',
+    'Tier 1 premise appends NOTHING for Other/Unknown (got: "' + txt4 + '")');
+
+  console.log('PASS: Tier 1 premise line appends the selected Animal Type in parentheses (Raptor/Bat/Reptile/Amphibian) and appends nothing for Other/Unknown.');
 }
 
 // Helper: load the page with a custom Worker aggregate AND rehabbers.json
@@ -3974,9 +4037,12 @@ async function runTier1PgcCaptureActionable() {
   const tell = pgc.querySelector('.rec-pgc-tell');
   assert.ok(tell && /capture/i.test(tell.textContent) && /pa game commission/i.test(tell.textContent),
     '"tell the finder" line says PGC handles the capture (got: "' + (tell ? tell.textContent : '') + '")');
-  const phoneLine = pgc.querySelector('.rec-pgc-phone');
-  assert.ok(phoneLine && /833/.test(phoneLine.textContent),
-    'the PGC dispatch number is shown on the capture path (got: "' + (phoneLine ? phoneLine.textContent : '') + '")');
+  // The PGC dispatch number is shown inline in the "tell the finder" line.
+  assert.ok(tell && /833/.test(tell.textContent),
+    'the PGC dispatch number is shown inline on the capture path (got: "' + (tell ? tell.textContent : '') + '")');
+  // No standalone PGC phone line — the number must NOT be duplicated.
+  assert.strictEqual(pgc.querySelectorAll('.rec-pgc-phone').length, 0,
+    'no duplicate standalone PGC phone line on the capture path');
 
   // The transport-only rehabber list must NOT appear on the capture path.
   assert.strictEqual(pgc.querySelectorAll('.rec-pgc-rehab').length, 0,
@@ -4710,6 +4776,7 @@ async function run() {
   await runTier1VolunteerList();
   await runTier1VolunteerListCaptureQualified();
   await runTier1DispatchSummary();
+  await runTier1PremiseLineAnimalType();
   await runTier1VolunteerListAllQualifiedCap();
   await runTier1VolunteerListAllQualifiedNoCap();
   await runTier1VolunteerScopeButtons();
@@ -4724,7 +4791,7 @@ async function run() {
   await runTier1PgcTransportAnimalTypeFiltered();
   await runTier1PgcTransportNoRehabFallback();
   await runTier1PgcCaptureActionable();
-  console.log('\nALL DOM TESTS PASSED (65 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (66 scenarios).');
 }
 
 run().then(function () {

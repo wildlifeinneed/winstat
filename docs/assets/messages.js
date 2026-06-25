@@ -105,6 +105,23 @@
       // Premise re-statement at the top of the panel. {issue} = issue label
       // (e.g. "Capture"), {rvsLabel} = "RVS" or "non-RVS".
       premiseLine: '{issue} of {rvsLabel} Animal',
+      // Same line with the selected Animal Type appended in parentheses, used
+      // when a SPECIFIC animal type is chosen (not Other/Unknown). {issue},
+      // {rvsLabel} as above; {animal} = short animal-type label (see
+      // animalTypeLabels).
+      premiseLineWithAnimal: '{issue} of {rvsLabel} Animal ({animal})',
+      // Short display labels for the Animal Type dropdown categories, keyed by
+      // the <option> value in dispatcher.html. 'other'/'unknown' is absent on
+      // purpose: when Other/Unknown (or nothing) is selected, the premise line
+      // appends NOTHING.
+      animalTypeLabels: {
+        bird: 'Bird',
+        waterfowl: 'Waterfowl',
+        raptor: 'Raptor',
+        bat: 'Bat',
+        mammal: 'Mammal',
+        reptile_amphibian: 'Reptile/Amphibian'
+      },
       // {label} = resolved target-role label.
       targetRole: 'Target role: <strong>{label}</strong>',
       lowCapacityHeader: 'Low capacity',
@@ -164,6 +181,11 @@
       // {name} = rehabber name, {phone} = formatted phone (or dash), {county} =
       // rehabber county.
       summaryRehabRow: '{name} ({phone}) \u2014 {county} County',
+      // Same row with the rehabber's accepted animal CODES appended (extracted
+      // from the `availability` field in rehabbers.json), e.g.
+      // "Raven Ridge Wildlife Center (717-808-2652) — York County — M, P, R, RA, RVS".
+      // {codes} = comma-separated standard abbreviations (M, P, R, RA, RVS, END).
+      summaryRehabRowCodes: '{name} ({phone}) \u2014 {county} County \u2014 {codes}',
       // Shown when a rehabber row has no phone on file.
       summaryRehabNoPhone: 'no phone on file',
       // Empty state when no in-county / in-area rehabber accepts the selected
