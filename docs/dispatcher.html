@@ -1629,8 +1629,13 @@
 
 <script src="assets/vendor/leaflet/leaflet.js"></script>
 <script src="assets/flags.js"></script>
-<script src="assets/messages.js"></script>
-<script src="assets/decision.js"></script>
-<script src="assets/dispatcher.js"></script>
+<!-- Cache-busting ?v= on the app scripts: GitHub Pages serves these with a
+     long cache lifetime, so a deploy that changes the JS without changing the
+     filename can leave a browser running STALE JS against fresh HTML (e.g. new
+     markup whose handlers live only in the new JS). Bump this token on any
+     change to these files to force clients to fetch the new copy. -->
+<script src="assets/messages.js?v=20260625"></script>
+<script src="assets/decision.js?v=20260625"></script>
+<script src="assets/dispatcher.js?v=20260625"></script>
 </body>
 </html>

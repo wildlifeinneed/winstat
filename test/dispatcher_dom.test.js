@@ -3807,6 +3807,26 @@ async function runTier2CountyBreakdown() {
   console.log('PASS: county breakdown per-role inside each card — uses county_by_role; DuBois COURIER fix; fallback to ooc; "in range" when empty.');
 }
 
+// ── CACHE-BUSTING: the dispatcher app scripts MUST carry a ?v= version token so
+//    a deploy that changes the JS (without changing the filename) can't leave a
+//    browser running STALE JS against fresh HTML. This exact desync once made
+//    the new Tier 1 scope buttons appear with no working click handlers (the
+//    cached old JS still wired the removed single toggle). ──────────────────
+async function runScriptCacheBusting() {
+  const html = fs.readFileSync(HTML_PATH, 'utf8');
+  ['assets/messages.js', 'assets/decision.js', 'assets/dispatcher.js'].forEach(function (src) {
+    // The <script src> for each app file must include a ?v= query string.
+    const re = new RegExp('<script src="' + src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\?v=[^"]+"');
+    assert.ok(re.test(html),
+      src + ' is loaded WITH a ?v= cache-busting query (prevents stale-JS desync)');
+    // And it must NOT be referenced without the query (no un-busted duplicate).
+    const bare = new RegExp('<script src="' + src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '"');
+    assert.ok(!bare.test(html),
+      src + ' is NOT also referenced without a ?v= query');
+  });
+  console.log('PASS: dispatcher app scripts (messages/decision/dispatcher) carry ?v= cache-busting — guards against stale-JS-vs-fresh-HTML desync that breaks new handlers.');
+}
+
 async function run() {
   await runHelpLink();
   await runHelpViewerRenders();
@@ -3864,7 +3884,8 @@ async function run() {
   await runTier1VolunteerListAllQualifiedNoCap();
   await runTier1VolunteerScopeButtons();
   await runTier2CountyBreakdown();
-  console.log('\nALL DOM TESTS PASSED (54 scenarios).');
+  await runScriptCacheBusting();
+  console.log('\nALL DOM TESTS PASSED (55 scenarios).');
 }
 
 run().then(function () {
