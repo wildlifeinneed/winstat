@@ -18,7 +18,7 @@
         },
         {
           "name": "Raven Ridge",
-          "phone": "7173274811",
+          "phone": "7178082652",
           "notes": "RVS, Waterfowl, Water Birds and Birds of Prey",
           "for_issues": [
             "capture",
@@ -72,7 +72,7 @@
         },
         {
           "name": "Humane Animal Rescue Wildlife Center",
-          "phone": "4123455616",
+          "phone": "4123457300",
           "notes": "Refer captures here",
           "for_issues": [
             "capture",
@@ -201,7 +201,7 @@
         },
         {
           "name": "Cricket Wildlife Center",
-          "phone": "4849080231",
+          "phone": "7173819893",
           "for_issues": [
             "capture"
           ]
@@ -249,7 +249,7 @@
         },
         {
           "name": "Humane Animal Rescue Wildlife Center",
-          "phone": "4123455616",
+          "phone": "4123457300",
           "notes": "Refer non-bat RVS here",
           "for_issues": [
             "rvs_capture"
@@ -280,7 +280,7 @@
       "referral_targets": [
         {
           "name": "Centre Wildlife Care",
-          "phone": "8146940004",
+          "phone": "8146920004",
           "notes": "Refer transports and RVS here",
           "for_issues": [
             "transport",
@@ -508,7 +508,7 @@
         },
         {
           "name": "Raven Ridge",
-          "phone": "7173274811",
+          "phone": "7178082652",
           "notes": "RVS, Waterfowl, Water Birds and Birds of Prey",
           "for_issues": [
             "capture",
@@ -544,7 +544,7 @@
         },
         {
           "name": "Raven Ridge",
-          "phone": "7173274811",
+          "phone": "7178082652",
           "notes": "RVS, Waterfowl, Water Birds and Birds of Prey",
           "for_issues": [
             "capture",
@@ -562,7 +562,7 @@
         },
         {
           "name": "Centre Wildlife Care",
-          "phone": "8146940004",
+          "phone": "8146920004",
           "for_issues": [
             "capture",
             "transport",
@@ -580,7 +580,7 @@
       "referral_targets": [
         {
           "name": "Humane Animal Rescue Wildlife Center",
-          "phone": "4123455616",
+          "phone": "4123457300",
           "for_issues": [
             "capture",
             "transport",
@@ -643,7 +643,7 @@
         },
         {
           "name": "Centre Wildlife Care",
-          "phone": "8146940004",
+          "phone": "8146920004",
           "notes": "Refer other calls here",
           "for_issues": [
             "capture",
@@ -652,7 +652,7 @@
         },
         {
           "name": "Humane Animal Rescue Wildlife Center",
-          "phone": "4123455616",
+          "phone": "4123457300",
           "notes": "Refer other calls here",
           "for_issues": [
             "capture",
@@ -732,7 +732,7 @@
         },
         {
           "name": "Humane Animal Rescue Wildlife Center",
-          "phone": "4123455616",
+          "phone": "4123457300",
           "notes": "Refer other calls here",
           "for_issues": [
             "capture",
@@ -770,7 +770,7 @@
         },
         {
           "name": "Raven Ridge",
-          "phone": "7173274811",
+          "phone": "7178082652",
           "notes": "RVS, Waterfowl, Water Birds and Birds of Prey (phone per spreadsheet)",
           "for_issues": [
             "capture",
@@ -803,7 +803,7 @@
       "referral_targets": [
         {
           "name": "Cricket Wildlife Center",
-          "phone": "4849080231",
+          "phone": "7173819893",
           "notes": "Off-window referral",
           "for_issues": [
             "capture",
@@ -878,7 +878,7 @@
       "referral_targets": [
         {
           "name": "Center Wildlife Care",
-          "phone": "8146940004",
+          "phone": "8146920004",
           "notes": "Refer captures, transports and RVS here",
           "for_issues": [
             "capture",
@@ -1163,7 +1163,7 @@
         },
         {
           "name": "Centre Wildlife Care",
-          "phone": "8146940004",
+          "phone": "8146920004",
           "for_issues": [
             "capture",
             "rvs_capture"
@@ -1271,7 +1271,7 @@
         },
         {
           "name": "Centre Wildlife Care",
-          "phone": "8146940004",
+          "phone": "8146920004",
           "for_issues": [
             "capture",
             "transport",
@@ -1366,7 +1366,7 @@
       "referral_targets": [
         {
           "name": "Humane Animal Rescue Wildlife Center",
-          "phone": "4123455616",
+          "phone": "4123457300",
           "notes": "HARP not accepting Waterfowl from Washington County",
           "for_issues": [
             "rvs_capture"
