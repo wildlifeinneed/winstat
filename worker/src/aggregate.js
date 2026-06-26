@@ -522,6 +522,7 @@ async function findContextRowsDriving(
         ? String(rec.availability_note) : '',
       available: isAvailableRecord(rec),
       connecteam_user: normalizeConnecteamUser(rec.connecteam_user),
+      monitored_areas: Array.isArray(rec.monitored_areas) ? rec.monitored_areas : [],
     });
     surviveCoords.push(pre.coords[i]);
   }
@@ -825,6 +826,7 @@ function findContextRows(animalLat, animalLon, radiusMi, coordsDataset, excludeC
         ? String(rec.availability_note) : '',
       available: isAvailableRecord(rec),
       connecteam_user: normalizeConnecteamUser(rec.connecteam_user),
+      monitored_areas: Array.isArray(rec.monitored_areas) ? rec.monitored_areas : [],
     });
   }
 
@@ -955,6 +957,7 @@ function buildTier2Response(aggregate, contextRows, distanceMode) {
         ? r.availability_note : '',
       available: r.available !== false,
       connecteam_user: normalizeConnecteamUser(r.connecteam_user),
+      monitored_areas: Array.isArray(r.monitored_areas) ? r.monitored_areas : [],
     };
     // ~1-mile JITTERED coord for the map pin (PII-safe: the exact home is nudged
     // a fixed ~1 mi in a deterministic per-volunteer direction, NEVER the exact

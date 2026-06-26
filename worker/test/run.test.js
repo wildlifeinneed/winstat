@@ -1144,7 +1144,7 @@ async function main() {
     'phone', 'email', 'address', 'street', 'city', 'zip', 'home_county',
     'monday_item_id', 'coords', 'coordinates',
   ];
-  const TIER2_ROW_KEYS = ['approx_lat', 'approx_lon', 'availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'name', 'roles', 'win_area'];
+  const TIER2_ROW_KEYS = ['approx_lat', 'approx_lon', 'availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'monitored_areas', 'name', 'roles', 'win_area'];
 
   // Deep-walk every key in an object/array tree, collecting key names.
   function collectKeys(node, out) {
@@ -2121,7 +2121,7 @@ async function main() {
     assert.strictEqual(byCounty['Lancaster'].driving_miles, 60.0, 'Lancaster driving distance annotation');
     ctx.rows.forEach((r) => { assert.strictEqual(r.duration_min, 10, 'driving time annotation (min)'); });
     assert.deepStrictEqual(Object.keys(byCounty['Lebanon']).sort(),
-      ['approx_lat', 'approx_lon', 'availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'driving_miles', 'duration_min', 'name', 'roles', 'win_area']);
+      ['approx_lat', 'approx_lon', 'availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'driving_miles', 'duration_min', 'monitored_areas', 'name', 'roles', 'win_area']);
     // Sorted ascending by STRAIGHT-LINE distance_mi (not driving).
     assert.ok(ctx.rows[0].distance_mi <= ctx.rows[1].distance_mi, 'sorted by straight-line distance');
 
@@ -2136,7 +2136,7 @@ async function main() {
       assert.ok(!('driving_miles' in r), 'straight_line row has NO driving distance');
     });
     assert.deepStrictEqual(Object.keys(fb.rows[0]).sort(),
-      ['approx_lat', 'approx_lon', 'availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'name', 'roles', 'win_area']);
+      ['approx_lat', 'approx_lon', 'availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'monitored_areas', 'name', 'roles', 'win_area']);
   });
 
   await test('(l9b) findContextRowsDriving: ORS error => rows still render, membership unchanged, no driving tags', async () => {

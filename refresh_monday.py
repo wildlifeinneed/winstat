@@ -77,6 +77,7 @@ SIDECAR_REL_PATH = Path("docs") / "data" / ".last_remote_update"
 COL_TITLE_COUNTY = "County"
 COL_TITLE_ROLES = "Roles"
 COL_TITLE_AVAILABILITY = "Availability"
+COL_TITLE_WIN_AREA = "WIN Area"
 
 # Phase B — address columns for geocoding. These are resolved by concrete
 # column ID (not human title) because the address columns are unlabeled /
@@ -531,6 +532,7 @@ def fetch_volunteers(
         column_ids[COL_TITLE_COUNTY],
         column_ids[COL_TITLE_AVAILABILITY],
         column_ids[COL_TITLE_ROLES],
+        column_ids[COL_TITLE_WIN_AREA],
     ]
     # Phase B — also pull the 4 address columns (resolved by concrete ID) so
     # the geocoder can build the private coords dataset.
@@ -587,6 +589,33 @@ def parse_roles(text: str) -> List[str]:
     if not text:
         return []
     return [t.strip() for t in text.split(",") if t.strip()]
+
+
+# Valid WIN area labels are "Area 01" through "Area 16" (two-digit, zero-padded).
+# The Monday.com column is a comma-separated text field that may also contain
+# "NoArea", "Test Area", or freeform notes — only real areas pass through.
+_VALID_WIN_AREAS = frozenset(f"Area {i:02d}" for i in range(1, 17))
+# Mapping from zero-padded label ("Area 03") to the bare area number the rest
+# of the pipeline uses ("3").
+_WIN_AREA_LABEL_TO_NUM = {f"Area {i:02d}": str(i) for i in range(1, 17)}
+
+
+def parse_monitored_areas(text: str) -> List[str]:
+    """Parse the WIN Area column into a sorted list of area number strings.
+
+    Input examples: "Area 03, Area 10", "Area 03", "NoArea", "".
+    Output: ["3", "10"], ["3"], [], [].
+    Only "Area 01" through "Area 16" are retained; "NoArea", "Test Area",
+    and any other freeform text are silently dropped.
+    """
+    if not text:
+        return []
+    areas = []
+    for part in text.split(","):
+        label = part.strip()
+        if label in _VALID_WIN_AREAS:
+            areas.append(_WIN_AREA_LABEL_TO_NUM[label])
+    return sorted(areas, key=int)
 
 
 def _evaluate_unavail_date_clauses(
@@ -758,6 +787,7 @@ def build_geocode_input(
     roles = parse_roles(roles_text)
 
     availability_text = _column_text(item, column_ids[COL_TITLE_AVAILABILITY])
+    win_area_text = _column_text(item, column_ids[COL_TITLE_WIN_AREA])
     return {
         "county": county,
         "roles": roles,
@@ -774,6 +804,11 @@ def build_geocode_input(
         # Tier-2 KV dataset omitted the flag and the Worker coerced every row
         # to "not on Connecteam" (the DuBois 7-of-7 banner bug).
         "connecteam_user": connecteam_user,
+        # WIN Area column from Monday.com: parsed list of area numbers the
+        # volunteer monitors (e.g. ["3", "10"]). PII-free, carried through to
+        # the KV dataset so the Worker/UI can identify vols monitoring areas
+        # outside their home county.
+        "monitored_areas": parse_monitored_areas(win_area_text),
         "street": _column_text(item, ADDRESS_COL_IDS["street"]),
         "city": _column_text(item, ADDRESS_COL_IDS["city"]),
         "state": _column_text(item, ADDRESS_COL_IDS["state"]),
@@ -2049,7 +2084,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     try:
         meta = discover_board_metadata(
-            [COL_TITLE_COUNTY, COL_TITLE_ROLES, COL_TITLE_AVAILABILITY],
+            [COL_TITLE_COUNTY, COL_TITLE_ROLES, COL_TITLE_AVAILABILITY,
+             COL_TITLE_WIN_AREA],
             GROUP_TITLES,
             token=token,
             session=session,

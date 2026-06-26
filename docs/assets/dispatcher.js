@@ -839,6 +839,25 @@
     if (btn) btn.classList.remove('open');
   }
 
+  // Count volunteers in the cached Tier 1 rows whose monitored_areas list
+  // includes the given area number. This tells the options panel how many vols
+  // actively monitor a neighboring area (from the Monday.com WIN Area column),
+  // even if they live in a different area. Returns 0 when the data is missing
+  // or the area has no monitors.
+  function volsMonitoringArea(areaNum) {
+    var rows = Array.isArray(state.t1VolRows) ? state.t1VolRows : [];
+    var norm = String(areaNum).trim();
+    if (!norm) return 0;
+    var count = 0;
+    for (var i = 0; i < rows.length; i++) {
+      var ma = rows[i].monitored_areas;
+      if (Array.isArray(ma) && ma.indexOf(norm) !== -1) {
+        count++;
+      }
+    }
+    return count;
+  }
+
   // Built UNDER a call_pa_game_comm (or thin refer_out) recommendation. Per the
   // design principle "don't close doors", it lays out EVERY option in order of
   // likelihood so the dispatcher + finder decide what's feasible:
@@ -889,6 +908,8 @@
     // 2) NEIGHBORING-AREA REHABBERS — every bordering WIN area (all directions),
     //    each filtered to rehabbers that accept the selected animal type, but the
     //    area itself is never hidden (the dispatcher should know it's a direction).
+    //    Also shows how many volunteers actively MONITOR each neighboring area
+    //    (from the Monday.com WIN Area column) — even if those vols live elsewhere.
     html += '<div class="rec-options-sec">';
     html += '<div class="rec-options-sec-header">' + escapeHtml(OPT.neighborHeader) + '</div>';
     html += '<p class="rec-options-line">' + escapeHtml(OPT.neighborIntro) + '</p>';
@@ -904,6 +925,13 @@
           : fmt(OPT.neighborAreaLabelNoCounties, { area: escapeHtml(a.area) });
         html += '<li class="rec-options-area">';
         html += '<div class="rec-options-area-label">' + areaLabel + '</div>';
+        // Volunteer monitoring count: how many vols have this neighboring area
+        // in their monitored_areas list (from the Monday.com WIN Area column).
+        var monCount = volsMonitoringArea(a.area);
+        if (monCount > 0) {
+          html += '<p class="rec-options-monitor-count">' +
+            fmt(OPT.neighborMonitorCount, { count: monCount }) + '</p>';
+        }
         var list = rehabbersInArea(a.area, animalType);
         if (list.length) {
           html += '<ul class="rec-summary-list rec-options-rehab-list">';

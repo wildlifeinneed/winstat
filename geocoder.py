@@ -243,6 +243,10 @@ def batch_geocode_volunteers(
                 # Pass through as-is (True/False/None) — None means unknown and
                 # the Worker treats it as such (never flagged in the banner).
                 "connecteam_user": v.get("connecteam_user"),
+                # Monitored WIN areas from Monday.com — list of area number
+                # strings the volunteer actively monitors (may include areas
+                # outside their home county). PII-free, carried through to KV.
+                "monitored_areas": v.get("monitored_areas") or [],
                 "_addr_sig": sig,
             }
         )
