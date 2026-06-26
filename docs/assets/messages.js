@@ -240,6 +240,7 @@
         winVolCountUnknown: '<strong>{count}</strong> qualified volunteer(s) in this WIN area.',
         winVolPending: 'Qualified-volunteer count loading\u2026 use the WIN Area Volunteers list below.',
         winVolButton: 'Show WIN Area Volunteers',
+        winVolMonitorCount: '{count} qualified volunteer(s) monitoring this area',
         // 2) Neighboring-area rehabbers. Header + per-area sub-line. {area} =
         //    neighboring WIN area, {counties} = its bordering counties.
         neighborHeader: 'Neighboring-area rehabbers',

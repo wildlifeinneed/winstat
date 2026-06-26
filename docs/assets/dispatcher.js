@@ -840,20 +840,28 @@
   }
 
   // Count volunteers in the cached Tier 1 rows whose monitored_areas list
-  // includes the given area number. This tells the options panel how many vols
-  // actively monitor a neighboring area (from the Monday.com WIN Area column),
-  // even if they live in a different area. Returns 0 when the data is missing
-  // or the area has no monitors.
-  function volsMonitoringArea(areaNum) {
+  // includes the given area number AND who qualify for the current animal type.
+  // This tells the options panel how many qualified vols actively monitor a
+  // given area (from the Monday.com WIN Area column), even if they live
+  // elsewhere. Returns 0 when the data is missing or the area has no monitors.
+  function volsMonitoringArea(areaNum, ctx) {
     var rows = Array.isArray(state.t1VolRows) ? state.t1VolRows : [];
     var norm = String(areaNum).trim();
     if (!norm) return 0;
+    var qualifyFn = (window.WildlifeDecision &&
+                     typeof window.WildlifeDecision.qualifiesForAnimal === 'function')
+      ? window.WildlifeDecision.qualifiesForAnimal : null;
+    var hasBase = ctx && typeof ctx.issue === 'string' && ctx.issue !== '';
     var count = 0;
     for (var i = 0; i < rows.length; i++) {
       var ma = rows[i].monitored_areas;
-      if (Array.isArray(ma) && ma.indexOf(norm) !== -1) {
-        count++;
+      if (!Array.isArray(ma) || ma.indexOf(norm) === -1) continue;
+      // Qualification filter: only count vols whose roles match the animal.
+      if (qualifyFn && hasBase) {
+        var roleList = Array.isArray(rows[i].roles) ? rows[i].roles : [];
+        if (!qualifyFn(roleList, !!ctx.rvs, ctx.issue)) continue;
       }
+      count++;
     }
     return count;
   }
@@ -900,6 +908,16 @@
         ? fmt(OPT.winVolCount, { count: count, area: escapeHtml(area) })
         : fmt(OPT.winVolCountUnknown, { count: count });
       html += '<p class="rec-options-line">' + countLine + '</p>';
+      // Show how many qualified vols also MONITOR this WIN area (from their
+      // Monday.com WIN Area column). These are vols who opted in to get
+      // notifications for this area even if they live elsewhere.
+      if (area) {
+        var monCount = volsMonitoringArea(area, ctx);
+        if (monCount > 0) {
+          html += '<p class="rec-options-monitor-count">' +
+            fmt(OPT.winVolMonitorCount, { count: monCount }) + '</p>';
+        }
+      }
     }
     html += '<button type="button" class="rec-options-winvol-btn link-btn" id="rec-options-winvol">' +
       escapeHtml(OPT.winVolButton) + '</button>';
@@ -927,7 +945,7 @@
         html += '<div class="rec-options-area-label">' + areaLabel + '</div>';
         // Volunteer monitoring count: how many vols have this neighboring area
         // in their monitored_areas list (from the Monday.com WIN Area column).
-        var monCount = volsMonitoringArea(a.area);
+        var monCount = volsMonitoringArea(a.area, ctx);
         if (monCount > 0) {
           html += '<p class="rec-options-monitor-count">' +
             fmt(OPT.neighborMonitorCount, { count: monCount }) + '</p>';
