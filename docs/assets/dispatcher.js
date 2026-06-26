@@ -839,9 +839,11 @@
     if (btn) btn.classList.remove('open');
   }
 
-  // Count qualified volunteers whose monitored_areas includes a given area.
-  // Returns { count, homeAreas } — homeAreas is the sorted list of matching
-  // vols' home WIN area numbers so the dispatcher knows where they live.
+  // Count qualified volunteers whose monitored_areas includes a given area
+  // but whose HOME area is DIFFERENT. Vols living in the area already show up
+  // in the normal qualified count — this only surfaces cross-area monitors.
+  // Returns { count, homeAreas } where homeAreas lists the matching vols'
+  // home WIN areas so the dispatcher knows where they're based.
   function volsMonitoringArea(areaNum, ctx) {
     var rows = Array.isArray(state.t1VolRows) ? state.t1VolRows : [];
     var norm = String(areaNum).trim();
@@ -855,14 +857,17 @@
     for (var i = 0; i < rows.length; i++) {
       var ma = rows[i].monitored_areas;
       if (!Array.isArray(ma) || ma.indexOf(norm) === -1) continue;
+      // Skip vols whose home area IS the area being checked — they already
+      // appear in the normal qualified-volunteer count.
+      var homeArea = rows[i].win_area ? String(rows[i].win_area) : '';
+      if (homeArea === norm) continue;
       // Qualification filter: only count vols whose roles match the animal.
       if (qualifyFn && hasBase) {
         var roleList = Array.isArray(rows[i].roles) ? rows[i].roles : [];
         if (!qualifyFn(roleList, !!ctx.rvs, ctx.issue)) continue;
       }
       count++;
-      var wa = rows[i].win_area;
-      if (wa) areaSet[String(wa)] = true;
+      if (homeArea) areaSet[homeArea] = true;
     }
     var homeAreas = Object.keys(areaSet).sort(function (a, b) {
       return (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0);
