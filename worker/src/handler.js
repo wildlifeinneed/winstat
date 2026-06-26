@@ -609,6 +609,7 @@ async function handleRequest(request, deps) {
         monVols.push({
           roles: Array.isArray(rec.roles) ? rec.roles.slice() : [],
           win_area: rec.win_area === undefined ? null : rec.win_area,
+          home_county: rec.home_county || null,
           monitored_areas: ma,
         });
       }

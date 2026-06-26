@@ -890,14 +890,14 @@
     var monResult = volsMonitoringArea(area, ctx);
     if (monResult.count === 0) { section.style.display = 'none'; return; }
 
-    // Build the list: group by home area for clarity.
+    // Build the list: group by home area, show counties.
     var rows = Array.isArray(state.t1MonitoringVols) ? state.t1MonitoringVols : [];
     var qualifyFn = (window.WildlifeDecision &&
                      typeof window.WildlifeDecision.qualifiesForAnimal === 'function')
       ? window.WildlifeDecision.qualifiesForAnimal : null;
     var hasBase = ctx && typeof ctx.issue === 'string' && ctx.issue !== '';
-    // Collect qualified vols grouped by home area
-    var byArea = {};
+    // Collect qualified vols grouped by home area with their counties
+    var byArea = {};  // { areaNum: [county1, county2, ...] }
     for (var i = 0; i < rows.length; i++) {
       if (qualifyFn && hasBase) {
         var roleList = Array.isArray(rows[i].roles) ? rows[i].roles : [];
@@ -905,41 +905,35 @@
       }
       var ha = rows[i].win_area ? String(rows[i].win_area) : '?';
       if (!byArea[ha]) byArea[ha] = [];
-      var roles = Array.isArray(rows[i].roles) ? rows[i].roles : [];
-      // Only show qualifying volunteer roles (C&T, RVS C&T, Courier) — filter
-      // out administrative roles like Dispatch, IT, Board, Coordinator.
-      var dispRoles = [];
-      for (var r = 0; r < roles.length; r++) {
-        var rl = roles[r];
-        if (rl === 'C&T' || rl === 'RVS C&T' || rl === 'RVS' || rl === 'Courier') {
-          dispRoles.push(rl);
-        }
-      }
-      byArea[ha].push(dispRoles.join(', ') || 'Volunteer');
+      var county = rows[i].home_county || '';
+      byArea[ha].push(county);
     }
 
-    var haLabel = monResult.homeAreas.length
-      ? ' (areas \u2013 ' + monResult.homeAreas.join(', ') + ')'
-      : '';
     var html = '<p class="rec-options-line">' +
       monResult.count + ' qualified volunteers from other areas monitor Area ' +
-      escapeHtml(area) + haLabel + '</p>';
-    html += '<ul class="rec-options-areas">';
+      escapeHtml(area) + '</p>';
     var sortedAreas = Object.keys(byArea).sort(function (a, b) {
       return (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0);
     });
     for (var j = 0; j < sortedAreas.length; j++) {
       var aKey = sortedAreas[j];
-      var vols = byArea[aKey];
-      html += '<li class="rec-options-area">';
-      html += '<div class="rec-options-area-label">Area ' + escapeHtml(aKey) + '</div>';
-      html += '<ul class="rec-options-monitor-list">';
-      for (var k = 0; k < vols.length; k++) {
-        html += '<li>' + escapeHtml(vols[k]) + '</li>';
+      var counties = byArea[aKey];
+      var count = counties.length;
+      // Deduplicate and sort county names for display
+      var seen = {};
+      var uniqueCounties = [];
+      for (var k = 0; k < counties.length; k++) {
+        var c = counties[k];
+        if (c && !seen[c]) { seen[c] = true; uniqueCounties.push(c); }
       }
-      html += '</ul></li>';
+      uniqueCounties.sort();
+      var countyLabel = uniqueCounties.length
+        ? ' (' + uniqueCounties.join(', ') + ')'
+        : '';
+      html += '<p class="rec-options-monitor-area">Area ' + escapeHtml(aKey) +
+        ' \u2013 ' + count + ' volunteer' + (count !== 1 ? 's' : '') +
+        escapeHtml(countyLabel) + '</p>';
     }
-    html += '</ul>';
     body.innerHTML = html;
     section.style.display = '';
   }
