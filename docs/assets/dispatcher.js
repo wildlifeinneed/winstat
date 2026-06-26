@@ -1349,6 +1349,9 @@
 
     // Wire the options-panel "Show WIN Area Volunteers" button (no-op if absent).
     wireOptionsPanel();
+    // Populate the monitoring-volunteers section if the async vol fetch has
+    // already completed (it fires on county selection, before "Get Recommendation").
+    updateMonitoringCount();
 
     var dismiss = document.getElementById('rec-dismiss');
     if (dismiss) {
