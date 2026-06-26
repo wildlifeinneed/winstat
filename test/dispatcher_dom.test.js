@@ -4823,16 +4823,17 @@ async function runOptionsPanelCapturePgc() {
   const panel = doc.querySelector('#advanced-search-body .rec-options');
   assert.ok(panel, 'OPTIONS panel is rendered inside the Advanced Search section');
 
-  // Four sections, in order: WIN-area volunteers, neighboring rehabbers, address
-  // search, PGC fallback.
+  // Five sections, in order: WIN-area volunteers, monitoring volunteers (hidden
+  // until async data arrives), neighboring rehabbers, address search, PGC fallback.
   const secHeaders = Array.prototype.slice.call(panel.querySelectorAll('.rec-options-sec-header'))
     .map(function (h) { return h.textContent.replace(/\s+/g, ' ').trim(); });
-  assert.strictEqual(secHeaders.length, 4,
-    'panel has exactly four sections (got ' + secHeaders.length + ': ' + secHeaders.join(' | ') + ')');
+  assert.strictEqual(secHeaders.length, 5,
+    'panel has exactly five sections (got ' + secHeaders.length + ': ' + secHeaders.join(' | ') + ')');
   assert.ok(/WIN area volunteers/i.test(secHeaders[0]), '1st section is WIN-area volunteers');
-  assert.ok(/Neighboring/i.test(secHeaders[1]), '2nd section is neighboring-area rehabbers');
-  assert.ok(/Address search/i.test(secHeaders[2]), '3rd section is address search');
-  assert.ok(/no options work/i.test(secHeaders[3]), '4th section is the PGC fallback');
+  assert.ok(/Monitoring Volunteers/i.test(secHeaders[1]), '2nd section is monitoring volunteers');
+  assert.ok(/Neighboring/i.test(secHeaders[2]), '3rd section is neighboring-area rehabbers');
+  assert.ok(/Address search/i.test(secHeaders[3]), '4th section is address search');
+  assert.ok(/no options work/i.test(secHeaders[4]), '5th section is the PGC fallback');
 
   // 1) WIN-area volunteers section has the "Show WIN Area Volunteers" button.
   const winBtn = panel.querySelector('#rec-options-winvol');

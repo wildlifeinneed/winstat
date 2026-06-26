@@ -874,31 +874,65 @@
     return { count: count, homeAreas: homeAreas };
   }
 
-  // Update the monitoring-count DOM element after the async Tier 1 vol fetch
-  // delivers monitoring_area_vols. Called from the fetch callback so the count
-  // reflects the real cross-area monitors even though the options panel HTML
-  // was built before the fetch completed.
+  // Populate the Monitoring Volunteers section after the async Tier 1 vol
+  // fetch delivers monitoring_area_vols. Shows each qualified cross-area
+  // monitor with their home area and roles.
   function updateMonitoringCount() {
-    var el = document.getElementById('rec-monitor-count');
-    if (!el) return;
-    var OPT = (MSG.recommendation && MSG.recommendation.options) || null;
-    if (!OPT) return;
+    var section = document.getElementById('rec-monitor-section');
+    var body = document.getElementById('rec-monitor-body');
+    if (!section || !body) return;
     var county = state.t1RecCountyName || '';
     var area = (state.countyWin && state.countyWin[county] !== undefined &&
                 state.countyWin[county] !== null)
       ? String(state.countyWin[county]).trim() : '';
-    if (!area) { el.style.display = 'none'; return; }
+    if (!area) { section.style.display = 'none'; return; }
     var ctx = state.t1VolCtx || null;
     var monResult = volsMonitoringArea(area, ctx);
-    if (monResult.count > 0) {
-      var haLabel = monResult.homeAreas.length
-        ? '(areas \u2013 ' + monResult.homeAreas.join(', ') + ')'
-        : '';
-      el.innerHTML = fmt(OPT.winVolMonitorCount, { count: monResult.count, homeAreas: haLabel });
-      el.style.display = '';
-    } else {
-      el.style.display = 'none';
+    if (monResult.count === 0) { section.style.display = 'none'; return; }
+
+    // Build the list: group by home area for clarity.
+    var rows = Array.isArray(state.t1MonitoringVols) ? state.t1MonitoringVols : [];
+    var qualifyFn = (window.WildlifeDecision &&
+                     typeof window.WildlifeDecision.qualifiesForAnimal === 'function')
+      ? window.WildlifeDecision.qualifiesForAnimal : null;
+    var hasBase = ctx && typeof ctx.issue === 'string' && ctx.issue !== '';
+    // Collect qualified vols grouped by home area
+    var byArea = {};
+    for (var i = 0; i < rows.length; i++) {
+      if (qualifyFn && hasBase) {
+        var roleList = Array.isArray(rows[i].roles) ? rows[i].roles : [];
+        if (!qualifyFn(roleList, !!ctx.rvs, ctx.issue)) continue;
+      }
+      var ha = rows[i].win_area ? String(rows[i].win_area) : '?';
+      if (!byArea[ha]) byArea[ha] = [];
+      var roles = Array.isArray(rows[i].roles) ? rows[i].roles : [];
+      byArea[ha].push(roles.join(', ') || 'Volunteer');
     }
+
+    var haLabel = monResult.homeAreas.length
+      ? ' (areas \u2013 ' + monResult.homeAreas.join(', ') + ')'
+      : '';
+    var html = '<p class="rec-options-line">' +
+      monResult.count + ' qualified volunteers from other areas monitor Area ' +
+      escapeHtml(area) + haLabel + '</p>';
+    html += '<ul class="rec-options-areas">';
+    var sortedAreas = Object.keys(byArea).sort(function (a, b) {
+      return (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0);
+    });
+    for (var j = 0; j < sortedAreas.length; j++) {
+      var aKey = sortedAreas[j];
+      var vols = byArea[aKey];
+      html += '<li class="rec-options-area">';
+      html += '<div class="rec-options-area-label">Area ' + escapeHtml(aKey) + '</div>';
+      html += '<ul class="rec-options-monitor-list">';
+      for (var k = 0; k < vols.length; k++) {
+        html += '<li>' + escapeHtml(vols[k]) + '</li>';
+      }
+      html += '</ul></li>';
+    }
+    html += '</ul>';
+    body.innerHTML = html;
+    section.style.display = '';
   }
 
   // Built UNDER a call_pa_game_comm (or thin refer_out) recommendation. Per the
@@ -943,17 +977,20 @@
         ? fmt(OPT.winVolCount, { count: count, area: escapeHtml(area) })
         : fmt(OPT.winVolCountUnknown, { count: count });
       html += '<p class="rec-options-line">' + countLine + '</p>';
-      // Placeholder for cross-area monitoring count. The count is populated
-      // asynchronously when the Tier 1 vol fetch completes (it returns
-      // monitoring_area_vols from the Worker). updateMonitoringCount() fills
-      // this element once the data arrives.
-      html += '<p class="rec-options-monitor-count" id="rec-monitor-count" style="display:none"></p>';
     }
     html += '<button type="button" class="rec-options-winvol-btn link-btn" id="rec-options-winvol">' +
       escapeHtml(OPT.winVolButton) + '</button>';
     html += '</div>';
 
-    // 2) NEIGHBORING-AREA REHABBERS — every bordering WIN area (all directions),
+    // 2) MONITORING VOLUNTEERS — vols from OTHER areas who opted in to monitor
+    //    the target WIN area. Populated asynchronously after the Tier 1 vol
+    //    fetch delivers monitoring_area_vols from the Worker.
+    html += '<div class="rec-options-sec" id="rec-monitor-section" style="display:none">';
+    html += '<div class="rec-options-sec-header">Monitoring Volunteers</div>';
+    html += '<div id="rec-monitor-body"></div>';
+    html += '</div>';
+
+    // 3) NEIGHBORING-AREA REHABBERS — every bordering WIN area (all directions),
     //    each filtered to rehabbers that accept the selected animal type, but the
     //    area itself is never hidden (the dispatcher should know it's a direction).
     //    Also shows how many volunteers actively MONITOR each neighboring area
@@ -990,7 +1027,7 @@
     }
     html += '</div>';
 
-    // 3) ADDRESS SEARCH — nearest-by-driving-distance (Tier 2); transport hint.
+    // 4) ADDRESS SEARCH — nearest-by-driving-distance (Tier 2); transport hint.
     html += '<div class="rec-options-sec">';
     html += '<div class="rec-options-sec-header">' + escapeHtml(OPT.addressHeader) + '</div>';
     html += '<p class="rec-options-line">' + escapeHtml(OPT.addressTip) + '</p>';
@@ -1001,7 +1038,7 @@
       escapeHtml(OPT.addressButton) + '</button>';
     html += '</div>';
 
-    // 4) PGC FALLBACK — only if nothing else pans out.
+    // 5) PGC FALLBACK — only if nothing else pans out.
     html += '<div class="rec-options-sec rec-options-pgc">';
     html += '<div class="rec-options-sec-header">' + escapeHtml(OPT.pgcHeader) + '</div>';
     html += '<p class="rec-options-line">' + fmt(OPT.pgcFallback, { phone: escapeHtml(pgc) }) + '</p>';
