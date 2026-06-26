@@ -251,7 +251,6 @@
         // The area is STILL listed (never hidden) so the dispatcher knows it
         // exists as a direction. {animal} = animal-type label or "this animal".
         neighborAreaEmpty: 'No rehabber on file here accepts {animal}.',
-        neighborMonitorCount: '{count} qualified volunteers monitoring this area {homeAreas}',
         neighborAnimalFallback: 'this animal type',
         // Shown when neighboring-area data is unavailable (e.g. the county map
         // GeoJSON has not loaded yet).

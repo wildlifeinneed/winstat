@@ -955,21 +955,6 @@
           : fmt(OPT.neighborAreaLabelNoCounties, { area: escapeHtml(a.area) });
         html += '<li class="rec-options-area">';
         html += '<div class="rec-options-area-label">' + areaLabel + '</div>';
-        // Volunteer monitoring count: how many vols have this neighboring area
-        // in their monitored_areas list (from the Monday.com WIN Area column).
-        var monResult = volsMonitoringArea(a.area, ctx);
-        if (monResult.count > 0) {
-          // Filter out the caller's own area from the home-areas display —
-          // the dispatcher already knows they're searching from there.
-          var filteredHA = monResult.homeAreas.filter(function (h) {
-            return h !== String(area);
-          });
-          var haLabel = filteredHA.length
-            ? '(areas \u2013 ' + filteredHA.join(', ') + ')'
-            : '';
-          html += '<p class="rec-options-monitor-count">' +
-            fmt(OPT.neighborMonitorCount, { count: monResult.count, homeAreas: haLabel }) + '</p>';
-        }
         var list = rehabbersInArea(a.area, animalType);
         if (list.length) {
           html += '<ul class="rec-summary-list rec-options-rehab-list">';
