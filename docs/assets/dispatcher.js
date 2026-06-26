@@ -839,20 +839,19 @@
     if (btn) btn.classList.remove('open');
   }
 
-  // Count volunteers in the cached Tier 1 rows whose monitored_areas list
-  // includes the given area number AND who qualify for the current animal type.
-  // This tells the options panel how many qualified vols actively monitor a
-  // given area (from the Monday.com WIN Area column), even if they live
-  // elsewhere. Returns 0 when the data is missing or the area has no monitors.
+  // Count qualified volunteers whose monitored_areas includes a given area.
+  // Returns { count, homeAreas } — homeAreas is the sorted list of matching
+  // vols' home WIN area numbers so the dispatcher knows where they live.
   function volsMonitoringArea(areaNum, ctx) {
     var rows = Array.isArray(state.t1VolRows) ? state.t1VolRows : [];
     var norm = String(areaNum).trim();
-    if (!norm) return 0;
+    if (!norm) return { count: 0, homeAreas: [] };
     var qualifyFn = (window.WildlifeDecision &&
                      typeof window.WildlifeDecision.qualifiesForAnimal === 'function')
       ? window.WildlifeDecision.qualifiesForAnimal : null;
     var hasBase = ctx && typeof ctx.issue === 'string' && ctx.issue !== '';
     var count = 0;
+    var areaSet = {};
     for (var i = 0; i < rows.length; i++) {
       var ma = rows[i].monitored_areas;
       if (!Array.isArray(ma) || ma.indexOf(norm) === -1) continue;
@@ -862,8 +861,13 @@
         if (!qualifyFn(roleList, !!ctx.rvs, ctx.issue)) continue;
       }
       count++;
+      var wa = rows[i].win_area;
+      if (wa) areaSet[String(wa)] = true;
     }
-    return count;
+    var homeAreas = Object.keys(areaSet).sort(function (a, b) {
+      return (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0);
+    });
+    return { count: count, homeAreas: homeAreas };
   }
 
   // Built UNDER a call_pa_game_comm (or thin refer_out) recommendation. Per the
@@ -912,10 +916,13 @@
       // Monday.com WIN Area column). These are vols who opted in to get
       // notifications for this area even if they live elsewhere.
       if (area) {
-        var monCount = volsMonitoringArea(area, ctx);
-        if (monCount > 0) {
+        var monResult = volsMonitoringArea(area, ctx);
+        if (monResult.count > 0) {
+          var haLabel = monResult.homeAreas.length
+            ? '(areas \u2013 ' + monResult.homeAreas.join(', ') + ')'
+            : '';
           html += '<p class="rec-options-monitor-count">' +
-            fmt(OPT.winVolMonitorCount, { count: monCount }) + '</p>';
+            fmt(OPT.winVolMonitorCount, { count: monResult.count, homeAreas: haLabel }) + '</p>';
         }
       }
     }
@@ -945,10 +952,13 @@
         html += '<div class="rec-options-area-label">' + areaLabel + '</div>';
         // Volunteer monitoring count: how many vols have this neighboring area
         // in their monitored_areas list (from the Monday.com WIN Area column).
-        var monCount = volsMonitoringArea(a.area, ctx);
-        if (monCount > 0) {
+        var monResult = volsMonitoringArea(a.area, ctx);
+        if (monResult.count > 0) {
+          var haLabel = monResult.homeAreas.length
+            ? '(areas \u2013 ' + monResult.homeAreas.join(', ') + ')'
+            : '';
           html += '<p class="rec-options-monitor-count">' +
-            fmt(OPT.neighborMonitorCount, { count: monCount }) + '</p>';
+            fmt(OPT.neighborMonitorCount, { count: monResult.count, homeAreas: haLabel }) + '</p>';
         }
         var list = rehabbersInArea(a.area, animalType);
         if (list.length) {

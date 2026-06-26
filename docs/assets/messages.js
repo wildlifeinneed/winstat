@@ -236,11 +236,11 @@
         // 1) WIN-area volunteers. {count} = qualified volunteers in the area,
         //    {area} = the selected county's WIN area.
         winVolHeader: 'WIN area volunteers',
-        winVolCount: '<strong>{count}</strong> qualified volunteer(s) in WIN Area {area}.',
-        winVolCountUnknown: '<strong>{count}</strong> qualified volunteer(s) in this WIN area.',
+        winVolCount: '<strong>{count}</strong> qualified volunteers in WIN Area {area}.',
+        winVolCountUnknown: '<strong>{count}</strong> qualified volunteers in this WIN area.',
         winVolPending: 'Qualified-volunteer count loading\u2026 use the WIN Area Volunteers list below.',
         winVolButton: 'Show WIN Area Volunteers',
-        winVolMonitorCount: '{count} qualified volunteer(s) monitoring this area',
+        winVolMonitorCount: '{count} qualified volunteers monitoring this area {homeAreas}',
         // 2) Neighboring-area rehabbers. Header + per-area sub-line. {area} =
         //    neighboring WIN area, {counties} = its bordering counties.
         neighborHeader: 'Neighboring-area rehabbers',
@@ -251,7 +251,7 @@
         // The area is STILL listed (never hidden) so the dispatcher knows it
         // exists as a direction. {animal} = animal-type label or "this animal".
         neighborAreaEmpty: 'No rehabber on file here accepts {animal}.',
-        neighborMonitorCount: '{count} volunteer(s) monitoring this area',
+        neighborMonitorCount: '{count} qualified volunteers monitoring this area {homeAreas}',
         neighborAnimalFallback: 'this animal type',
         // Shown when neighboring-area data is unavailable (e.g. the county map
         // GeoJSON has not loaded yet).
