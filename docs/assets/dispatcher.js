@@ -845,7 +845,10 @@
   // Returns { count, homeAreas } where homeAreas lists the matching vols'
   // home WIN areas so the dispatcher knows where they're based.
   function volsMonitoringArea(areaNum, ctx) {
-    var rows = Array.isArray(state.t1VolRows) ? state.t1VolRows : [];
+    // Use the Worker-computed cross-area monitors (monitoring_area_vols) which
+    // scans the FULL KV dataset — not state.t1VolRows which only contains vols
+    // from the current WIN area and would miss cross-area monitors entirely.
+    var rows = Array.isArray(state.t1MonitoringVols) ? state.t1MonitoringVols : [];
     var norm = String(areaNum).trim();
     if (!norm) return { count: 0, homeAreas: [] };
     var qualifyFn = (window.WildlifeDecision &&
@@ -855,24 +858,47 @@
     var count = 0;
     var areaSet = {};
     for (var i = 0; i < rows.length; i++) {
-      var ma = rows[i].monitored_areas;
-      if (!Array.isArray(ma) || ma.indexOf(norm) === -1) continue;
-      // Skip vols whose home area IS the area being checked — they already
-      // appear in the normal qualified-volunteer count.
-      var homeArea = rows[i].win_area ? String(rows[i].win_area) : '';
-      if (homeArea === norm) continue;
-      // Qualification filter: only count vols whose roles match the animal.
+      // Worker already filtered: each vol's monitored_areas includes the target
+      // area AND their home area differs. Just apply qualification filtering.
       if (qualifyFn && hasBase) {
         var roleList = Array.isArray(rows[i].roles) ? rows[i].roles : [];
         if (!qualifyFn(roleList, !!ctx.rvs, ctx.issue)) continue;
       }
       count++;
+      var homeArea = rows[i].win_area ? String(rows[i].win_area) : '';
       if (homeArea) areaSet[homeArea] = true;
     }
     var homeAreas = Object.keys(areaSet).sort(function (a, b) {
       return (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0);
     });
     return { count: count, homeAreas: homeAreas };
+  }
+
+  // Update the monitoring-count DOM element after the async Tier 1 vol fetch
+  // delivers monitoring_area_vols. Called from the fetch callback so the count
+  // reflects the real cross-area monitors even though the options panel HTML
+  // was built before the fetch completed.
+  function updateMonitoringCount() {
+    var el = document.getElementById('rec-monitor-count');
+    if (!el) return;
+    var OPT = (MSG.recommendation && MSG.recommendation.options) || null;
+    if (!OPT) return;
+    var county = state.t1RecCountyName || '';
+    var area = (state.countyWin && state.countyWin[county] !== undefined &&
+                state.countyWin[county] !== null)
+      ? String(state.countyWin[county]).trim() : '';
+    if (!area) { el.style.display = 'none'; return; }
+    var ctx = state.t1VolCtx || null;
+    var monResult = volsMonitoringArea(area, ctx);
+    if (monResult.count > 0) {
+      var haLabel = monResult.homeAreas.length
+        ? '(areas \u2013 ' + monResult.homeAreas.join(', ') + ')'
+        : '';
+      el.innerHTML = fmt(OPT.winVolMonitorCount, { count: monResult.count, homeAreas: haLabel });
+      el.style.display = '';
+    } else {
+      el.style.display = 'none';
+    }
   }
 
   // Built UNDER a call_pa_game_comm (or thin refer_out) recommendation. Per the
@@ -917,19 +943,11 @@
         ? fmt(OPT.winVolCount, { count: count, area: escapeHtml(area) })
         : fmt(OPT.winVolCountUnknown, { count: count });
       html += '<p class="rec-options-line">' + countLine + '</p>';
-      // Show how many qualified vols also MONITOR this WIN area (from their
-      // Monday.com WIN Area column). These are vols who opted in to get
-      // notifications for this area even if they live elsewhere.
-      if (area) {
-        var monResult = volsMonitoringArea(area, ctx);
-        if (monResult.count > 0) {
-          var haLabel = monResult.homeAreas.length
-            ? '(areas \u2013 ' + monResult.homeAreas.join(', ') + ')'
-            : '';
-          html += '<p class="rec-options-monitor-count">' +
-            fmt(OPT.winVolMonitorCount, { count: monResult.count, homeAreas: haLabel }) + '</p>';
-        }
-      }
+      // Placeholder for cross-area monitoring count. The count is populated
+      // asynchronously when the Tier 1 vol fetch completes (it returns
+      // monitoring_area_vols from the Worker). updateMonitoringCount() fills
+      // this element once the data arrives.
+      html += '<p class="rec-options-monitor-count" id="rec-monitor-count" style="display:none"></p>';
     }
     html += '<button type="button" class="rec-options-winvol-btn link-btn" id="rec-options-winvol">' +
       escapeHtml(OPT.winVolButton) + '</button>';
@@ -2044,6 +2062,7 @@
     state.t1VolRows = null;
     state.t1VolCtx = null;
     state.t1VolScope = null;
+    state.t1MonitoringVols = null;
   }
 
   // Render the cached Tier 1 volunteer rows into #t1-vol-block at the requested
@@ -2340,7 +2359,12 @@
         .then(function (agg) {
           if (token !== t1VolToken) return; // stale response — ignore
           var rows = (agg && Array.isArray(agg.out_of_county)) ? agg.out_of_county : [];
+          // Cross-area monitors: vols from OTHER areas whose monitored_areas
+          // includes the target area. Worker computes this when win_area is set.
+          state.t1MonitoringVols = (agg && Array.isArray(agg.monitoring_area_vols))
+            ? agg.monitoring_area_vols : [];
           renderTier1Volunteers(rows, { county: county, rvs: base.rvs, issue: base.issue });
+          updateMonitoringCount();
         })
         .catch(function () {
           if (token !== t1VolToken) return;

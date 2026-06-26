@@ -1050,4 +1050,5 @@ module.exports = {
   findContextRowsDriving,
   buildAggregateResponse,
   buildTier2Response,
+  normalizeWinArea,
 };

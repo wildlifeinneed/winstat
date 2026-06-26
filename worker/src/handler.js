@@ -25,6 +25,7 @@ const {
   findContextRowsDriving,
   buildAggregateResponse,
   buildTier2Response,
+  normalizeWinArea,
 } = require('./aggregate');
 const { geocodeAddress } = require('./census');
 const { autocompleteAddress, photonGeocode, looksLikeFullAddress, looksLikeIntersection, hasHouseNumberMatch, censusAutocompleteFallback } = require('./autocomplete');
@@ -583,6 +584,37 @@ async function handleRequest(request, deps) {
     tier2.animal_area = animalArea;
     tier2.animal_geoid = animalGeoid;
     if (countySource) tier2.county_source = countySource;
+
+    // CROSS-AREA MONITORS: when scoped to a WIN area (Tier 1 By-County), scan
+    // the FULL KV dataset for vols whose monitored_areas includes the target
+    // area but whose home WIN area is DIFFERENT. These vols opted in to
+    // notifications for this area even though they live elsewhere. The UI uses
+    // this to show a monitoring count without needing to scan the area-scoped
+    // vol rows (which by definition exclude cross-area residents).
+    // PII-safe: only roles, win_area, and monitored_areas are emitted.
+    if (filterWinArea) {
+      const areaNorm = normalizeWinArea(filterWinArea);
+      const monVols = [];
+      for (let i = 0; i < coords.length; i++) {
+        const rec = coords[i];
+        const recArea = normalizeWinArea(rec.win_area);
+        if (recArea === areaNorm) continue; // home-area vols already in normal count
+        if (recArea === '') continue;       // no area assigned
+        const ma = Array.isArray(rec.monitored_areas) ? rec.monitored_areas : [];
+        let monitors = false;
+        for (let j = 0; j < ma.length; j++) {
+          if (normalizeWinArea(ma[j]) === areaNorm) { monitors = true; break; }
+        }
+        if (!monitors) continue;
+        monVols.push({
+          roles: Array.isArray(rec.roles) ? rec.roles.slice() : [],
+          win_area: rec.win_area === undefined ? null : rec.win_area,
+          monitored_areas: ma,
+        });
+      }
+      tier2.monitoring_area_vols = monVols;
+    }
+
     return jsonResponse(ResponseCtor, 200, tier2, allowedOrigin);
   }
 
