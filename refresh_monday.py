@@ -603,19 +603,30 @@ _WIN_AREA_LABEL_TO_NUM = {f"Area {i:02d}": str(i) for i in range(1, 17)}
 def parse_monitored_areas(text: str) -> List[str]:
     """Parse the WIN Area column into a sorted list of area number strings.
 
-    Input examples: "Area 03, Area 10", "Area 03", "NoArea", "".
-    Output: ["3", "10"], ["3"], [], [].
-    Only "Area 01" through "Area 16" are retained; "NoArea", "Test Area",
-    and any other freeform text are silently dropped.
+    Input examples: "Area 03, Area 10", "Area 03", "Area 6", "NoArea", "".
+    Output: ["3", "10"], ["3"], ["6"], [], [].
+    Only areas 1–16 are retained; "NoArea", "Test Area", and any other
+    freeform text are silently dropped.
+
+    Tolerates both zero-padded ("Area 06") and unpadded ("Area 6") labels.
     """
     if not text:
         return []
     areas = []
     for part in text.split(","):
         label = part.strip()
+        # Try exact match first (zero-padded "Area 06")
         if label in _VALID_WIN_AREAS:
             areas.append(_WIN_AREA_LABEL_TO_NUM[label])
-    return sorted(areas, key=int)
+            continue
+        # Fallback: extract trailing digits from "Area N" pattern (unpadded)
+        if label.lower().startswith("area"):
+            digits = label[4:].strip().lstrip("0") or "0"
+            if digits.isdigit():
+                num = int(digits)
+                if 1 <= num <= 16:
+                    areas.append(str(num))
+    return sorted(set(areas), key=int)
 
 
 def _evaluate_unavail_date_clauses(
