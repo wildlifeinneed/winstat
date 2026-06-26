@@ -257,6 +257,7 @@
         // 3) Address search.
         addressHeader: 'Address search',
         addressTip: 'Use address search (Tier 2) to find the nearest volunteers by driving distance.',
+        addressButton: 'Switch to Address Search \u2192',
         addressTransportTip: 'If the finder can drive, they may be able to meet a volunteer partway.',
         // 4) PGC fallback. {phone} = PGC dispatch line.
         pgcHeader: 'If no options work',

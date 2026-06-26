@@ -928,6 +928,8 @@
     if (ctx && ctx.issue === 'transport') {
       html += '<p class="rec-options-line">' + escapeHtml(OPT.addressTransportTip) + '</p>';
     }
+    html += '<button type="button" class="rec-options-winvol-btn link-btn" id="rec-options-address">' +
+      escapeHtml(OPT.addressButton) + '</button>';
     html += '</div>';
 
     // 4) PGC FALLBACK — only if nothing else pans out.
@@ -963,6 +965,14 @@
         try { section.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) { section.scrollIntoView(); }
       }
     });
+
+    // Wire the address-search link button to switch to Tier 2 address mode.
+    var addrBtn = document.getElementById('rec-options-address');
+    if (addrBtn) {
+      addrBtn.addEventListener('click', function () {
+        widenFromCounty();
+      });
+    }
   }
 
   // ─── Actionable PGC guidance (issue-aware "no volunteer available") ───────
