@@ -829,6 +829,16 @@
   }
 
   // ─── OPTIONS panel (thin/no local coverage — guide, don't dead-end) ───────
+  // Hide the Advanced Search section (called on dismiss and county change).
+  function hideAdvancedSearch() {
+    var s = document.getElementById('advanced-search-section');
+    if (s) s.style.display = 'none';
+    var b = document.getElementById('advanced-search-body');
+    if (b) { b.style.display = 'none'; b.innerHTML = ''; }
+    var btn = document.getElementById('advanced-search-btn');
+    if (btn) btn.classList.remove('open');
+  }
+
   // Built UNDER a call_pa_game_comm (or thin refer_out) recommendation. Per the
   // design principle "don't close doors", it lays out EVERY option in order of
   // likelihood so the dispatcher + finder decide what's feasible:
@@ -1196,11 +1206,30 @@
 
     html += '<div id="rec-scope-body">' +
       '<div class="ctx-header" id="rec-scope-header">' + escapeHtml(headerTxt) + '</div>' +
-      built.html + summaryHtml + optionsHtml + '</div>';
+      built.html + summaryHtml + '</div>';
 
     var out = $('#rec-output');
     out.innerHTML = html;
     out.className = 'rec-output show tone-' + built.tone;
+
+    // Render options panel into the separate Advanced Search section (outside
+    // the recommendation scroll area). Show the section when there is content;
+    // hide it otherwise.
+    var advSection = document.getElementById('advanced-search-section');
+    var advBody = document.getElementById('advanced-search-body');
+    var advBtn = document.getElementById('advanced-search-btn');
+    if (advSection && advBody) {
+      if (optionsHtml) {
+        advBody.innerHTML = optionsHtml;
+        advSection.style.display = '';
+        // Reset to collapsed state each time a new recommendation renders.
+        advBody.style.display = 'none';
+        if (advBtn) advBtn.classList.remove('open');
+      } else {
+        advBody.innerHTML = '';
+        advSection.style.display = 'none';
+      }
+    }
 
     // Wire the options-panel "Show WIN Area Volunteers" button (no-op if absent).
     wireOptionsPanel();
@@ -1210,6 +1239,7 @@
       dismiss.addEventListener('click', function () {
         out.classList.remove('show');
         out.innerHTML = '';
+        hideAdvancedSearch();
       });
     }
   }
@@ -1316,6 +1346,7 @@
   // automatically on county change, so it is never stale relative to the county.
   function markCountyChangeStale() {
     markRecOutputStale();
+    hideAdvancedSearch();
   }
 
   // Re-running a lookup clears the stale flag for that surface. Called at the
@@ -1339,6 +1370,7 @@
       var d = document.getElementById('rec-dismiss');
       if (d) d.addEventListener('click', function () {
         out.classList.remove('show'); out.innerHTML = '';
+        hideAdvancedSearch();
       });
       return;
     }
@@ -4372,6 +4404,18 @@
       refreshTier1Volunteers();
     });
     $('#recommend-btn').addEventListener('click', onRecommendClick);
+
+    // Advanced Search toggle — expands/collapses the options panel body.
+    var advBtn = document.getElementById('advanced-search-btn');
+    if (advBtn) {
+      advBtn.addEventListener('click', function () {
+        var body = document.getElementById('advanced-search-body');
+        if (!body) return;
+        var open = body.style.display !== 'none';
+        body.style.display = open ? 'none' : '';
+        advBtn.classList.toggle('open', !open);
+      });
+    }
 
     // The RVS toggle and the Issue (Capture/Transport) radios feed
     // readAnimalBaseInfo(), which drives WHO qualifies. Two effects on change:

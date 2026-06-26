@@ -576,6 +576,34 @@
     .rec-options-pgc .rec-options-line strong { color: #7a4900; }
     .rec-options-pgc .rec-options-line a { color: var(--text); }
 
+    /* Advanced Search toggle button + subtitle */
+    .btn-advanced-search {
+      display: block;
+      width: 100%;
+      padding: 10px 14px;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--blue, #3a78c2);
+      background: var(--surface, #fff);
+      border: 2px solid var(--blue, #3a78c2);
+      border-radius: 8px;
+      cursor: pointer;
+      text-align: left;
+      transition: background .15s, color .15s;
+    }
+    .btn-advanced-search:hover { background: rgba(58,120,194,.08); }
+    .btn-advanced-search.open {
+      border-bottom-left-radius: 0;
+      border-bottom-right-radius: 0;
+      margin-bottom: 0;
+    }
+    .advanced-search-sub {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      margin: 6px 0 10px;
+      font-style: italic;
+    }
+
     .empty-msg {
       font-size: 12.5px;
       color: var(--text-muted);
@@ -1636,6 +1664,13 @@
     </p>
 
     <div id="rec-output" class="rec-output" role="status" aria-live="polite"></div>
+  </section>
+
+  <!-- Advanced Search — options panel, separate from recommendations scroll -->
+  <section id="advanced-search-section" class="panel" style="display:none;">
+    <button id="advanced-search-btn" class="btn-advanced-search" type="button">Advanced Search</button>
+    <p class="advanced-search-sub">Optional steps to work through for increased situational awareness</p>
+    <div id="advanced-search-body" style="display:none;"></div>
   </section>
 
   </div><!-- /#county-mode -->

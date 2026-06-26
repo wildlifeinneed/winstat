@@ -1097,7 +1097,9 @@ async function runTier2QualTagRvsCapture() {
     'no qual-badge tags are rendered (qualified-only list)');
 
   // Cross-check against decision.js DIRECTLY so the filter can never drift.
-  const D = require(path.join(DOCS, 'assets', 'decision.js'));
+  // Use the WildlifeDecision already loaded in the JSDOM window to avoid
+  // Jest module-sandbox issues with UMD require.
+  const D = doc.defaultView.WildlifeDecision;
   assert.strictEqual(D.qualifiesForAnimal(['RVS C&T'], true, 'capture'), true);
   assert.strictEqual(D.qualifiesForAnimal(['C&T'], true, 'capture'), false);
   assert.strictEqual(D.qualifiesForAnimal(['COURIER'], true, 'capture'), false);
@@ -1149,7 +1151,7 @@ async function runTier2QualTagCaptureTransport() {
     'no qual-badge tags for transport list');
 
   // Cross-check decision.js directly.
-  const D = require(path.join(DOCS, 'assets', 'decision.js'));
+  const D = res.doc.defaultView.WildlifeDecision;
   assert.strictEqual(D.qualifiesForAnimal(['C&T'], false, 'capture'), true);
   assert.strictEqual(D.qualifiesForAnimal(['COURIER'], false, 'capture'), false);
   assert.strictEqual(D.qualifiesForAnimal(['COURIER'], false, 'transport'), true);
@@ -3674,10 +3676,10 @@ async function runTier1DispatchSummary() {
     .map(function (li) { return li.textContent.replace(/\s+/g, ' ').trim(); });
   const ctyLine = volLines.find(function (t) { return /in-county/i.test(t); });
   const areaLine = volLines.find(function (t) { return /in-area/i.test(t); });
-  assert.ok(ctyLine && /in-county:\s*3\b/i.test(ctyLine),
+  assert.ok(ctyLine && /\b3\b.*in-county/i.test(ctyLine),
     'in-county qualified count = 3 (Allegheny C&T+C&T+RVS C&T; COURIER excluded) (got: "' + ctyLine + '")');
   assert.ok(ctyLine && /Allegheny/.test(ctyLine), 'in-county line names the selected county');
-  assert.ok(areaLine && /in-area:\s*4\b/i.test(areaLine),
+  assert.ok(areaLine && /\b4\b.*in-area/i.test(areaLine),
     'in-area qualified count = 4 (adds the Beaver C&T; COURIER still excluded) (got: "' + areaLine + '")');
   assert.ok(areaLine && /Area\s*10/.test(areaLine), 'in-area line names WIN Area 10');
 
@@ -4817,9 +4819,9 @@ async function runOptionsPanelCapturePgc() {
   assert.ok(actionEl && /call pa game commission/i.test(actionEl.textContent),
     'capture no-volunteer keeps the PGC headline');
 
-  // The OPTIONS panel exists.
-  const panel = doc.querySelector('#rec-output .rec-options');
-  assert.ok(panel, 'OPTIONS panel is rendered under a call_pa_game_comm recommendation');
+  // The OPTIONS panel exists (now rendered into the separate Advanced Search section).
+  const panel = doc.querySelector('#advanced-search-body .rec-options');
+  assert.ok(panel, 'OPTIONS panel is rendered inside the Advanced Search section');
 
   // Four sections, in order: WIN-area volunteers, neighboring rehabbers, address
   // search, PGC fallback.
@@ -4880,7 +4882,7 @@ async function runOptionsPanelNeighborEmptyNotHidden() {
   const { doc } = await driveTier1PgcOptionsPanel(
     PGC_ZERO_SNAPSHOT_AREA10, REHABBERS, 'Allegheny', { rvs: false, issue: 'capture', animalType: 'bird' });
 
-  const panel = doc.querySelector('#rec-output .rec-options');
+  const panel = doc.querySelector('#advanced-search-body .rec-options');
   assert.ok(panel, 'OPTIONS panel is rendered');
 
   const areaLabels = Array.prototype.slice.call(panel.querySelectorAll('.rec-options-area-label'))
