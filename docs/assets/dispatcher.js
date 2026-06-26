@@ -959,8 +959,13 @@
         // in their monitored_areas list (from the Monday.com WIN Area column).
         var monResult = volsMonitoringArea(a.area, ctx);
         if (monResult.count > 0) {
-          var haLabel = monResult.homeAreas.length
-            ? '(areas \u2013 ' + monResult.homeAreas.join(', ') + ')'
+          // Filter out the caller's own area from the home-areas display —
+          // the dispatcher already knows they're searching from there.
+          var filteredHA = monResult.homeAreas.filter(function (h) {
+            return h !== String(area);
+          });
+          var haLabel = filteredHA.length
+            ? '(areas \u2013 ' + filteredHA.join(', ') + ')'
             : '';
           html += '<p class="rec-options-monitor-count">' +
             fmt(OPT.neighborMonitorCount, { count: monResult.count, homeAreas: haLabel }) + '</p>';
