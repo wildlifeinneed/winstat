@@ -538,14 +538,21 @@
       margin-bottom: 4px;
     }
     .rec-options-intro { font-size: 13px; color: var(--text-muted); margin: 0 0 10px; }
-    .rec-options-sec { margin-bottom: 10px; }
+    .rec-options-sec {
+      margin-bottom: 10px;
+      background: var(--surface-alt, #f7f8fa);
+      border-left: 3px solid var(--blue, #3a78c2);
+      border-radius: 6px;
+      padding: 8px 10px;
+    }
     .rec-options-sec:last-child { margin-bottom: 0; }
     .rec-options-sec-header {
-      font-size: 12px;
+      font-size: 12.5px;
       font-weight: 700;
       letter-spacing: .04em;
-      color: var(--text);
-      margin: 0 0 3px;
+      text-transform: uppercase;
+      color: var(--blue, #3a78c2);
+      margin: 0 0 5px;
     }
     .rec-options-line { font-size: 13px; color: var(--text); margin: 0 0 3px; }
     .rec-options-line strong { color: var(--green-deep); }
@@ -579,6 +586,11 @@
     .rec-options-rehab { font-size: 13px; color: var(--text); margin-bottom: 2px; }
     .rec-options-rehab a { color: var(--text); }
     .rec-options-area-empty { font-size: 12.5px; color: var(--text-muted); font-style: italic; margin: 0; }
+    .rec-options-pgc {
+      border-left-color: #d4a017;
+      background: #fffbf0;
+    }
+    .rec-options-pgc .rec-options-sec-header { color: #7a4900; }
     .rec-options-pgc .rec-options-line strong { color: #7a4900; }
     .rec-options-pgc .rec-options-line a { color: var(--text); }
 
