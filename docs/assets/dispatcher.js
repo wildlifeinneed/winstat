@@ -906,7 +906,16 @@
       var ha = rows[i].win_area ? String(rows[i].win_area) : '?';
       if (!byArea[ha]) byArea[ha] = [];
       var roles = Array.isArray(rows[i].roles) ? rows[i].roles : [];
-      byArea[ha].push(roles.join(', ') || 'Volunteer');
+      // Only show qualifying volunteer roles (C&T, RVS C&T, Courier) — filter
+      // out administrative roles like Dispatch, IT, Board, Coordinator.
+      var dispRoles = [];
+      for (var r = 0; r < roles.length; r++) {
+        var rl = roles[r];
+        if (rl === 'C&T' || rl === 'RVS C&T' || rl === 'RVS' || rl === 'Courier') {
+          dispRoles.push(rl);
+        }
+      }
+      byArea[ha].push(dispRoles.join(', ') || 'Volunteer');
     }
 
     var haLabel = monResult.homeAreas.length
