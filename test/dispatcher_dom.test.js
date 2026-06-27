@@ -3785,12 +3785,12 @@ async function runTier1PremiseLineAnimalType() {
   assert.strictEqual(txt, 'Capture of non-RVS Animal (Raptor)',
     'Tier 1 premise appends the selected animal type for Raptor (got: "' + txt + '")');
 
-  // (2) Bat capture -> "Capture of non-RVS Animal (Bat)".
+  // (2) Bat capture -> RVS auto-set (bats are always RVS) -> "Capture of RVS Animal (Bat)".
   const { doc: doc2 } = await driveTier1Recommend(
     agg, 'Allegheny', { rvs: false, issue: 'capture', animalType: 'bat' });
   const txt2 = (doc2.querySelector('#rec-output .rec-premise').textContent || '')
     .replace(/\s+/g, ' ').trim();
-  assert.strictEqual(txt2, 'Capture of non-RVS Animal (Bat)',
+  assert.strictEqual(txt2, 'Capture of RVS Animal (Bat)',
     'Tier 1 premise appends the selected animal type for Bat (got: "' + txt2 + '")');
 
   // (3) Reptile/Amphibian transport -> "Transport of non-RVS Animal (Reptile/Amphibian)".
@@ -3809,7 +3809,7 @@ async function runTier1PremiseLineAnimalType() {
   assert.strictEqual(txt4, 'Capture of non-RVS Animal',
     'Tier 1 premise appends NOTHING for Other/Unknown (got: "' + txt4 + '")');
 
-  console.log('PASS: Tier 1 premise line appends the selected Animal Type in parentheses (Raptor/Bat/Reptile/Amphibian) and appends nothing for Other/Unknown.');
+  console.log('PASS: Tier 1 premise line appends the selected Animal Type in parentheses (Raptor/Bat/Reptile/Amphibian) and appends nothing for Other/Unknown. Bat auto-sets RVS.');
 }
 
 // Helper: load the page with a custom Worker aggregate AND rehabbers.json

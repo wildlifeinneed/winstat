@@ -4556,7 +4556,13 @@
     var animalTypeSel = $('#animal-type');
     if (animalTypeSel) {
       animalTypeSel.addEventListener('change', function () {
+        // Bats are always RVS — auto-set the toggle
+        if (animalTypeSel.value === 'bat') {
+          var rvsYes = document.querySelector('input[name="rvs"][value="yes"]');
+          if (rvsYes) rvsYes.checked = true;
+        }
         markResultsStale();
+        refreshTier1Volunteers();
       });
     }
 
