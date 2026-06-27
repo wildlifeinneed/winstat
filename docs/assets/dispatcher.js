@@ -872,11 +872,15 @@
     var rows = Array.isArray(state.t1MonitoringVols) ? state.t1MonitoringVols : [];
     var norm = String(areaNum).trim();
     if (!norm) return { count: 0, homeAreas: [] };
+    var qualifyFn = (window.WildlifeDecision &&
+                     typeof window.WildlifeDecision.qualifiesForAnimal === 'function')
+      ? window.WildlifeDecision.qualifiesForAnimal : null;
+    var hasBase = ctx && typeof ctx.issue === 'string' && ctx.issue !== '';
     var count = 0;
     var areaSet = {};
     for (var i = 0; i < rows.length; i++) {
-      // Monitoring vols are about area awareness, not handling capability —
-      // show ALL cross-area monitors regardless of animal/RVS qualification.
+      var roleList = Array.isArray(rows[i].roles) ? rows[i].roles : [];
+      if (qualifyFn && hasBase && !qualifyFn(roleList, !!ctx.rvs, ctx.issue)) continue;
       count++;
       var homeArea = rows[i].win_area ? String(rows[i].win_area) : '';
       if (homeArea) areaSet[homeArea] = true;
@@ -905,10 +909,14 @@
 
     // Build the list: group by home area, show counties.
     var rows = Array.isArray(state.t1MonitoringVols) ? state.t1MonitoringVols : [];
-    // Collect ALL monitoring vols grouped by home area with their counties —
-    // no animal/RVS qualification filter (monitoring = area awareness).
+    var qualifyFn = (window.WildlifeDecision &&
+                     typeof window.WildlifeDecision.qualifiesForAnimal === 'function')
+      ? window.WildlifeDecision.qualifiesForAnimal : null;
+    var hasBase = ctx && typeof ctx.issue === 'string' && ctx.issue !== '';
     var byArea = {};  // { areaNum: [county1, county2, ...] }
     for (var i = 0; i < rows.length; i++) {
+      var roleList = Array.isArray(rows[i].roles) ? rows[i].roles : [];
+      if (qualifyFn && hasBase && !qualifyFn(roleList, !!ctx.rvs, ctx.issue)) continue;
       var ha = rows[i].win_area ? String(rows[i].win_area) : '?';
       if (!byArea[ha]) byArea[ha] = [];
       var county = rows[i].home_county || '';
