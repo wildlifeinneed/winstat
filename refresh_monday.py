@@ -710,6 +710,19 @@ def is_available(
         today = date.today()
     # Day-of-week patterns — must be checked BEFORE the generic denylist so
     # that 'Unavail weekends' isn't swallowed by the 'unavail' denylist keyword.
+
+    # Check for BOTH weekdays AND weekends → always available (or unavailable).
+    # Must come before the single-match logic so 'Avail Weekdays, Weekends'
+    # isn't short-circuited to weekdays-only.
+    _DOW_BOTH_WD = re.compile(
+        r"\b(un)?avail(?:able)?\s+weekdays?\b", re.IGNORECASE
+    )
+    _DOW_BOTH_WE = re.compile(r"\bweekends?\b", re.IGNORECASE)
+    if _DOW_BOTH_WD.search(availability_text) and _DOW_BOTH_WE.search(availability_text):
+        if re.search(r"\bunavail", availability_text, re.IGNORECASE):
+            return False
+        return True
+
     _DOW_RE = re.compile(
         r"\b(un)?avail(?:able)?\s+week(end|day)s?\b", re.IGNORECASE
     )

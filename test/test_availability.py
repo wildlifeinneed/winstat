@@ -50,3 +50,25 @@ def test_unavail_date_range_outside():
 def test_unavail_date_range_inside():
     # SATURDAY is 6/13 — inside 6/10-6/20 range
     assert is_available("Unavail 6/10-6/20", today=SATURDAY) is False
+
+
+# --- 'Avail Weekdays, Weekends' (both → always available) ---
+def test_avail_weekdays_weekends_on_weekday():
+    assert is_available("Avail Weekdays, Weekends", today=MONDAY) is True
+
+def test_avail_weekdays_weekends_on_weekend():
+    assert is_available("Avail Weekdays, Weekends", today=SATURDAY) is True
+
+def test_avail_weekdays_and_weekends_on_weekday():
+    assert is_available("Avail Weekdays and Weekends", today=MONDAY) is True
+
+def test_avail_weekdays_and_weekends_on_weekend():
+    assert is_available("Avail Weekdays and Weekends", today=SATURDAY) is True
+
+
+# --- 'Unavail Weekdays, Weekends' (both → always unavailable) ---
+def test_unavail_weekdays_weekends_on_weekday():
+    assert is_available("Unavail Weekdays, Weekends", today=MONDAY) is False
+
+def test_unavail_weekdays_weekends_on_weekend():
+    assert is_available("Unavail Weekdays, Weekends", today=SATURDAY) is False
