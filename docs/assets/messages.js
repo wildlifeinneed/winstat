@@ -172,6 +172,8 @@
       summaryVolArea: '<strong>{count}</strong> Qualified volunteers (WIN Area {area})',
       // Same lines when the WIN area is unknown for the selected county.
       summaryVolAreaUnknown: '<strong>{count}</strong> In-area Qualified vols',
+      // Monitoring volunteers — cross-area vols who opted to monitor the target area.
+      summaryVolMonitoring: '<strong>{count}</strong> Qualified monitoring volunteers',
       // Shown in place of the count lines when the volunteer list has not
       // loaded yet (e.g. the Worker is slow / unavailable). The list loads
       // automatically on county selection, so this is a transient state.

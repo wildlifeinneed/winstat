@@ -3674,13 +3674,13 @@ async function runTier1DispatchSummary() {
   //     in-area = 4 (those 3 + 1 Beaver C&T). The COURIER-only row is excluded.
   const volLines = Array.prototype.slice.call(summary.querySelectorAll('.rec-summary-vol'))
     .map(function (li) { return li.textContent.replace(/\s+/g, ' ').trim(); });
-  const ctyLine = volLines.find(function (t) { return /in-county/i.test(t); });
-  const areaLine = volLines.find(function (t) { return /in-area/i.test(t); });
-  assert.ok(ctyLine && /\b3\b.*in-county/i.test(ctyLine),
-    'in-county qualified count = 3 (Allegheny C&T+C&T+RVS C&T; COURIER excluded) (got: "' + ctyLine + '")');
-  assert.ok(ctyLine && /Allegheny/.test(ctyLine), 'in-county line names the selected county');
-  assert.ok(areaLine && /\b4\b.*in-area/i.test(areaLine),
-    'in-area qualified count = 4 (adds the Beaver C&T; COURIER still excluded) (got: "' + areaLine + '")');
+  const ctyLine = volLines.find(function (t) { return /Qualified.*volunteers.*County/i.test(t); });
+  const areaLine = volLines.find(function (t) { return /Qualified.*volunteers.*WIN Area/i.test(t); });
+  assert.ok(ctyLine && /\b3\b.*Qualified/i.test(ctyLine),
+    'county qualified count = 3 (Allegheny C&T+C&T+RVS C&T; COURIER excluded) (got: "' + ctyLine + '")');
+  assert.ok(ctyLine && /Allegheny/.test(ctyLine), 'county line names the selected county');
+  assert.ok(areaLine && /\b4\b.*Qualified/i.test(areaLine),
+    'area qualified count = 4 (adds the Beaver C&T; COURIER still excluded) (got: "' + areaLine + '")');
   assert.ok(areaLine && /Area\s*10/.test(areaLine), 'in-area line names WIN Area 10');
 
   // (2) NEARBY REHABBERS, filtered to facilities that accept the selected animal

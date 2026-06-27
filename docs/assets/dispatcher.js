@@ -758,6 +758,14 @@
         ? fmt(REC.summaryVolArea, { count: areaList.length, area: escapeHtml(winArea) })
         : fmt(REC.summaryVolAreaUnknown, { count: areaList.length });
       html += '<li class="rec-summary-vol">' + areaLine + '</li>';
+      // Cross-area monitoring volunteers count (already loaded from Tier 1 vol fetch).
+      try {
+        var monResult = volsMonitoringArea(winArea || '', ctx || {});
+        if (monResult && monResult.count > 0 && REC.summaryVolMonitoring) {
+          html += '<li class="rec-summary-vol">' +
+            fmt(REC.summaryVolMonitoring, { count: monResult.count }) + '</li>';
+        }
+      } catch (_monErr) { /* monitoring count is supplementary — never break the summary */ }
     } else {
       // The list has not loaded yet (e.g. Worker slow/unavailable). Show a
       // transient pending line rather than a misleading "0".
