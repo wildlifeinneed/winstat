@@ -26,6 +26,7 @@ const {
   buildAggregateResponse,
   buildTier2Response,
   normalizeWinArea,
+  rolesOf,
 } = require('./aggregate');
 const { geocodeAddress } = require('./census');
 const { autocompleteAddress, photonGeocode, looksLikeFullAddress, looksLikeIntersection, hasHouseNumberMatch, censusAutocompleteFallback } = require('./autocomplete');
@@ -607,7 +608,7 @@ async function handleRequest(request, deps) {
         }
         if (!monitors) continue;
         monVols.push({
-          roles: Array.isArray(rec.roles) ? rec.roles.slice() : [],
+          roles: Array.from(rolesOf(rec)),
           win_area: rec.win_area === undefined ? null : rec.win_area,
           home_county: rec.home_county || null,
           monitored_areas: ma,
