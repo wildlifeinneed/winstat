@@ -1378,14 +1378,8 @@
       if (optionsHtml) {
         advBody.innerHTML = optionsHtml;
         advSection.style.display = '';
-        if (state.t1RecTier === 'monitor') {
-          // Auto-expand: monitoring tier → dispatcher needs to see who/where.
-          advBody.style.display = '';
-          if (advBtn) advBtn.classList.add('open');
-        } else {
-          advBody.style.display = 'none';
-          if (advBtn) advBtn.classList.remove('open');
-        }
+        advBody.style.display = 'none';
+        if (advBtn) advBtn.classList.remove('open');
       } else {
         advBody.innerHTML = '';
         advSection.style.display = 'none';

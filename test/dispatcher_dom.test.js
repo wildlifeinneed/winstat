@@ -5118,19 +5118,19 @@ async function runCascadeMonitorSufficient() {
   assert.ok(checks[1].classList.contains('fail'), 'area check is fail');
   assert.ok(checks[2].classList.contains('pass'), 'monitor check is pass');
 
-  // Advanced Search should be auto-expanded on monitoring tier.
+  // Advanced Search should start collapsed (user clicks to expand manually).
   const advBody = doc.getElementById('advanced-search-body');
   const advBtn = doc.getElementById('advanced-search-btn');
   if (advBody) {
-    assert.notStrictEqual(advBody.style.display, 'none',
-      'advanced search body is expanded on monitoring tier');
+    assert.strictEqual(advBody.style.display, 'none',
+      'advanced search body is collapsed on monitoring tier');
   }
   if (advBtn) {
-    assert.ok(advBtn.classList.contains('open'),
-      'advanced search button has open class on monitoring tier');
+    assert.ok(!advBtn.classList.contains('open'),
+      'advanced search button does not have open class on monitoring tier');
   }
 
-  console.log('PASS: CASCADE — county + area insufficient, monitoring sufficient → dispatcher_decides (tone-decide, banner, cascade checks, adv search expanded).');
+  console.log('PASS: CASCADE — county + area insufficient, monitoring sufficient → dispatcher_decides (tone-decide, banner, cascade checks, adv search collapsed).');
 }
 
 // ── 4) County insufficient + all insufficient → call_pa_game_comm ────────
