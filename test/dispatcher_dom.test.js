@@ -5046,6 +5046,9 @@ async function runCascadeCountySufficient() {
     'no dual-action buttons for county-sufficient dispatch');
   assert.strictEqual(doc.querySelector('#rec-output .dispatcher-instruction'), null,
     'no dispatcher instruction for county-sufficient dispatch');
+  // County-sufficient: no cascade checks (countyCount not set on non-cascade paths).
+  assert.strictEqual(doc.querySelector('#rec-output .cascade-checks'), null,
+    'no cascade checks for county-sufficient dispatch');
 
   console.log('PASS: CASCADE — county sufficient → normal dispatch (tone-go, connecteam_task, no cascade elements).');
 }
@@ -5068,14 +5071,16 @@ async function runCascadeAreaSufficient() {
   assert.ok(/area volunteers|dispatch task/i.test(actionEl.textContent),
     'area-sufficient action label mentions area volunteers (got: "' + actionEl.textContent + '")');
 
-  // Reasoning should mention area volunteers.
-  const reasoning = doc.querySelector('#rec-output .rec-reasoning');
-  assert.ok(reasoning, 'reasoning block exists');
-  const reasoningText = reasoning.textContent || '';
-  assert.ok(/area|not in-county/i.test(reasoningText),
-    'reasoning mentions area volunteers (got: "' + reasoningText.substring(0, 200) + '")');
+  // Cascade checks should show county fail + area pass.
+  const checks = doc.querySelectorAll('#rec-output .cascade-check');
+  assert.strictEqual(checks.length, 2, 'area-sufficient cascade has 2 check lines (county + area)');
+  assert.ok(checks[0].classList.contains('fail'), 'county check is fail');
+  assert.ok(checks[1].classList.contains('pass'), 'area check is pass');
+  const checksText = doc.querySelector('#rec-output .cascade-checks').textContent || '';
+  assert.ok(/county/i.test(checksText), 'cascade checks mention county');
+  assert.ok(/area/i.test(checksText), 'cascade checks mention area');
 
-  console.log('PASS: CASCADE — county insufficient + area sufficient → dispatch_warning (tone-warn, area reasoning).');
+  console.log('PASS: CASCADE — county insufficient + area sufficient → dispatch_warning (tone-warn, cascade checks).');
 }
 
 // ── 3) County insufficient + area insufficient + monitoring sufficient → dispatcher_decides ──
@@ -5093,28 +5098,39 @@ async function runCascadeMonitorSufficient() {
   const actionEl = doc.querySelector('#rec-output .rec-action');
   assert.ok(actionEl, 'action element exists');
   assert.ok(actionEl.classList.contains('decide'), 'action element has decide tone class');
-  assert.ok(/dispatcher decision|dispatcher decides/i.test(actionEl.textContent),
-    'monitor-sufficient action label is dispatcher_decides (got: "' + actionEl.textContent + '")');
+  assert.ok(/dispatch task|monitoring/i.test(actionEl.textContent),
+    'monitor-sufficient action label mentions dispatch/monitoring (got: "' + actionEl.textContent + '")');
 
-  // Dual-action buttons: Dispatch Task + Call PGC.
-  const dualAction = doc.querySelector('#rec-output .dual-action');
-  assert.ok(dualAction, 'dual-action button container exists for dispatcher_decides');
-  const dispatchBtn = doc.getElementById('cascade-dispatch-btn');
-  const pgcBtn = doc.getElementById('cascade-pgc-btn');
-  assert.ok(dispatchBtn, 'Dispatch Task button exists');
-  assert.ok(pgcBtn, 'Call PGC button exists');
-  assert.ok(/connecteam|dispatch/i.test(dispatchBtn.textContent),
-    'dispatch button label (got: "' + dispatchBtn.textContent + '")');
-  assert.ok(/pgc|game comm/i.test(pgcBtn.textContent),
-    'PGC button label (got: "' + pgcBtn.textContent + '")');
+  // No dual-action buttons (banners only, no buttons).
+  assert.strictEqual(doc.querySelector('#rec-output .dual-action'), null,
+    'no dual-action buttons for dispatcher_decides banner');
 
-  // Dispatcher instruction line.
+  // Dispatcher instruction line (terse "tell finder" text).
   const instruction = doc.querySelector('#rec-output .dispatcher-instruction');
   assert.ok(instruction, 'dispatcher instruction line exists');
-  assert.ok(/finder|no response|pgc|rehabber/i.test(instruction.textContent),
-    'instruction mentions finder follow-up (got: "' + instruction.textContent.substring(0, 150) + '")');
+  assert.ok(/finder|pgc/i.test(instruction.textContent),
+    'instruction mentions finder/PGC (got: "' + instruction.textContent.substring(0, 150) + '")');
 
-  console.log('PASS: CASCADE — county + area insufficient, monitoring sufficient → dispatcher_decides (tone-decide, dual buttons, instruction).');
+  // Cascade checks: county fail + area fail + monitor pass.
+  const checks = doc.querySelectorAll('#rec-output .cascade-check');
+  assert.strictEqual(checks.length, 3, 'monitor-sufficient cascade has 3 check lines');
+  assert.ok(checks[0].classList.contains('fail'), 'county check is fail');
+  assert.ok(checks[1].classList.contains('fail'), 'area check is fail');
+  assert.ok(checks[2].classList.contains('pass'), 'monitor check is pass');
+
+  // Advanced Search should be auto-expanded on monitoring tier.
+  const advBody = doc.getElementById('advanced-search-body');
+  const advBtn = doc.getElementById('advanced-search-btn');
+  if (advBody) {
+    assert.notStrictEqual(advBody.style.display, 'none',
+      'advanced search body is expanded on monitoring tier');
+  }
+  if (advBtn) {
+    assert.ok(advBtn.classList.contains('open'),
+      'advanced search button has open class on monitoring tier');
+  }
+
+  console.log('PASS: CASCADE — county + area insufficient, monitoring sufficient → dispatcher_decides (tone-decide, banner, cascade checks, adv search expanded).');
 }
 
 // ── 4) County insufficient + all insufficient → call_pa_game_comm ────────
@@ -5137,7 +5153,14 @@ async function runCascadeAllInsufficient() {
   assert.strictEqual(doc.querySelector('#rec-output .dual-action'), null,
     'no dual-action buttons for call_pa_game_comm');
 
-  console.log('PASS: CASCADE — county + area + monitoring all insufficient → call_pa_game_comm (tone-escalate).');
+  // Cascade checks: county fail + area fail + monitor fail (all 3 levels checked).
+  const checks = doc.querySelectorAll('#rec-output .cascade-check');
+  assert.strictEqual(checks.length, 3, 'all-insufficient cascade has 3 check lines');
+  assert.ok(checks[0].classList.contains('fail'), 'county check is fail');
+  assert.ok(checks[1].classList.contains('fail'), 'area check is fail');
+  assert.ok(checks[2].classList.contains('fail'), 'monitor check is fail');
+
+  console.log('PASS: CASCADE — county + area + monitoring all insufficient → call_pa_game_comm (tone-escalate, cascade checks all fail).');
 }
 
 // ── 5) Policy refer_out → no cascade (policy overrides) ──────────────────
@@ -5167,11 +5190,13 @@ async function runCascadePolicyOverride() {
   assert.ok(/refer out|do not dispatch/i.test(actionEl.textContent),
     'policy override yields refer_out action (got: "' + actionEl.textContent + '")');
 
-  // No cascade elements.
+  // No cascade elements (policy overrides cascade).
   assert.strictEqual(doc.querySelector('#rec-output .dual-action'), null,
     'no dual-action buttons when policy overrides');
   assert.strictEqual(doc.querySelector('#rec-output .dispatcher-instruction'), null,
     'no dispatcher instruction when policy overrides');
+  assert.strictEqual(doc.querySelector('#rec-output .cascade-checks'), null,
+    'no cascade checks when policy overrides (refer_out uses reasoning fallback)');
 
   // Referral block should be present.
   const referral = doc.querySelector('#rec-output .rec-referral');
@@ -5203,10 +5228,15 @@ async function runCascadeTransportMonitorMin4() {
   assert.ok(out4.classList.contains('tone-decide'),
     '4 monitoring vols for transport → tone-decide (4 >= min 4) (got classes: ' + out4.className + ')');
 
-  const dualAction = doc4.querySelector('#rec-output .dual-action');
-  assert.ok(dualAction, 'dual-action buttons present with 4 monitoring vols for transport');
+  // No dual-action buttons (banner only).
+  assert.strictEqual(doc4.querySelector('#rec-output .dual-action'), null,
+    'no dual-action buttons for dispatcher_decides banner (transport)');
 
-  console.log('PASS: CASCADE — transport monitor tier needs 4: 3 vols → escalate, 4 vols → dispatcher_decides.');
+  // Cascade checks present for the 4-monitor case.
+  const checks = doc4.querySelectorAll('#rec-output .cascade-check');
+  assert.ok(checks.length >= 2, 'cascade checks present for transport monitor tier');
+
+  console.log('PASS: CASCADE — transport monitor tier needs 4: 3 vols → escalate, 4 vols → dispatcher_decides (banner).');
 }
 
 async function run() {

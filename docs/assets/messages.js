@@ -78,7 +78,7 @@
         // this call, so refer the finder to a named facility instead.
         refer_out: 'Refer out - county policy: do not dispatch',
         dispatch_warning: 'Dispatch Task (area volunteers)',
-        dispatcher_decides: 'Dispatcher Decision Needed'
+        dispatcher_decides: 'Dispatch Task (monitoring vols)'
       },
       // enrichMarginal low-capacity note ({count} = available count).
       lowCapacityWarning: 'Low capacity warning: only {count} available; consider calling PGC.',
@@ -113,7 +113,7 @@
       areaInsufficient: 'Not enough in-area volunteers ({count} available, {min} needed).',
       // Monitoring tier (step 4)
       monitorVolsAvailable: '{count} monitoring volunteers from neighboring areas.',
-      monitorDispatchOption: 'Monitoring volunteers may see the dispatch. Tell finder: if no response within a reasonable time, call PGC or locate a rehabber if animal is contained.',
+      monitorDispatchOption: 'Tell finder: if no response, call PGC.',
       monitorInsufficient: 'Not enough monitoring volunteers ({count} available, {min} needed).'
     },
 
@@ -146,6 +146,11 @@
       noAvailabilityInfo: '(no availability info)',
       noRosterRecorded: 'No marginal-volunteer roster recorded for this bucket.',
       reasoningHeader: 'Reasoning',
+      // Cascade check display lines (terse, mobile-scannable).
+      cascadeChecksHeader: 'Cascade checks',
+      cascadeCheck_county: 'County: {count} of {min} needed',
+      cascadeCheck_area: 'Area {area}: {count} of {min} needed',
+      cascadeCheck_monitor: 'Monitor: {count} of {min} needed',
       selectCountyFirst: 'Select a county first.',
       // Header shown above the recommendation body. {county} = selected county name.
       scopeHeaderCounty: 'Recommendation for {county} County',

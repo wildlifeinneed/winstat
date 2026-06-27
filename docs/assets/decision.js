@@ -480,6 +480,8 @@
     if (!capacity) {
       rec.action = 'call_pa_game_comm';
       rec.cascade = true;
+      rec.countyCount = 0;
+      rec.countyMin = 1;
       rec.reasoning = [T1.missingCapacity];
       return rec;
     }
@@ -510,6 +512,8 @@
         }
         rec.action = 'call_pa_game_comm';
         rec.cascade = true;
+        rec.countyCount = ctRvsAvail;
+        rec.countyMin = cfg.ct_rvs_capture_min_available;
         rec.reasoning.push(T1.rvsCaptureNone);
         return rec;
       }
@@ -525,6 +529,8 @@
       }
       rec.action = 'call_pa_game_comm';
       rec.cascade = true;
+      rec.countyCount = ctAnyAvail;
+      rec.countyMin = cfg.ct_any_capture_min_available;
       rec.reasoning.push(T1.nonRvsCaptureNone);
       return rec;
     }
@@ -549,6 +555,8 @@
     }
     rec.action = 'call_pa_game_comm';
     rec.cascade = true;
+    rec.countyCount = transportPool;
+    rec.countyMin = cfg.courier_transport_min_available;
     rec.reasoning.push(T1.transportNone);
     return rec;
   }

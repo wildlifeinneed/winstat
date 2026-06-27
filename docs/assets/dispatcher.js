@@ -842,6 +842,9 @@
   function shouldShowOptionsPanel(rec, ctx) {
     if (!rec) return false;
     if (rec.action === 'call_pa_game_comm') return true;
+    // Cascade tier 3/4: area or monitoring dispatch — show the options panel
+    // so the dispatcher can see who/where the volunteers are.
+    if (rec.action === 'dispatch_warning' || rec.action === 'dispatcher_decides') return true;
     if (rec.action === 'refer_out') {
       var count = qualifiedWinAreaCount(ctx);
       return count === 0;
@@ -1180,20 +1183,11 @@
       html += recPgcGuidanceHtml(pgcIssue, pgcRehabbers);
     }
 
-    // dispatcher_decides (cascade tier 4): dual-action buttons + instruction.
-    // The dispatcher chooses between dispatching a task (same as connecteam_task)
-    // or calling PGC (same as call_pa_game_comm). The instruction line tells the
-    // finder what to do if no volunteer responds.
+    // dispatcher_decides (cascade tier 4): monitoring context + terse finder
+    // instruction. No dual-action buttons — the banner IS the recommendation.
     if (rec.action === 'dispatcher_decides') {
-      var T1dd = MSG.tier1Actions;
-      html += '<div class="dual-action">' +
-        '<button type="button" class="btn-dispatch-task" id="cascade-dispatch-btn">' +
-          escapeHtml(window.WildlifeDecision.ACTIONS.connecteam_task.label) + '</button>' +
-        '<button type="button" class="btn-call-pgc" id="cascade-pgc-btn">' +
-          escapeHtml(window.WildlifeDecision.ACTIONS.call_pa_game_comm.label) + '</button>' +
-        '</div>';
       html += '<div class="dispatcher-instruction">' +
-        escapeHtml(T1dd.monitorDispatchOption) + '</div>';
+        escapeHtml(MSG.tier1Actions.monitorDispatchOption) + '</div>';
     }
 
     // refer_out (county-policy downgrade): show WHO to call — referral target
@@ -1289,7 +1283,21 @@
               '<p style="font-size:13px;">' + REC.noRosterRecorded + '</p></div>';
     }
 
-    if (rec.reasoning && rec.reasoning.length) {
+    // Cascade checks (terse mobile-friendly lines) replace the old reasoning
+    // array for cascade-driven recommendations. Non-cascade recs (refer_out,
+    // tbd_escalate, county-sufficient) fall back to the original reasoning list.
+    if (rec.cascadeChecks && rec.cascadeChecks.length) {
+      html += '<div class="rec-reasoning"><div class="rec-reasoning-header">' +
+        REC.cascadeChecksHeader + '</div><ul class="cascade-checks">';
+      rec.cascadeChecks.forEach(function (chk) {
+        var icon = chk.pass ? '\u2705' : '\u274C';
+        var key = 'cascadeCheck_' + chk.level;
+        var line = fmt(REC[key] || '', { count: chk.count, min: chk.min, area: chk.area || '' });
+        html += '<li class="cascade-check ' + (chk.pass ? 'pass' : 'fail') + '">' +
+          icon + ' ' + escapeHtml(line) + '</li>';
+      });
+      html += '</ul></div>';
+    } else if (rec.reasoning && rec.reasoning.length) {
       html += '<div class="rec-reasoning"><div class="rec-reasoning-header">' + REC.reasoningHeader + '</div><ol>';
       rec.reasoning.forEach(function (r) { html += '<li>' + escapeHtml(r) + '</li>'; });
       html += '</ol></div>';
@@ -1370,9 +1378,14 @@
       if (optionsHtml) {
         advBody.innerHTML = optionsHtml;
         advSection.style.display = '';
-        // Reset to collapsed state each time a new recommendation renders.
-        advBody.style.display = 'none';
-        if (advBtn) advBtn.classList.remove('open');
+        if (state.t1RecTier === 'monitor') {
+          // Auto-expand: monitoring tier → dispatcher needs to see who/where.
+          advBody.style.display = '';
+          if (advBtn) advBtn.classList.add('open');
+        } else {
+          advBody.style.display = 'none';
+          if (advBtn) advBtn.classList.remove('open');
+        }
       } else {
         advBody.innerHTML = '';
         advSection.style.display = 'none';
@@ -1391,42 +1404,6 @@
         out.classList.remove('show');
         out.innerHTML = '';
         hideAdvancedSearch();
-      });
-    }
-
-    // Wire cascade tier 4 dual-action buttons (dispatcher_decides).
-    // "Dispatch Task" re-renders the card as connecteam_task (dispatch flow).
-    // "Call PGC" re-renders the card as call_pa_game_comm (PGC guidance).
-    var cascadeDispatchBtn = document.getElementById('cascade-dispatch-btn');
-    var cascadePgcBtn = document.getElementById('cascade-pgc-btn');
-    if (cascadeDispatchBtn && recCounty) {
-      cascadeDispatchBtn.addEventListener('click', function () {
-        var dispatchRec = {
-          action: 'connecteam_task',
-          target: recCounty.target || null,
-          issue: recCounty.issue,
-          rvs: recCounty.rvs,
-          marginal: false,
-          marginal_volunteers: [],
-          reasoning: (recCounty.reasoning || []).slice()
-        };
-        state.t1RecTier = 'monitor';
-        renderRecommendation(dispatchRec, base, county);
-      });
-    }
-    if (cascadePgcBtn && recCounty) {
-      cascadePgcBtn.addEventListener('click', function () {
-        var pgcRec = {
-          action: 'call_pa_game_comm',
-          target: null,
-          issue: recCounty.issue,
-          rvs: recCounty.rvs,
-          marginal: false,
-          marginal_volunteers: [],
-          reasoning: (recCounty.reasoning || []).slice()
-        };
-        state.t1RecTier = 'monitor';
-        renderRecommendation(pgcRec, base, county);
       });
     }
   }
@@ -1590,6 +1567,15 @@
     // module exposes the tier functions. If any prerequisite is missing, the
     // original call_pa_game_comm action stands (safe fallback).
     state.t1RecTier = 'county'; // default tier
+    // Build cascade check metadata for the reasoning display.
+    // County check is pushed only when countyCount is available (cascade paths).
+    recCounty.cascadeChecks = [];
+    if (recCounty.countyCount != null) {
+      recCounty.cascadeChecks.push({
+        level: 'county', count: recCounty.countyCount,
+        min: recCounty.countyMin, pass: !recCounty.cascade
+      });
+    }
     if (recCounty.cascade === true && Array.isArray(state.t1VolRows) &&
         window.WildlifeDecision.recommendAreaTier &&
         window.WildlifeDecision.recommendMonitorTier) {
@@ -1614,6 +1600,10 @@
 
       var areaTier = window.WildlifeDecision.recommendAreaTier(
         areaQualCount, base.rvs, base.issue, resolved);
+      recCounty.cascadeChecks.push({
+        level: 'area', count: areaQualCount, min: areaTier.min,
+        pass: areaTier.pass, area: winArea
+      });
       if (areaTier.pass) {
         // Tier 3: area volunteers available — dispatch with warning
         recCounty.action = 'dispatch_warning';
@@ -1638,6 +1628,10 @@
         }
         var monTier = window.WildlifeDecision.recommendMonitorTier(
           monCount, base.rvs, base.issue, resolved);
+        recCounty.cascadeChecks.push({
+          level: 'monitor', count: monCount, min: monTier.min,
+          pass: monTier.pass
+        });
         if (monTier.pass) {
           // Tier 4: monitoring volunteers available — dispatcher decides
           recCounty.action = 'dispatcher_decides';
@@ -1652,6 +1646,12 @@
             fmt(T1.monitorInsufficient, { count: monCount, min: monTier.min }));
         }
       }
+    }
+
+    // Policy refer_out overrides cascade — clear cascade checks so the policy
+    // reasoning renders instead (the refer_out block has its own display).
+    if (recCounty.action === 'refer_out') {
+      recCounty.cascadeChecks = [];
     }
 
     renderRecommendation(recCounty, base, county);
