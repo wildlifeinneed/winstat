@@ -35,7 +35,7 @@
     },
     "Allegheny": {
       "courier": {
-        "available": 5,
+        "available": 11,
         "marginal_volunteers": [],
         "total": 11
       },
@@ -79,7 +79,7 @@
     },
     "Beaver": {
       "courier": {
-        "available": 0,
+        "available": 1,
         "marginal_volunteers": [
           {
             "availability_note": "Avail Weekdays, Weekends",
@@ -159,7 +159,7 @@
     },
     "Blair": {
       "courier": {
-        "available": 3,
+        "available": 4,
         "marginal_volunteers": [],
         "total": 4
       },
@@ -208,9 +208,9 @@
     },
     "Butler": {
       "courier": {
-        "available": 2,
+        "available": 3,
         "marginal_volunteers": [],
-        "total": 4
+        "total": 3
       },
       "ct_no_rvs": {
         "available": 1,
@@ -235,7 +235,7 @@
     },
     "Cameron": {
       "courier": {
-        "available": 0,
+        "available": 1,
         "marginal_volunteers": [
           {
             "availability_note": "Avail Weekdays & Weekends",
@@ -257,21 +257,12 @@
     },
     "Carbon": {
       "courier": {
-        "available": 1,
-        "marginal_volunteers": [
-          {
-            "availability_note": "Avail Weekends; Possibly Weekdays after 6PM",
-            "connecteam_user": true
-          },
-          {
-            "availability_note": "Avail Weekdays & Weekends",
-            "connecteam_user": true
-          }
-        ],
+        "available": 2,
+        "marginal_volunteers": [],
         "total": 2
       },
       "ct_no_rvs": {
-        "available": 0,
+        "available": 1,
         "marginal_volunteers": [
           {
             "availability_note": "Avail Weekdays & Weekends; prefers to avoid nighttime driving",
@@ -305,7 +296,7 @@
     },
     "Chester": {
       "courier": {
-        "available": 2,
+        "available": 3,
         "marginal_volunteers": [],
         "total": 3
       },
@@ -386,7 +377,7 @@
         "total": 0
       },
       "ct_rvs": {
-        "available": 0,
+        "available": 1,
         "marginal_volunteers": [
           {
             "availability_note": "Avail Weekdays & Weekends",
@@ -606,7 +597,7 @@
     },
     "Lancaster": {
       "courier": {
-        "available": 2,
+        "available": 3,
         "marginal_volunteers": [],
         "total": 3
       },
@@ -621,14 +612,14 @@
         "total": 1
       },
       "ct_rvs": {
-        "available": 2,
+        "available": 3,
         "marginal_volunteers": [],
         "total": 3
       }
     },
     "Lawrence": {
       "courier": {
-        "available": 0,
+        "available": 1,
         "marginal_volunteers": [
           {
             "availability_note": "Avail Weekdays after 4PM & Weekends",
@@ -672,18 +663,9 @@
     },
     "Lehigh": {
       "courier": {
-        "available": 1,
-        "marginal_volunteers": [
-          {
-            "availability_note": "Avail more flexible Mon, Tue & Thurs; Weekends",
-            "connecteam_user": true
-          },
-          {
-            "availability_note": "Avail Weekdays after 1PM & Weekends. Otherwise, Call for avail.",
-            "connecteam_user": true
-          }
-        ],
-        "total": 2
+        "available": 3,
+        "marginal_volunteers": [],
+        "total": 3
       },
       "ct_no_rvs": {
         "available": 1,
@@ -696,7 +678,7 @@
         "total": 1
       },
       "ct_rvs": {
-        "available": 0,
+        "available": 1,
         "marginal_volunteers": [
           {
             "availability_note": "Avail Weekdays after 5PM, Weekends",
@@ -708,17 +690,8 @@
     },
     "Luzerne": {
       "courier": {
-        "available": 1,
-        "marginal_volunteers": [
-          {
-            "availability_note": "Avail Weekdays after 5PM, Weekends",
-            "connecteam_user": true
-          },
-          {
-            "availability_note": "Avail Weekends",
-            "connecteam_user": true
-          }
-        ],
+        "available": 2,
+        "marginal_volunteers": [],
         "total": 2
       },
       "ct_no_rvs": {
@@ -744,7 +717,7 @@
     },
     "Lycoming": {
       "courier": {
-        "available": 3,
+        "available": 4,
         "marginal_volunteers": [],
         "total": 5
       },
@@ -840,18 +813,9 @@
     },
     "Montgomery": {
       "courier": {
-        "available": 1,
-        "marginal_volunteers": [
-          {
-            "availability_note": "Avail varys Wed, Fri, Sat, Sun",
-            "connecteam_user": true
-          },
-          {
-            "availability_note": "Avail Weekdays, Weekends",
-            "connecteam_user": true
-          }
-        ],
-        "total": 2
+        "available": 3,
+        "marginal_volunteers": [],
+        "total": 3
       },
       "ct_no_rvs": {
         "available": 2,
@@ -898,17 +862,8 @@
     },
     "Northumberland": {
       "courier": {
-        "available": 1,
-        "marginal_volunteers": [
-          {
-            "availability_note": "Avail Weekdays & Weekends",
-            "connecteam_user": true
-          },
-          {
-            "availability_note": "Avail all day Weekdays & Weekends, Not on ConnecTeam",
-            "connecteam_user": false
-          }
-        ],
+        "available": 2,
+        "marginal_volunteers": [],
         "total": 2
       },
       "ct_no_rvs": {
@@ -951,7 +906,7 @@
     },
     "Philadelphia": {
       "courier": {
-        "available": 0,
+        "available": 1,
         "marginal_volunteers": [
           {
             "availability_note": "Avail Weekday after 2:30pm, Weekends",
@@ -995,7 +950,7 @@
     },
     "Schuylkill": {
       "courier": {
-        "available": 0,
+        "available": 1,
         "marginal_volunteers": [
           {
             "availability_note": "Avail Weekdays 5PM-10PM, Avail Varies Weekends",
@@ -1015,7 +970,7 @@
         "total": 1
       },
       "ct_rvs": {
-        "available": 0,
+        "available": 1,
         "marginal_volunteers": [
           {
             "availability_note": "Avail Weekdays & Weekends",
@@ -1071,7 +1026,7 @@
     },
     "Venango": {
       "courier": {
-        "available": 2,
+        "available": 3,
         "marginal_volunteers": [],
         "total": 3
       },
@@ -1195,7 +1150,7 @@
       }
     }
   },
-  "generated_at": "2026-06-27T15:04:29Z",
+  "generated_at": "2026-06-27T18:38:57Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
