@@ -1746,9 +1746,9 @@ async function runRehabAddressPath() {
     'no Open/Closed/Status-unknown text leaks into the rehab row details (got "' + nonNameText + '")');
 
   // County renders per row.
-  assert.ok(/Allegheny County/.test(rows[0].querySelector('.rehab-county').textContent || ''),
+  assert.ok(/Allegheny/.test(rows[0].querySelector('.rehab-county').textContent || ''),
     'row0 shows its county');
-  assert.ok(/Butler County/.test(rows[2].querySelector('.rehab-county').textContent || ''),
+  assert.ok(/Butler/.test(rows[2].querySelector('.rehab-county').textContent || ''),
     'row2 shows its county');
 
   // Phone: row0 renders a tel: link; row1 (empty phone) renders the placeholder.
@@ -3692,15 +3692,15 @@ async function runTier1DispatchSummary() {
   assert.strictEqual(rehabRows.length, 2,
     'exactly 2 mammal-accepting in-scope rehabbers render (Tamarack + Beaver; Songbird Haven + Erie excluded) (got ' + rehabRows.length + ')');
   // Selected-county rehabber is listed FIRST, with a formatted, tel-linked phone.
-  assert.ok(/Tamarack Wildlife Center/.test(rehabRows[0]) && /Allegheny County/.test(rehabRows[0]),
-    'first rehabber row is the in-county one (Tamarack — Allegheny County)');
+  assert.ok(/Tamarack Wildlife Center/.test(rehabRows[0]) && /Allegheny/.test(rehabRows[0]),
+    'first rehabber row is the in-county one (Tamarack — Allegheny)');
   assert.ok(/814-763-7676/.test(rehabRows[0]),
     'in-county rehabber phone is formatted XXX-XXX-XXXX (got: "' + rehabRows[0] + '")');
   // Accepted-animal CODES are appended after the county, extracted from the
   // `availability` field. Tamarack ("M, R, RA, RVS") shows M, R, RA, RVS in the
   // canonical legend order; the "AARK"-style false positive is impossible here,
   // but the order/dedup is what the row must show.
-  assert.ok(/Allegheny County \u2014 M, R, RA, RVS\b/.test(rehabRows[0]),
+  assert.ok(/Allegheny \u2014 M, R, RA, RVS\b/.test(rehabRows[0]),
     'in-county rehabber row appends accepted-animal codes "M, R, RA, RVS" after the county (got: "' + rehabRows[0] + '")');
   const telLink = summary.querySelector('.rec-summary-rehab a[href^="tel:"]');
   assert.ok(telLink, 'rehabber phone is a tel: link');
@@ -3708,7 +3708,7 @@ async function runTier1DispatchSummary() {
   assert.ok(/Beaver County Rehab/.test(rehabRows[1]) && /no phone on file/i.test(rehabRows[1]),
     'sibling-area rehabber with no phone shows the no-phone fallback (got: "' + rehabRows[1] + '")');
   // Codes still append after the county even on the no-phone row (Beaver "M").
-  assert.ok(/Beaver County \u2014 M\b/.test(rehabRows[1]),
+  assert.ok(/Beaver \u2014 M\b/.test(rehabRows[1]),
     'no-phone sibling rehabber row still appends its accepted-animal code "M" (got: "' + rehabRows[1] + '")');
   const joined = rehabRows.join(' | ');
   assert.ok(!/Songbird Haven/.test(joined),
@@ -3962,7 +3962,7 @@ async function runTier1PgcTransportActionable() {
     .map(function (li) { return li.textContent.replace(/\s+/g, ' ').trim(); });
   assert.strictEqual(rows.length, 2,
     'exactly 2 in-scope rehabbers listed (Allegheny + Beaver; Erie excluded) (got ' + rows.length + ')');
-  assert.ok(/Tamarack Wildlife Center/.test(rows[0]) && /Allegheny County/.test(rows[0]),
+  assert.ok(/Tamarack Wildlife Center/.test(rows[0]) && /Allegheny/.test(rows[0]),
     'in-county rehabber (Tamarack — Allegheny) is listed FIRST');
   assert.ok(/814-763-7676/.test(rows[0]),
     'in-county rehabber phone is formatted XXX-XXX-XXXX (got: "' + rows[0] + '")');

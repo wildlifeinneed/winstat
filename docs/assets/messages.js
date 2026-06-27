@@ -180,12 +180,13 @@
       summaryRehabHeader: 'Nearby rehabbers',
       // {name} = rehabber name, {phone} = formatted phone (or dash), {county} =
       // rehabber county.
-      summaryRehabRow: '{name} ({phone}) \u2014 {county} County',
+      summaryRehabRow: '{name} ({phone})<br>{county}',
       // Same row with the rehabber's accepted animal CODES appended (extracted
       // from the `availability` field in rehabbers.json), e.g.
-      // "Raven Ridge Wildlife Center (717-808-2652) — York County — M, P, R, RA, RVS".
+      // "Raven Ridge Wildlife Center (717-808-2652)
+      //  York — M, P, R, RA, RVS"
       // {codes} = comma-separated standard abbreviations (M, P, R, RA, RVS, END).
-      summaryRehabRowCodes: '{name} ({phone}) \u2014 {county} County \u2014 {codes}',
+      summaryRehabRowCodes: '{name} ({phone})<br>{county} \u2014 {codes}',
       // Shown when a rehabber row has no phone on file.
       summaryRehabNoPhone: 'no phone on file',
       // Empty state when no in-county / in-area rehabber accepts the selected
@@ -257,7 +258,7 @@
         neighborUnavailable: 'Neighboring-area data is loading \u2014 use address search below to find the nearest options.',
         // 3) Address search.
         addressHeader: 'Address search',
-        addressTip: 'Use address search (Tier 2) to find the nearest volunteers by driving distance.',
+        addressTip: 'Use address search to find the nearest volunteers by driving distance.',
         addressButton: 'Switch to Address Search \u2192',
         addressTransportTip: 'If the finder can drive, they may be able to meet a volunteer partway.',
         // 4) PGC fallback. {phone} = PGC dispatch line.
@@ -353,7 +354,7 @@
       // is unavailable or returns straight-line only.
       rehabDistanceDriving: '{dist} mi driving / ~{mins} min',
       // Per-row county label. {county} = facility county name.
-      rehabCounty: '{county} County',
+      rehabCounty: '{county}',
       // Per-row phone link label (rendered as a tel: link when present).
       rehabPhoneLabel: 'call {phone}',
       // Shown in place of the phone link when the facility has no phone on file.
