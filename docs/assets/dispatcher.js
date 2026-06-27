@@ -765,7 +765,7 @@
       // Cross-area monitoring volunteers count (already loaded from Tier 1 vol fetch).
       try {
         var monResult = volsMonitoringArea(winArea || '', ctx || {});
-        if (monResult && monResult.count > 0 && REC.summaryVolMonitoring) {
+        if (monResult && REC.summaryVolMonitoring) {
           html += '<li class="rec-summary-vol">' +
             fmt(REC.summaryVolMonitoring, { count: monResult.count }) + '</li>';
         }
