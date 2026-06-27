@@ -2508,6 +2508,12 @@
     if (!county) { hideTier1Volunteers(); return; }
     var token = ++t1VolToken;
 
+    // Immediately clear cached Tier 1 state so the cascade cannot read stale
+    // data from a previous county while the new fetch is in flight.
+    state.t1VolRows = null;
+    state.t1VolCtx = null;
+    state.t1MonitoringVols = null;
+
     function withCentroid() {
       if (token !== t1VolToken) return; // a newer lookup superseded us
       var centroid = state.countyCentroids && state.countyCentroids[county];
