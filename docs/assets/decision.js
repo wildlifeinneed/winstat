@@ -110,6 +110,7 @@
     rec.marginal = isMarginal;
     rec.marginal_volunteers = isMarginal ? bucketMarginalRoster(capacity, chosenBucket) : [];
     if (isMarginal) {
+      rec.marginalTier = 'county';
       rec.reasoning.push(fmt(T1.lowCapacityWarning, { count: avail }));
     }
     return rec;

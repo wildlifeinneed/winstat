@@ -1266,8 +1266,12 @@
     }
 
     if (rec.marginal && rec.marginal_volunteers && rec.marginal_volunteers.length) {
+      var marginalHeader = rec.marginalTier === 'county' ? REC.lowCapacityCounty
+        : rec.marginalTier === 'area' ? REC.lowCapacityArea
+        : rec.marginalTier === 'monitor' ? REC.lowCapacityMonitor
+        : REC.lowCapacityHeader;
       html += '<div class="rec-marginal">';
-      html += '<div class="rec-marginal-header">' + REC.lowCapacityHeader + '</div>';
+      html += '<div class="rec-marginal-header">' + marginalHeader + '</div>';
       html += '<ul>';
       rec.marginal_volunteers.forEach(function (v) {
         var note = v && v.availability_note ? String(v.availability_note) : '';
@@ -1279,7 +1283,11 @@
       });
       html += '</ul></div>';
     } else if (rec.marginal) {
-      html += '<div class="rec-marginal"><div class="rec-marginal-header">' + REC.lowCapacityHeader + '</div>' +
+      var marginalHeaderFb = rec.marginalTier === 'county' ? REC.lowCapacityCounty
+        : rec.marginalTier === 'area' ? REC.lowCapacityArea
+        : rec.marginalTier === 'monitor' ? REC.lowCapacityMonitor
+        : REC.lowCapacityHeader;
+      html += '<div class="rec-marginal"><div class="rec-marginal-header">' + marginalHeaderFb + '</div>' +
               '<p style="font-size:13px;">' + REC.noRosterRecorded + '</p></div>';
     }
 
@@ -1606,6 +1614,11 @@
         recCounty.reasoning.push(
           fmt(T1.areaVolsAvailable, { count: areaQualCount, area: winArea }));
         recCounty.reasoning.push(T1.areaDispatchWarning);
+        // Low-capacity warning: area tier barely passes (count equals minimum)
+        if (areaQualCount <= areaTier.min) {
+          recCounty.marginal = true;
+          recCounty.marginalTier = 'area';
+        }
       } else {
         // Area tier failed — try monitoring tier
         recCounty.reasoning.push(
@@ -1634,6 +1647,11 @@
           recCounty.reasoning.push(
             fmt(T1.monitorVolsAvailable, { count: monCount }));
           recCounty.reasoning.push(T1.monitorDispatchOption);
+          // Low-capacity warning: monitor tier barely passes (count equals minimum)
+          if (monCount <= monTier.min) {
+            recCounty.marginal = true;
+            recCounty.marginalTier = 'monitor';
+          }
         } else {
           // All tiers failed — keep call_pa_game_comm
           recCounty.reasoning.push(

@@ -143,6 +143,9 @@
       // {label} = resolved target-role label.
       targetRole: 'Target role: <strong>{label}</strong>',
       lowCapacityHeader: 'Low capacity',
+      lowCapacityCounty: 'Low capacity for County',
+      lowCapacityArea: 'Low capacity for Area',
+      lowCapacityMonitor: 'Low capacity for Monitoring',
       noAvailabilityInfo: '(no availability info)',
       noRosterRecorded: 'No marginal-volunteer roster recorded for this bucket.',
       reasoningHeader: 'Reasoning',
