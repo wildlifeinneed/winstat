@@ -73,23 +73,23 @@
       // enrichMarginal low-capacity note ({count} = available count).
       lowCapacityWarning: 'Low capacity warning: only {count} available; consider calling PGC.',
       // recommend() reasoning fragments, by branch.
-      missingCapacity: 'No volunteers in this county<br>Ask finder to call PGC.',
+      missingCapacity: 'No volunteers in this county - Ask finder to call PGC.',
       unknownIssue: 'Issue type not recognized - select Capture or Transport.',
       // B. Capture + RVS animal
       rvsCaptureRule: 'Capture + RVS animal -> RVS-capable C&T required.',
       rvsCaptureDispatch: 'Recommended: dispatch a C&T+RVS volunteer via Connecteam.',
-      rvsCaptureNone: 'No RVS-capable C&T volunteers available<br>Ask finder to call PGC.',
+      rvsCaptureNone: 'No RVS-capable C&T volunteers available - Ask finder to call PGC.',
       // C. Capture + non-RVS animal
       nonRvsCaptureRule: 'Capture + non-RVS animal -> any C&T volunteer acceptable.',
       nonRvsCaptureDispatch: 'Recommended: dispatch a C&T volunteer via Connecteam.',
-      nonRvsCaptureNone: 'No C&T volunteers available<br>Ask finder to call PGC.',
+      nonRvsCaptureNone: 'No C&T volunteers available - Ask finder to call PGC.',
       // D. Transport
       transportRule: 'Transport request - couriers preferred; C&T volunteers also eligible for transport runs.',
       // {courier} = courier count, {ct} = C&T count.
       transportCourierAndCt: '{courier} courier(s) + {ct} C&T(s) available for transport.',
       transportCourierDispatch: 'Recommended: dispatch a courier via Connecteam.',
       transportCtFallback: 'No couriers available; dispatching C&T for transport.',
-      transportNone: 'No courier or C&T transport capacity available<br>Ask finder to transport the animal themselves, or call PGC.',
+      transportNone: 'No courier or C&T transport capacity available - Ask finder to transport the animal themselves, or call PGC.',
       // applyCountyPolicy() DOWNGRADE reasoning fragments.
       policyDispatchDisabled: 'County policy: dispatch is disabled for this county - refer the finder out.',
       // {issue} = policy issue key (capture / rvs_capture / transport).
