@@ -212,16 +212,16 @@
       //
       // Action headlines (override ACTIONS.call_pa_game_comm.label per issue).
       pgcTransportLabel: 'Ask finder to transport to nearest wildlife rehabber',
-      pgcCaptureLabel: 'Call PA Game Commission to capture',
+      pgcCaptureLabel: 'Call PGC to capture',
       // "What to tell the finder" line under the TRANSPORT headline. The animal
       // is already contained, so transporting to a rehabber is the action.
       pgcTransportTell: 'No volunteer available in-county. The animal is contained \u2014 ask the finder to drive it to the nearest wildlife rehabber below.',
       // Fallback shown under the TRANSPORT headline when no in-scope rehabber is
       // on file (the rehabber list is empty). {phone} = PGC dispatch line.
-      pgcTransportNoRehab: 'No volunteer available in-county and no nearby rehabber on file \u2014 ask the finder to call PA Game Commission: {phone}.',
+      pgcTransportNoRehab: 'No volunteer available in-county and no nearby rehabber on file \u2014 ask the finder to call PGC: {phone}.',
       // "What to tell the finder" line under the CAPTURE / RVS headline. PGC
       // handles captures when no volunteer is available. {phone} = PGC line.
-      pgcCaptureTell: 'No volunteer available in-county to capture this animal \u2014 ask the finder to call PA Game Commission: {phone}.',
+      pgcCaptureTell: 'No volunteer available in-county to capture this animal \u2014 ask the finder to call PGC: {phone}.',
       // Inline PGC phone line header (capture path). {phone} = PGC dispatch line.
       pgcPhoneLine: 'PA Game Commission: <strong>{phone}</strong>',
 
@@ -265,7 +265,7 @@
         addressTransportTip: 'If the finder can drive, they may be able to meet a volunteer partway.',
         // 4) PGC fallback. {phone} = PGC dispatch line.
         pgcHeader: 'If no options work',
-        pgcFallback: 'Call PA Game Commission: <strong>{phone}</strong>'
+        pgcFallback: 'Call PGC: <strong>{phone}</strong>'
       }
     },
 
