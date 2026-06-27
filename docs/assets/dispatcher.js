@@ -1619,7 +1619,15 @@
         recCounty.reasoning.push(
           fmt(T1.areaInsufficient, { count: areaQualCount, min: areaTier.min }));
         var monRows = Array.isArray(state.t1MonitoringVols) ? state.t1MonitoringVols : [];
-        var monCount = monRows.length;
+        var monCount = 0;
+        for (var mi = 0; mi < monRows.length; mi++) {
+          var mRoles = Array.isArray(monRows[mi].roles) ? monRows[mi].roles : [];
+          if (qualifyFn && hasBase) {
+            if (qualifyFn(mRoles, !!base.rvs, base.issue)) { monCount++; }
+          } else {
+            monCount++;  // no filter available, count all
+          }
+        }
         var monTier = window.WildlifeDecision.recommendMonitorTier(
           monCount, base.rvs, base.issue, resolved);
         if (monTier.pass) {
