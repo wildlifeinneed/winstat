@@ -56,7 +56,15 @@
       // instead of dispatching a Connecteam task.
       ct_rvs_capture_min_available: 1,
       ct_any_capture_min_available: 1,
-      courier_transport_min_available: 1
+      courier_transport_min_available: 1,
+      // Area tier (WIN area, not in-county) — global defaults
+      area_capture_min_available: 2,
+      area_rvs_capture_min_available: 2,
+      area_transport_min_available: 2,
+      // Monitoring tier (cross-area monitors) — global defaults
+      monitor_capture_min_available: 2,
+      monitor_rvs_capture_min_available: 2,
+      monitor_transport_min_available: 4
     },
 
     // ── TIER 1 decision-engine wording (decision.js) ───────────────────────
@@ -68,7 +76,9 @@
         tbd_escalate: 'No automatic action - escalate to supervisor',
         // Set ONLY by applyCountyPolicy(): county policy forbids dispatch for
         // this call, so refer the finder to a named facility instead.
-        refer_out: 'Refer out - county policy: do not dispatch'
+        refer_out: 'Refer out - county policy: do not dispatch',
+        dispatch_warning: 'Dispatch Task (area volunteers)',
+        dispatcher_decides: 'Dispatcher Decision Needed'
       },
       // enrichMarginal low-capacity note ({count} = available count).
       lowCapacityWarning: 'Low capacity warning: only {count} available; consider calling PGC.',
@@ -96,7 +106,15 @@
       policyIssueNotAllowed: 'County policy: dispatch not allowed for {issue} in this county - refer the finder out.',
       // applyCountyPolicy() SPECIES-SCOPE downgrade reasoning. {species} = the
       // comma-separated allowed-species list for this issue (e.g. "birds").
-      policySpeciesNotAllowed: 'County policy restricts dispatch to {species} only for this issue - refer the finder out.'
+      policySpeciesNotAllowed: 'County policy restricts dispatch to {species} only for this issue - refer the finder out.',
+      // Area tier (step 3)
+      areaVolsAvailable: '{count} qualified volunteers in WIN Area {area} (not in-county).',
+      areaDispatchWarning: 'No in-county volunteers. Dispatching to area volunteers.',
+      areaInsufficient: 'Not enough in-area volunteers ({count} available, {min} needed).',
+      // Monitoring tier (step 4)
+      monitorVolsAvailable: '{count} monitoring volunteers from neighboring areas.',
+      monitorDispatchOption: 'Monitoring volunteers may see the dispatch. Tell finder: if no response within a reasonable time, call PGC or locate a rehabber if animal is contained.',
+      monitorInsufficient: 'Not enough monitoring volunteers ({count} available, {min} needed).'
     },
 
     // ── renderRecommendation (Tier 1 modal) wording (dispatcher.js) ────────

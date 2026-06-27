@@ -382,6 +382,33 @@
       color: #444;
       border-left: 4px solid var(--text-light);
     }
+    /* Cascade tier 3: area dispatch warning (amber/warn) */
+    .rec-action.warn {
+      background: #fffbeb;
+      color: #b45309;
+      border-left: 4px solid #f59e0b;
+    }
+    /* Cascade tier 4: dispatcher decides (purple/decide) */
+    .rec-action.decide {
+      background: #f5f3ff;
+      color: #6d28d9;
+      border-left: 4px solid #8b5cf6;
+    }
+    /* Dispatcher instruction line (tier 4 "tell finder" guidance) */
+    .dispatcher-instruction {
+      margin-top: 0.75rem;
+      padding: 0.5rem;
+      background: #fef3c7;
+      border-radius: 4px;
+      font-size: 0.9em;
+    }
+    /* Dual-action buttons (tier 4: Dispatch Task / Call PGC) */
+    .dual-action {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+    .dual-action button { flex: 1; }
 
     .rec-target {
       font-size: 13.5px;
@@ -1866,8 +1893,8 @@
      filename can leave a browser running STALE JS against fresh HTML (e.g. new
      markup whose handlers live only in the new JS). Bump this token on any
      change to these files to force clients to fetch the new copy. -->
-<script src="assets/messages.js?v=20260627b"></script>
-<script src="assets/decision.js?v=20260626a"></script>
-<script src="assets/dispatcher.js?v=20260627d"></script>
+<script src="assets/messages.js?v=20260627e"></script>
+<script src="assets/decision.js?v=20260627e"></script>
+<script src="assets/dispatcher.js?v=20260627e"></script>
 </body>
 </html>

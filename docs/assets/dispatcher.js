@@ -129,7 +129,11 @@
     // recommendation is rendered.
     t1RecCounty: null,
     t1RecBase: null,
-    t1RecCountyName: null
+    t1RecCountyName: null,
+    // Cascade tier used for the current recommendation: 'county' (default),
+    // 'area' (dispatch_warning), or 'monitor' (dispatcher_decides). Set by
+    // onRecommendClick's cascade logic; read by recDispatchSummaryHtml.
+    t1RecTier: 'county'
   };
 
   // ─── Address-mode (Phase G) configuration ──────────────────────────
@@ -766,6 +770,15 @@
             fmt(REC.summaryVolMonitoring, { count: monResult.count }) + '</li>';
         }
       } catch (_monErr) { /* monitoring count is supplementary — never break the summary */ }
+      // Cascade tier indicator: when the recommendation used a non-county tier,
+      // add a line so the dispatcher knows the dispatch scope.
+      if (state.t1RecTier === 'area') {
+        html += '<li class="rec-summary-vol rec-summary-tier">' +
+          'Area dispatch \u2014 no in-county volunteers available</li>';
+      } else if (state.t1RecTier === 'monitor') {
+        html += '<li class="rec-summary-vol rec-summary-tier">' +
+          'Dispatcher choice \u2014 monitoring tier (no in-county or in-area volunteers)</li>';
+      }
     } else {
       // The list has not loaded yet (e.g. Worker slow/unavailable). Show a
       // transient pending line rather than a misleading "0".
@@ -1159,6 +1172,22 @@
       html += recPgcGuidanceHtml(pgcIssue, pgcRehabbers);
     }
 
+    // dispatcher_decides (cascade tier 4): dual-action buttons + instruction.
+    // The dispatcher chooses between dispatching a task (same as connecteam_task)
+    // or calling PGC (same as call_pa_game_comm). The instruction line tells the
+    // finder what to do if no volunteer responds.
+    if (rec.action === 'dispatcher_decides') {
+      var T1dd = MSG.tier1Actions;
+      html += '<div class="dual-action">' +
+        '<button type="button" class="btn-dispatch-task" id="cascade-dispatch-btn">' +
+          escapeHtml(window.WildlifeDecision.ACTIONS.connecteam_task.label) + '</button>' +
+        '<button type="button" class="btn-call-pgc" id="cascade-pgc-btn">' +
+          escapeHtml(window.WildlifeDecision.ACTIONS.call_pa_game_comm.label) + '</button>' +
+        '</div>';
+      html += '<div class="dispatcher-instruction">' +
+        escapeHtml(T1dd.monitorDispatchOption) + '</div>';
+    }
+
     // refer_out (county-policy downgrade): show WHO to call — referral target
     // name + phone + per-target notes — plus any county-wide special
     // instructions. Set ONLY by applyCountyPolicy(); a non-refer_out rec skips
@@ -1356,6 +1385,42 @@
         hideAdvancedSearch();
       });
     }
+
+    // Wire cascade tier 4 dual-action buttons (dispatcher_decides).
+    // "Dispatch Task" re-renders the card as connecteam_task (dispatch flow).
+    // "Call PGC" re-renders the card as call_pa_game_comm (PGC guidance).
+    var cascadeDispatchBtn = document.getElementById('cascade-dispatch-btn');
+    var cascadePgcBtn = document.getElementById('cascade-pgc-btn');
+    if (cascadeDispatchBtn && recCounty) {
+      cascadeDispatchBtn.addEventListener('click', function () {
+        var dispatchRec = {
+          action: 'connecteam_task',
+          target: recCounty.target || null,
+          issue: recCounty.issue,
+          rvs: recCounty.rvs,
+          marginal: false,
+          marginal_volunteers: [],
+          reasoning: (recCounty.reasoning || []).slice()
+        };
+        state.t1RecTier = 'monitor';
+        renderRecommendation(dispatchRec, base, county);
+      });
+    }
+    if (cascadePgcBtn && recCounty) {
+      cascadePgcBtn.addEventListener('click', function () {
+        var pgcRec = {
+          action: 'call_pa_game_comm',
+          target: null,
+          issue: recCounty.issue,
+          rvs: recCounty.rvs,
+          marginal: false,
+          marginal_volunteers: [],
+          reasoning: (recCounty.reasoning || []).slice()
+        };
+        state.t1RecTier = 'monitor';
+        renderRecommendation(pgcRec, base, county);
+      });
+    }
   }
 
   // Shared animal base info, entered ONCE at the top of the console and read by
@@ -1508,6 +1573,71 @@
     // referral targets.
     var countyPolicy = policyForCounty(county);
     var recCounty = window.WildlifeDecision.recommend(countyCapacity, base.rvs, base.issue, resolved, countyPolicy, base.animalType);
+
+    // ── Cascade: county insufficient → check area → check monitoring ──────
+    // When the county tier fails (cascade=true), probe the cached Worker data
+    // for in-area and monitoring volunteers before falling through to PGC.
+    // The cascade ONLY runs when (a) the rec says cascade, (b) the Worker data
+    // is already cached (it fetches on county selection), and (c) the decision
+    // module exposes the tier functions. If any prerequisite is missing, the
+    // original call_pa_game_comm action stands (safe fallback).
+    state.t1RecTier = 'county'; // default tier
+    if (recCounty.cascade === true && Array.isArray(state.t1VolRows) &&
+        window.WildlifeDecision.recommendAreaTier &&
+        window.WildlifeDecision.recommendMonitorTier) {
+      var T1 = MSG.tier1Actions;
+      var winArea = (state.countyWin && state.countyWin[county] !== undefined &&
+                     state.countyWin[county] !== null)
+        ? String(state.countyWin[county]).trim() : '';
+
+      // Count qualified in-area vols from the cached Tier 1 rows (already
+      // area-scoped by the Worker). Uses the SAME qualifiesForAnimal predicate.
+      var qualifyFn = (window.WildlifeDecision &&
+                       typeof window.WildlifeDecision.qualifiesForAnimal === 'function')
+        ? window.WildlifeDecision.qualifiesForAnimal : null;
+      var hasBase = typeof base.issue === 'string' && base.issue !== '';
+      var areaQualCount = state.t1VolRows.length;
+      if (qualifyFn && hasBase) {
+        areaQualCount = state.t1VolRows.filter(function (row) {
+          var roleList = Array.isArray(row.roles) ? row.roles : [];
+          return qualifyFn(roleList, !!base.rvs, base.issue);
+        }).length;
+      }
+
+      var areaTier = window.WildlifeDecision.recommendAreaTier(
+        areaQualCount, base.rvs, base.issue, resolved);
+      if (areaTier.pass) {
+        // Tier 3: area volunteers available — dispatch with warning
+        recCounty.action = 'dispatch_warning';
+        recCounty.cascade = false;
+        state.t1RecTier = 'area';
+        recCounty.reasoning.push(
+          fmt(T1.areaVolsAvailable, { count: areaQualCount, area: winArea }));
+        recCounty.reasoning.push(T1.areaDispatchWarning);
+      } else {
+        // Area tier failed — try monitoring tier
+        recCounty.reasoning.push(
+          fmt(T1.areaInsufficient, { count: areaQualCount, min: areaTier.min }));
+        var monRows = Array.isArray(state.t1MonitoringVols) ? state.t1MonitoringVols : [];
+        var monCount = monRows.length;
+        var monTier = window.WildlifeDecision.recommendMonitorTier(
+          monCount, base.rvs, base.issue, resolved);
+        if (monTier.pass) {
+          // Tier 4: monitoring volunteers available — dispatcher decides
+          recCounty.action = 'dispatcher_decides';
+          recCounty.cascade = false;
+          state.t1RecTier = 'monitor';
+          recCounty.reasoning.push(
+            fmt(T1.monitorVolsAvailable, { count: monCount }));
+          recCounty.reasoning.push(T1.monitorDispatchOption);
+        } else {
+          // All tiers failed — keep call_pa_game_comm
+          recCounty.reasoning.push(
+            fmt(T1.monitorInsufficient, { count: monCount, min: monTier.min }));
+        }
+      }
+    }
+
     renderRecommendation(recCounty, base, county);
 
     // NOTE: the Tier 1 qualified-volunteer list is NO LONGER loaded here. It now

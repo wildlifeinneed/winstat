@@ -4023,12 +4023,12 @@ async function runTier1PgcTransportNoRehabFallback() {
   assert.strictEqual(pgc.querySelectorAll('.rec-pgc-rehab').length, 0,
     'no nearby rehabber rows when none are on file in-area');
   const tell = pgc.querySelector('.rec-pgc-tell');
-  assert.ok(tell && /no nearby rehabber/i.test(tell.textContent) && /pa game commission/i.test(tell.textContent),
+  assert.ok(tell && /no nearby rehabber/i.test(tell.textContent) && /PGC/i.test(tell.textContent),
     'transport with no rehabber falls back to a PGC line (got: "' + (tell ? tell.textContent : '') + '")');
   assert.ok(tell && /833/.test(tell.textContent),
     'the PGC fallback line includes the PGC dispatch number');
 
-  console.log('PASS: PGC actionable (Transport, no rehabber on file) — falls back to the PA Game Commission dispatch line with the PGC phone.');
+  console.log('PASS: PGC actionable (Transport, no rehabber on file) — falls back to the PGC dispatch line with the PGC phone.');
 }
 
 // ── PGC ACTIONABLE (Capture / animal NOT contained): when no volunteer is
@@ -4041,15 +4041,15 @@ async function runTier1PgcCaptureActionable() {
     PGC_ZERO_SNAPSHOT, PGC_REHABBERS, 'Allegheny', { rvs: true, issue: 'capture' });
 
   const actionEl = doc.querySelector('#rec-output .rec-action');
-  assert.ok(actionEl && /call pa game commission to capture/i.test(actionEl.textContent),
-    'Capture no-volunteer headline is "Call PA Game Commission to capture" (got: "' + (actionEl ? actionEl.textContent : '') + '")');
+  assert.ok(actionEl && /call PGC to capture/i.test(actionEl.textContent),
+    'Capture no-volunteer headline is "Call PGC to capture" (got: "' + (actionEl ? actionEl.textContent : '') + '")');
   assert.ok(actionEl.classList.contains('escalate'),
     'capture PGC headline keeps the escalate tone');
 
   const pgc = doc.querySelector('#rec-output .rec-pgc');
   assert.ok(pgc, 'an actionable .rec-pgc guidance block is rendered for capture');
   const tell = pgc.querySelector('.rec-pgc-tell');
-  assert.ok(tell && /capture/i.test(tell.textContent) && /pa game commission/i.test(tell.textContent),
+  assert.ok(tell && /capture/i.test(tell.textContent) && /PGC/i.test(tell.textContent),
     '"tell the finder" line says PGC handles the capture (got: "' + (tell ? tell.textContent : '') + '")');
   // The PGC dispatch number is shown inline in the "tell the finder" line.
   assert.ok(tell && /833/.test(tell.textContent),
@@ -4062,7 +4062,7 @@ async function runTier1PgcCaptureActionable() {
   assert.strictEqual(pgc.querySelectorAll('.rec-pgc-rehab').length, 0,
     'no rehabber list on the capture path (animal not contained)');
 
-  console.log('PASS: PGC actionable (Capture / RVS, animal not contained) — headline is "Call PA Game Commission to capture" + shows the PGC dispatch number; no rehabber list.');
+  console.log('PASS: PGC actionable (Capture / RVS, animal not contained) — headline is "Call PGC to capture" + shows the PGC dispatch number; no rehabber list.');
 }
 
 
@@ -4816,7 +4816,7 @@ async function runOptionsPanelCapturePgc() {
 
   // The headline is still the PGC escalation (panel is shown IN ADDITION to it).
   const actionEl = doc.querySelector('#rec-output .rec-action');
-  assert.ok(actionEl && /call pa game commission/i.test(actionEl.textContent),
+  assert.ok(actionEl && /call PGC/i.test(actionEl.textContent),
     'capture no-volunteer keeps the PGC headline');
 
   // The OPTIONS panel exists (now rendered into the separate Advanced Search section).
@@ -4927,6 +4927,288 @@ async function runOptionsPanelWinVolButtonWired() {
   console.log('PASS: OPTIONS panel — "Show WIN Area Volunteers" button opens the existing WIN Area volunteer list (#t1-vol-toggle-area).');
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ── CASCADE DOM TESTS: 4-tier decision cascade (county → area → monitor → PGC)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Shared helper: load the DOM with a county_capacity SNAPSHOT + a Worker
+// aggregate that seeds state.t1VolRows (from out_of_county) and
+// state.t1MonitoringVols (from monitoring_area_vols). Select county, set
+// base info, click "Get Recommendation". Returns { window, doc }.
+async function driveCascadeRecommend(snapshot, areaVols, monitorVols, county, base, extra) {
+  extra = extra || {};
+  const dataRoutes = {
+    'county_capacity.json': snapshot,
+    'county_win.json': COUNTY_WIN,
+    'coordinators.json': COORDINATORS,
+  };
+  if (extra.policy) dataRoutes['policy.json'] = extra.policy;
+  const workerAgg = {
+    total_in_range: (areaVols || []).length,
+    role_counts: {},
+    win_areas: ['10'],
+    out_of_county: areaVols || [],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+    monitoring_area_vols: monitorVols || [],
+  };
+  const { window } = loadDom({
+    workerAgg: workerAgg,
+    data: dataRoutes,
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  const countySel = doc.getElementById('county');
+  countySel.value = county;
+  countySel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+
+  if (base) {
+    const rvsVal = base.rvs ? 'yes' : 'no';
+    const rvsEl = doc.querySelector('input[name="rvs"][value="' + rvsVal + '"]');
+    if (rvsEl) { rvsEl.checked = true; rvsEl.dispatchEvent(new window.Event('change', { bubbles: true })); }
+    const issueEl = doc.querySelector('input[name="issue"][value="' + base.issue + '"]');
+    if (issueEl) { issueEl.checked = true; issueEl.dispatchEvent(new window.Event('change', { bubbles: true })); }
+    await flush(window);
+    await flush(window);
+  }
+
+  doc.getElementById('recommend-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+  return { window, doc };
+}
+
+// Snapshot with SUFFICIENT county capacity (Allegheny has 3 C&T available).
+const CASCADE_COUNTY_OK = {
+  generated_at: '2024-01-01T00:00:00Z',
+  counties: {
+    Allegheny: {
+      ct_no_rvs: { available: 3, total: 5, marginal_volunteers: [] },
+      ct_rvs: { available: 2, total: 3, marginal_volunteers: [] },
+      courier: { available: 2, total: 3, marginal_volunteers: [] },
+    },
+  },
+};
+
+// Snapshot with ZERO county capacity (triggers cascade).
+const CASCADE_COUNTY_ZERO = {
+  generated_at: '2024-01-01T00:00:00Z',
+  counties: {
+    Allegheny: {
+      ct_no_rvs: { available: 0, total: 0, marginal_volunteers: [] },
+      ct_rvs: { available: 0, total: 0, marginal_volunteers: [] },
+      courier: { available: 0, total: 0, marginal_volunteers: [] },
+    },
+  },
+};
+
+// Area vols: qualified C&T volunteers in the WIN area (not in-county).
+function makeAreaVols(count) {
+  var vols = [];
+  for (var i = 0; i < count; i++) {
+    vols.push({ roles: ['C&T'], distance_mi: 10 + i, win_area: '10', county: 'Beaver', availability_note: '' });
+  }
+  return vols;
+}
+
+// Monitoring vols: cross-area monitors.
+function makeMonitorVols(count) {
+  var vols = [];
+  for (var i = 0; i < count; i++) {
+    vols.push({ roles: ['C&T'], distance_mi: 30 + i, win_area: '5', county: 'Butler', availability_note: '', home_area: '5' });
+  }
+  return vols;
+}
+
+// ── 1) County sufficient → normal dispatch (no cascade) ──────────────────
+async function runCascadeCountySufficient() {
+  const { doc } = await driveCascadeRecommend(
+    CASCADE_COUNTY_OK, makeAreaVols(3), makeMonitorVols(3),
+    'Allegheny', { rvs: false, issue: 'capture' });
+
+  const out = doc.getElementById('rec-output');
+  assert.ok(out && out.classList.contains('show'), 'recommendation panel shown');
+  assert.ok(out.classList.contains('tone-go'),
+    'county-sufficient recommendation has tone-go (got classes: ' + out.className + ')');
+
+  const actionEl = doc.querySelector('#rec-output .rec-action');
+  assert.ok(actionEl && /dispatch via connecteam|connecteam/i.test(actionEl.textContent),
+    'county-sufficient action is connecteam_task (got: "' + (actionEl ? actionEl.textContent : '') + '")');
+  assert.ok(actionEl.classList.contains('go'), 'action element has go tone class');
+
+  // No cascade elements should be present.
+  assert.strictEqual(doc.querySelector('#rec-output .dual-action'), null,
+    'no dual-action buttons for county-sufficient dispatch');
+  assert.strictEqual(doc.querySelector('#rec-output .dispatcher-instruction'), null,
+    'no dispatcher instruction for county-sufficient dispatch');
+
+  console.log('PASS: CASCADE — county sufficient → normal dispatch (tone-go, connecteam_task, no cascade elements).');
+}
+
+// ── 2) County insufficient + area sufficient → dispatch_warning card ─────
+async function runCascadeAreaSufficient() {
+  // County has 0 capacity; area has 3 qualified vols (min is 2).
+  const { doc } = await driveCascadeRecommend(
+    CASCADE_COUNTY_ZERO, makeAreaVols(3), makeMonitorVols(0),
+    'Allegheny', { rvs: false, issue: 'capture' });
+
+  const out = doc.getElementById('rec-output');
+  assert.ok(out && out.classList.contains('show'), 'recommendation panel shown');
+  assert.ok(out.classList.contains('tone-warn'),
+    'area-sufficient recommendation has tone-warn (got classes: ' + out.className + ')');
+
+  const actionEl = doc.querySelector('#rec-output .rec-action');
+  assert.ok(actionEl, 'action element exists');
+  assert.ok(actionEl.classList.contains('warn'), 'action element has warn tone class');
+  assert.ok(/area volunteers|dispatch task/i.test(actionEl.textContent),
+    'area-sufficient action label mentions area volunteers (got: "' + actionEl.textContent + '")');
+
+  // Reasoning should mention area volunteers.
+  const reasoning = doc.querySelector('#rec-output .rec-reasoning');
+  assert.ok(reasoning, 'reasoning block exists');
+  const reasoningText = reasoning.textContent || '';
+  assert.ok(/area|not in-county/i.test(reasoningText),
+    'reasoning mentions area volunteers (got: "' + reasoningText.substring(0, 200) + '")');
+
+  console.log('PASS: CASCADE — county insufficient + area sufficient → dispatch_warning (tone-warn, area reasoning).');
+}
+
+// ── 3) County insufficient + area insufficient + monitoring sufficient → dispatcher_decides ──
+async function runCascadeMonitorSufficient() {
+  // County 0, area 1 vol (below min 2), monitoring 3 vols (min 2 for capture).
+  const { doc } = await driveCascadeRecommend(
+    CASCADE_COUNTY_ZERO, makeAreaVols(1), makeMonitorVols(3),
+    'Allegheny', { rvs: false, issue: 'capture' });
+
+  const out = doc.getElementById('rec-output');
+  assert.ok(out && out.classList.contains('show'), 'recommendation panel shown');
+  assert.ok(out.classList.contains('tone-decide'),
+    'monitor-sufficient recommendation has tone-decide (got classes: ' + out.className + ')');
+
+  const actionEl = doc.querySelector('#rec-output .rec-action');
+  assert.ok(actionEl, 'action element exists');
+  assert.ok(actionEl.classList.contains('decide'), 'action element has decide tone class');
+  assert.ok(/dispatcher decision|dispatcher decides/i.test(actionEl.textContent),
+    'monitor-sufficient action label is dispatcher_decides (got: "' + actionEl.textContent + '")');
+
+  // Dual-action buttons: Dispatch Task + Call PGC.
+  const dualAction = doc.querySelector('#rec-output .dual-action');
+  assert.ok(dualAction, 'dual-action button container exists for dispatcher_decides');
+  const dispatchBtn = doc.getElementById('cascade-dispatch-btn');
+  const pgcBtn = doc.getElementById('cascade-pgc-btn');
+  assert.ok(dispatchBtn, 'Dispatch Task button exists');
+  assert.ok(pgcBtn, 'Call PGC button exists');
+  assert.ok(/connecteam|dispatch/i.test(dispatchBtn.textContent),
+    'dispatch button label (got: "' + dispatchBtn.textContent + '")');
+  assert.ok(/pgc|game comm/i.test(pgcBtn.textContent),
+    'PGC button label (got: "' + pgcBtn.textContent + '")');
+
+  // Dispatcher instruction line.
+  const instruction = doc.querySelector('#rec-output .dispatcher-instruction');
+  assert.ok(instruction, 'dispatcher instruction line exists');
+  assert.ok(/finder|no response|pgc|rehabber/i.test(instruction.textContent),
+    'instruction mentions finder follow-up (got: "' + instruction.textContent.substring(0, 150) + '")');
+
+  console.log('PASS: CASCADE — county + area insufficient, monitoring sufficient → dispatcher_decides (tone-decide, dual buttons, instruction).');
+}
+
+// ── 4) County insufficient + all insufficient → call_pa_game_comm ────────
+async function runCascadeAllInsufficient() {
+  // County 0, area 0, monitoring 0.
+  const { doc } = await driveCascadeRecommend(
+    CASCADE_COUNTY_ZERO, [], [],
+    'Allegheny', { rvs: false, issue: 'capture' });
+
+  const out = doc.getElementById('rec-output');
+  assert.ok(out && out.classList.contains('show'), 'recommendation panel shown');
+  assert.ok(out.classList.contains('tone-escalate'),
+    'all-insufficient recommendation has tone-escalate (got classes: ' + out.className + ')');
+
+  const actionEl = doc.querySelector('#rec-output .rec-action');
+  assert.ok(actionEl, 'action element exists');
+  assert.ok(actionEl.classList.contains('escalate'), 'action element has escalate tone class');
+
+  // No dual-action buttons.
+  assert.strictEqual(doc.querySelector('#rec-output .dual-action'), null,
+    'no dual-action buttons for call_pa_game_comm');
+
+  console.log('PASS: CASCADE — county + area + monitoring all insufficient → call_pa_game_comm (tone-escalate).');
+}
+
+// ── 5) Policy refer_out → no cascade (policy overrides) ──────────────────
+async function runCascadePolicyOverride() {
+  // County 0 (would trigger cascade), but policy says dispatch_enabled=false.
+  // Even with area + monitoring vols available, result should be refer_out.
+  const policy = {
+    counties: {
+      Allegheny: {
+        dispatch_enabled: false,
+        referral_targets: [{ name: 'Test Facility', phone: '5551234567' }],
+      },
+    },
+  };
+  const { doc } = await driveCascadeRecommend(
+    CASCADE_COUNTY_ZERO, makeAreaVols(5), makeMonitorVols(5),
+    'Allegheny', { rvs: false, issue: 'capture' },
+    { policy: policy });
+
+  const out = doc.getElementById('rec-output');
+  assert.ok(out && out.classList.contains('show'), 'recommendation panel shown');
+  assert.ok(out.classList.contains('tone-escalate'),
+    'policy refer_out has tone-escalate (got classes: ' + out.className + ')');
+
+  const actionEl = doc.querySelector('#rec-output .rec-action');
+  assert.ok(actionEl, 'action element exists');
+  assert.ok(/refer out|do not dispatch/i.test(actionEl.textContent),
+    'policy override yields refer_out action (got: "' + actionEl.textContent + '")');
+
+  // No cascade elements.
+  assert.strictEqual(doc.querySelector('#rec-output .dual-action'), null,
+    'no dual-action buttons when policy overrides');
+  assert.strictEqual(doc.querySelector('#rec-output .dispatcher-instruction'), null,
+    'no dispatcher instruction when policy overrides');
+
+  // Referral block should be present.
+  const referral = doc.querySelector('#rec-output .rec-referral');
+  assert.ok(referral, 'referral block is rendered for policy refer_out');
+
+  console.log('PASS: CASCADE — policy refer_out overrides cascade (no area/monitor check, refer_out with referral block).');
+}
+
+// ── 6) Transport monitor tier needs 4 (not 2) ───────────────────────────
+async function runCascadeTransportMonitorMin4() {
+  // Transport issue: monitor_transport_min_available = 4 (from messages.js).
+  // County 0, area 0, monitoring 3 → should be call_pa_game_comm (3 < 4).
+  const { doc: doc3 } = await driveCascadeRecommend(
+    CASCADE_COUNTY_ZERO, [], makeMonitorVols(3),
+    'Allegheny', { rvs: false, issue: 'transport' });
+
+  const out3 = doc3.getElementById('rec-output');
+  assert.ok(out3 && out3.classList.contains('show'), 'recommendation panel shown (3 monitors)');
+  assert.ok(out3.classList.contains('tone-escalate'),
+    '3 monitoring vols for transport → tone-escalate (3 < min 4) (got classes: ' + out3.className + ')');
+
+  // Now with 4 monitoring vols → should be dispatcher_decides.
+  const { doc: doc4 } = await driveCascadeRecommend(
+    CASCADE_COUNTY_ZERO, [], makeMonitorVols(4),
+    'Allegheny', { rvs: false, issue: 'transport' });
+
+  const out4 = doc4.getElementById('rec-output');
+  assert.ok(out4 && out4.classList.contains('show'), 'recommendation panel shown (4 monitors)');
+  assert.ok(out4.classList.contains('tone-decide'),
+    '4 monitoring vols for transport → tone-decide (4 >= min 4) (got classes: ' + out4.className + ')');
+
+  const dualAction = doc4.querySelector('#rec-output .dual-action');
+  assert.ok(dualAction, 'dual-action buttons present with 4 monitoring vols for transport');
+
+  console.log('PASS: CASCADE — transport monitor tier needs 4: 3 vols → escalate, 4 vols → dispatcher_decides.');
+}
+
 async function run() {
   await runHelpLink();
   await runHelpViewerRenders();
@@ -4999,7 +5281,13 @@ async function run() {
   await runOptionsPanelCapturePgc();
   await runOptionsPanelNeighborEmptyNotHidden();
   await runOptionsPanelWinVolButtonWired();
-  console.log('\nALL DOM TESTS PASSED (69 scenarios).');
+  await runCascadeCountySufficient();
+  await runCascadeAreaSufficient();
+  await runCascadeMonitorSufficient();
+  await runCascadeAllInsufficient();
+  await runCascadePolicyOverride();
+  await runCascadeTransportMonitorMin4();
+  console.log('\nALL DOM TESTS PASSED (75 scenarios).');
 }
 
 run().then(function () {

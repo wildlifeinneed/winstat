@@ -4,6 +4,8 @@
   "private": true,
   "description": "Test-only harness for the served dispatcher UI (docs/). NOT shipped to GitHub Pages.",
   "scripts": {
+    "test": "node test/decision.test.js && node test/dispatcher_dom.test.js && node test/flags_dom.test.js",
+    "test:decision": "node test/decision.test.js",
     "test:dispatcher": "node test/dispatcher_dom.test.js",
     "test:flags": "node test/flags_dom.test.js"
   },

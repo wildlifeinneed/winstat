@@ -41,6 +41,16 @@
       id: 'refer_out',
       label: T1.actionLabels.refer_out,
       tone: 'escalate'
+    },
+    dispatch_warning: {
+      id: 'dispatch_warning',
+      label: T1.actionLabels.dispatch_warning,
+      tone: 'warn'
+    },
+    dispatcher_decides: {
+      id: 'dispatcher_decides',
+      label: T1.actionLabels.dispatcher_decides,
+      tone: 'decide'
     }
   };
 
@@ -51,7 +61,13 @@
     var keys = ['marginal_threshold',
                 'ct_rvs_capture_min_available',
                 'ct_any_capture_min_available',
-                'courier_transport_min_available'];
+                'courier_transport_min_available',
+                'area_capture_min_available',
+                'area_rvs_capture_min_available',
+                'area_transport_min_available',
+                'monitor_capture_min_available',
+                'monitor_rvs_capture_min_available',
+                'monitor_transport_min_available'];
     for (var i = 0; i < keys.length; i++) {
       var k = keys[i];
       out[k] = (rc && typeof rc[k] === 'number') ? rc[k] : DEFAULTS[k];
@@ -407,6 +423,7 @@
 
     rec.action = 'refer_out';
     rec.target = null;
+    rec.cascade = false;
     rec.referral_targets = referralsForIssue(countyPolicy.referral_targets, policyIssue);
     if (typeof countyPolicy.special_notes !== 'undefined') {
       rec.special_notes = countyPolicy.special_notes;
@@ -462,6 +479,7 @@
     // A. Missing capacity
     if (!capacity) {
       rec.action = 'call_pa_game_comm';
+      rec.cascade = true;
       rec.reasoning = [T1.missingCapacity];
       return rec;
     }
@@ -491,6 +509,7 @@
           return enrichMarginal(rec, capacity, 'ct_rvs', cfg);
         }
         rec.action = 'call_pa_game_comm';
+        rec.cascade = true;
         rec.reasoning.push(T1.rvsCaptureNone);
         return rec;
       }
@@ -505,6 +524,7 @@
         return enrichMarginal(rec, capacity, chosen, cfg, ctAnyAvail);
       }
       rec.action = 'call_pa_game_comm';
+      rec.cascade = true;
       rec.reasoning.push(T1.nonRvsCaptureNone);
       return rec;
     }
@@ -528,12 +548,45 @@
       return enrichMarginal(rec, capacity, chosenT, cfg, transportPool);
     }
     rec.action = 'call_pa_game_comm';
+    rec.cascade = true;
     rec.reasoning.push(T1.transportNone);
     return rec;
   }
 
+  // ─── Area tier: does the in-area qualified vol count meet the threshold? ──
+  function recommendAreaTier(qualifiedCount, animalRvs, issue, resolvedConfig) {
+    var cfg = resolveConfig(resolvedConfig);
+    var issueNorm = (typeof issue === 'string') ? issue.toLowerCase().trim() : '';
+    var min;
+    if (issueNorm === 'capture') {
+      min = animalRvs ? cfg.area_rvs_capture_min_available : cfg.area_capture_min_available;
+    } else if (issueNorm === 'transport') {
+      min = cfg.area_transport_min_available;
+    } else {
+      return { pass: false, min: 0, count: qualifiedCount };
+    }
+    return { pass: qualifiedCount >= min, min: min, count: qualifiedCount };
+  }
+
+  // ─── Monitor tier: same pattern ──────────────────────────────────────────
+  function recommendMonitorTier(qualifiedCount, animalRvs, issue, resolvedConfig) {
+    var cfg = resolveConfig(resolvedConfig);
+    var issueNorm = (typeof issue === 'string') ? issue.toLowerCase().trim() : '';
+    var min;
+    if (issueNorm === 'capture') {
+      min = animalRvs ? cfg.monitor_rvs_capture_min_available : cfg.monitor_capture_min_available;
+    } else if (issueNorm === 'transport') {
+      min = cfg.monitor_transport_min_available;
+    } else {
+      return { pass: false, min: 0, count: qualifiedCount };
+    }
+    return { pass: qualifiedCount >= min, min: min, count: qualifiedCount };
+  }
+
   var api = {
     recommend: recommend,
+    recommendAreaTier: recommendAreaTier,
+    recommendMonitorTier: recommendMonitorTier,
     applyCountyPolicy: applyCountyPolicy,
     buildFacilityPhoneIndex: buildFacilityPhoneIndex,
     resolveReferralPhone: resolveReferralPhone,
