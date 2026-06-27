@@ -168,8 +168,8 @@
       summaryHeader: 'Dispatch summary',
       // Qualified-volunteer count lines. {count} = qualified volunteers,
       // {county} = selected county, {area} = its WIN area.
-      summaryVolCounty: '<strong>{count}</strong> In-county Qualified vols ({county} County)',
-      summaryVolArea: '<strong>{count}</strong> In-area Qualified vols (WIN Area {area})',
+      summaryVolCounty: '<strong>{count}</strong> Qualified volunteers ({county} County)',
+      summaryVolArea: '<strong>{count}</strong> Qualified volunteers (WIN Area {area})',
       // Same lines when the WIN area is unknown for the selected county.
       summaryVolAreaUnknown: '<strong>{count}</strong> In-area Qualified vols',
       // Shown in place of the count lines when the volunteer list has not
