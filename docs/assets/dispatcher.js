@@ -910,8 +910,7 @@
     }
 
     var html = '<p class="rec-options-line">' +
-      monResult.count + ' qualified volunteers from other areas monitor Area ' +
-      escapeHtml(area) + '</p>';
+      monResult.count + ' Qualified monitoring volunteers ' + '</p>';
     var sortedAreas = Object.keys(byArea).sort(function (a, b) {
       return (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0);
     });
