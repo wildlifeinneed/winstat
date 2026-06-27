@@ -64,32 +64,32 @@
     tier1Actions: {
       actionLabels: {
         connecteam_task: 'Dispatch via Connecteam',
-        call_pa_game_comm: 'Call PA Game Commission',
+        call_pa_game_comm: 'Call PGC',
         tbd_escalate: 'No automatic action - escalate to supervisor',
         // Set ONLY by applyCountyPolicy(): county policy forbids dispatch for
         // this call, so refer the finder to a named facility instead.
         refer_out: 'Refer out - county policy: do not dispatch'
       },
       // enrichMarginal low-capacity note ({count} = available count).
-      lowCapacityWarning: 'Low capacity warning: only {count} available; consider calling PA Game Commission.',
+      lowCapacityWarning: 'Low capacity warning: only {count} available; consider calling PGC.',
       // recommend() reasoning fragments, by branch.
-      missingCapacity: 'No volunteers in this county - ask the finder to call PA Game Commission.',
+      missingCapacity: 'No volunteers in this county<br>Ask finder to call PGC.',
       unknownIssue: 'Issue type not recognized - select Capture or Transport.',
       // B. Capture + RVS animal
       rvsCaptureRule: 'Capture + RVS animal -> RVS-capable C&T required.',
       rvsCaptureDispatch: 'Recommended: dispatch a C&T+RVS volunteer via Connecteam.',
-      rvsCaptureNone: 'No RVS-capable C&T volunteers available - ask the finder to call PA Game Commission.',
+      rvsCaptureNone: 'No RVS-capable C&T volunteers available<br>Ask finder to call PGC.',
       // C. Capture + non-RVS animal
       nonRvsCaptureRule: 'Capture + non-RVS animal -> any C&T volunteer acceptable.',
       nonRvsCaptureDispatch: 'Recommended: dispatch a C&T volunteer via Connecteam.',
-      nonRvsCaptureNone: 'No C&T volunteers available - ask the finder to call PA Game Commission.',
+      nonRvsCaptureNone: 'No C&T volunteers available<br>Ask finder to call PGC.',
       // D. Transport
       transportRule: 'Transport request - couriers preferred; C&T volunteers also eligible for transport runs.',
       // {courier} = courier count, {ct} = C&T count.
       transportCourierAndCt: '{courier} courier(s) + {ct} C&T(s) available for transport.',
       transportCourierDispatch: 'Recommended: dispatch a courier via Connecteam.',
       transportCtFallback: 'No couriers available; dispatching C&T for transport.',
-      transportNone: 'No courier or C&T transport capacity available - ask the finder to transport the animal themselves, or call PA Game Commission.',
+      transportNone: 'No courier or C&T transport capacity available<br>Ask finder to transport the animal themselves, or call PGC.',
       // applyCountyPolicy() DOWNGRADE reasoning fragments.
       policyDispatchDisabled: 'County policy: dispatch is disabled for this county - refer the finder out.',
       // {issue} = policy issue key (capture / rvs_capture / transport).
