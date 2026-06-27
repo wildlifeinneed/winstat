@@ -859,19 +859,11 @@
     var rows = Array.isArray(state.t1MonitoringVols) ? state.t1MonitoringVols : [];
     var norm = String(areaNum).trim();
     if (!norm) return { count: 0, homeAreas: [] };
-    var qualifyFn = (window.WildlifeDecision &&
-                     typeof window.WildlifeDecision.qualifiesForAnimal === 'function')
-      ? window.WildlifeDecision.qualifiesForAnimal : null;
-    var hasBase = ctx && typeof ctx.issue === 'string' && ctx.issue !== '';
     var count = 0;
     var areaSet = {};
     for (var i = 0; i < rows.length; i++) {
-      // Worker already filtered: each vol's monitored_areas includes the target
-      // area AND their home area differs. Just apply qualification filtering.
-      if (qualifyFn && hasBase) {
-        var roleList = Array.isArray(rows[i].roles) ? rows[i].roles : [];
-        if (!qualifyFn(roleList, !!ctx.rvs, ctx.issue)) continue;
-      }
+      // Monitoring vols are about area awareness, not handling capability —
+      // show ALL cross-area monitors regardless of animal/RVS qualification.
       count++;
       var homeArea = rows[i].win_area ? String(rows[i].win_area) : '';
       if (homeArea) areaSet[homeArea] = true;
@@ -900,17 +892,10 @@
 
     // Build the list: group by home area, show counties.
     var rows = Array.isArray(state.t1MonitoringVols) ? state.t1MonitoringVols : [];
-    var qualifyFn = (window.WildlifeDecision &&
-                     typeof window.WildlifeDecision.qualifiesForAnimal === 'function')
-      ? window.WildlifeDecision.qualifiesForAnimal : null;
-    var hasBase = ctx && typeof ctx.issue === 'string' && ctx.issue !== '';
-    // Collect qualified vols grouped by home area with their counties
+    // Collect ALL monitoring vols grouped by home area with their counties —
+    // no animal/RVS qualification filter (monitoring = area awareness).
     var byArea = {};  // { areaNum: [county1, county2, ...] }
     for (var i = 0; i < rows.length; i++) {
-      if (qualifyFn && hasBase) {
-        var roleList = Array.isArray(rows[i].roles) ? rows[i].roles : [];
-        if (!qualifyFn(roleList, !!ctx.rvs, ctx.issue)) continue;
-      }
       var ha = rows[i].win_area ? String(rows[i].win_area) : '?';
       if (!byArea[ha]) byArea[ha] = [];
       var county = rows[i].home_county || '';
@@ -918,7 +903,7 @@
     }
 
     var html = '<p class="rec-options-line">' +
-      monResult.count + ' Qualified monitoring volunteers ' + '</p>';
+      monResult.count + ' Monitoring volunteers ' + '</p>';
     var sortedAreas = Object.keys(byArea).sort(function (a, b) {
       return (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0);
     });
