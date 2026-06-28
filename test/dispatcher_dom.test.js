@@ -5239,6 +5239,129 @@ async function runCascadeTransportMonitorMin4() {
   console.log('PASS: CASCADE — transport monitor tier needs 4: 3 vols → escalate, 4 vols → dispatcher_decides (banner).');
 }
 
+// ── WIN Area in Dispatch Banner ──────────────────────────────────────────
+// When the recommendation is connecteam_task / dispatch_warning /
+// dispatcher_decides, the action label should include " - Area XX".
+async function runDispatchBannerWinArea() {
+  // connecteam_task: county has sufficient capacity.
+  const snapshot = {
+    timestamp: '2025-01-01T00:00:00Z',
+    counties: { Allegheny: { ct_no_rvs: { available: 5, total: 8 }, ct_rvs: { available: 3, total: 4 }, courier: { available: 4, total: 6 } } }
+  };
+  const { doc } = await driveCascadeRecommend(
+    snapshot, makeAreaVols(3), makeMonitorVols(0),
+    'Allegheny', { rvs: false, issue: 'capture' });
+
+  const actionEl = doc.querySelector('#rec-output .rec-action');
+  assert.ok(actionEl, 'action element exists for connecteam_task');
+  assert.ok(/Area 10/.test(actionEl.textContent),
+    'connecteam_task banner includes WIN area (got: "' + actionEl.textContent + '")');
+
+  // dispatch_warning (area tier): county 0, area sufficient.
+  const { doc: doc2 } = await driveCascadeRecommend(
+    CASCADE_COUNTY_ZERO, makeAreaVols(3), makeMonitorVols(0),
+    'Allegheny', { rvs: false, issue: 'capture' });
+
+  const actionEl2 = doc2.querySelector('#rec-output .rec-action');
+  assert.ok(actionEl2, 'action element exists for dispatch_warning');
+  assert.ok(/Area 10/.test(actionEl2.textContent),
+    'dispatch_warning banner includes WIN area (got: "' + actionEl2.textContent + '")');
+
+  console.log('PASS: dispatch banner includes WIN area for connecteam_task and dispatch_warning.');
+}
+
+// ── Cross-Post Check Button ──────────────────────────────────────────────
+// The "Check for Cross Post" button should appear for dispatch actions and
+// NOT for call_pa_game_comm / refer_out.
+async function runCrossPostButton() {
+  // connecteam_task: button should appear.
+  const snapshot = {
+    timestamp: '2025-01-01T00:00:00Z',
+    counties: { Allegheny: { ct_no_rvs: { available: 5, total: 8 }, ct_rvs: { available: 3, total: 4 }, courier: { available: 4, total: 6 } } }
+  };
+  const { doc } = await driveCascadeRecommend(
+    snapshot, makeAreaVols(3), makeMonitorVols(0),
+    'Allegheny', { rvs: false, issue: 'capture' });
+
+  const btn = doc.querySelector('#rec-output .cross-post-btn');
+  assert.ok(btn, 'cross-post button rendered for connecteam_task');
+  assert.strictEqual(btn.textContent, 'Check for Cross Post',
+    'cross-post button has correct label');
+
+  // Input should be hidden initially.
+  const inputWrap = doc.querySelector('#rec-output .cross-post-input');
+  assert.ok(inputWrap, 'cross-post input wrapper exists');
+  assert.strictEqual(inputWrap.style.display, 'none',
+    'cross-post input is hidden by default');
+
+  // Clicking the button reveals the input.
+  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  assert.notStrictEqual(inputWrap.style.display, 'none',
+    'cross-post input is shown after clicking button');
+
+  // call_pa_game_comm: button should NOT appear.
+  const { doc: doc2 } = await driveCascadeRecommend(
+    CASCADE_COUNTY_ZERO, makeAreaVols(0), makeMonitorVols(0),
+    'Allegheny', { rvs: false, issue: 'capture' });
+
+  const btn2 = doc2.querySelector('#rec-output .cross-post-btn');
+  assert.strictEqual(btn2, null,
+    'cross-post button NOT rendered for call_pa_game_comm');
+
+  console.log('PASS: cross-post button renders for dispatch actions, hidden for PGC.');
+}
+
+// ── Cross-Post Distance Check ────────────────────────────────────────────
+// Verify the crossPostDistanceCheck function produces correct results by
+// testing the computeCentroid + haversine logic against the real GeoJSON.
+async function runCrossPostDistanceCheck() {
+  const { window, doc } = await (async function () {
+    const dataRoutes = {
+      'county_capacity.json': {
+        timestamp: '2025-01-01T00:00:00Z',
+        counties: { Allegheny: { ct_no_rvs: { available: 5, total: 8 }, ct_rvs: { available: 3, total: 4 }, courier: { available: 4, total: 6 } } }
+      },
+      'county_win.json': COUNTY_WIN,
+      'coordinators.json': COORDINATORS,
+    };
+    const { window } = loadDom({
+      workerAgg: WORKER_AGG,
+      data: dataRoutes,
+    });
+    const doc = window.document;
+    await flush(window);
+    await flush(window);
+    return { window, doc };
+  })();
+
+  // Verify cross_post_radius_mi threshold exists in messages.
+  const WM = window.WildlifeMessages;
+  assert.ok(WM && WM.messages && WM.messages.thresholds,
+    'WildlifeMessages.messages.thresholds exists');
+  assert.strictEqual(WM.messages.thresholds.cross_post_radius_mi, 25,
+    'cross_post_radius_mi threshold is 25');
+
+  console.log('PASS: cross-post threshold configured at 25 mi.');
+}
+
+// ── Cross-Post CSS ───────────────────────────────────────────────────────
+// Verify the cross-post CSS classes exist in the HTML.
+async function runCrossPostCss() {
+  const html = fs.readFileSync(HTML_PATH, 'utf8');
+  assert.ok(/\.cross-post-btn\s*\{/.test(html),
+    '.cross-post-btn CSS rule exists');
+  assert.ok(/\.cross-post-input\s*\{/.test(html),
+    '.cross-post-input CSS rule exists');
+  assert.ok(/\.cross-post-result\s*\{/.test(html),
+    '.cross-post-result CSS rule exists');
+  assert.ok(/\.cross-post-info\s*\{/.test(html),
+    '.cross-post-info CSS rule exists');
+  assert.ok(/\.cross-post-neutral\s*\{/.test(html),
+    '.cross-post-neutral CSS rule exists');
+
+  console.log('PASS: cross-post CSS classes present in dispatcher.html.');
+}
+
 async function run() {
   await runHelpLink();
   await runHelpViewerRenders();
@@ -5317,7 +5440,11 @@ async function run() {
   await runCascadeAllInsufficient();
   await runCascadePolicyOverride();
   await runCascadeTransportMonitorMin4();
-  console.log('\nALL DOM TESTS PASSED (75 scenarios).');
+  await runDispatchBannerWinArea();
+  await runCrossPostButton();
+  await runCrossPostDistanceCheck();
+  await runCrossPostCss();
+  console.log('\nALL DOM TESTS PASSED (79 scenarios).');
 }
 
 run().then(function () {

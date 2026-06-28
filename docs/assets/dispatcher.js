@@ -1171,6 +1171,18 @@
         : REC.pgcCaptureLabel;
     }
 
+    // Append WIN area to dispatch-class actions (connecteam_task, dispatch_warning,
+    // dispatcher_decides) so the banner reads e.g. "Dispatch via Connecteam - Area 05".
+    if (rec.action === 'connecteam_task' || rec.action === 'dispatch_warning' || rec.action === 'dispatcher_decides') {
+      var area = (state.countyWin && state.countyWin[county] !== undefined && state.countyWin[county] !== null)
+        ? String(state.countyWin[county]).trim() : '';
+      if (area) {
+        // Normalize to zero-padded 2-digit (e.g. '5' -> '05').
+        if (/^\d+$/.test(area) && area.length < 2) area = '0' + area;
+        label += ' - Area ' + area;
+      }
+    }
+
     var html = '';
     html += '<div class="rec-action ' + tone + '">' + escapeHtml(label) + '</div>';
     if (rec.target) {
@@ -1408,6 +1420,201 @@
         hideAdvancedSearch();
       });
     }
+
+    // ── Cross-Post Check button (dispatch actions only) ──────────────────
+    // Appended AFTER the recommendation body for connecteam_task,
+    // dispatch_warning, and dispatcher_decides. Lets the dispatcher enter an
+    // animal address, geocode it, and check if any other WIN area's nearest
+    // county centroid is within cross_post_radius_mi.
+    try {
+      renderCrossPostButton(recCounty, county, out);
+    } catch (e) { console.warn('cross-post button error:', e); }
+  }
+
+  // ── Cross-Post Check ─────────────────────────────────────────────────
+  // Renders a "Check for Cross Post" button below the dispatch banner for
+  // connecteam_task / dispatch_warning / dispatcher_decides. Clicking reveals
+  // an inline address input; submitting geocodes via the Census API (server-
+  // side through the Worker) and checks if any other WIN area's nearest county
+  // centroid is within cross_post_radius_mi.
+
+  function renderCrossPostButton(rec, county, container) {
+    if (rec.action !== 'connecteam_task' && rec.action !== 'dispatch_warning' &&
+        rec.action !== 'dispatcher_decides') return;
+
+    // Remove any previous cross-post UI (re-render safe).
+    var existing = container.querySelector('.cross-post-wrap');
+    if (existing) existing.remove();
+
+    var wrap = document.createElement('div');
+    wrap.className = 'cross-post-wrap';
+
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cross-post-btn';
+    btn.textContent = 'Check for Cross Post';
+    wrap.appendChild(btn);
+
+    var inputWrap = document.createElement('div');
+    inputWrap.className = 'cross-post-input';
+    inputWrap.style.display = 'none';
+
+    var addrInput = document.createElement('input');
+    addrInput.type = 'text';
+    addrInput.placeholder = 'Animal address';
+    addrInput.className = 'cross-post-addr';
+    inputWrap.appendChild(addrInput);
+
+    var checkBtn = document.createElement('button');
+    checkBtn.type = 'button';
+    checkBtn.className = 'cross-post-check-btn';
+    checkBtn.textContent = 'Check';
+    inputWrap.appendChild(checkBtn);
+
+    wrap.appendChild(inputWrap);
+
+    var resultDiv = document.createElement('div');
+    resultDiv.className = 'cross-post-result';
+    resultDiv.style.display = 'none';
+    wrap.appendChild(resultDiv);
+
+    container.appendChild(wrap);
+
+    btn.addEventListener('click', function () {
+      var showing = inputWrap.style.display !== 'none';
+      inputWrap.style.display = showing ? 'none' : '';
+      if (!showing) addrInput.focus();
+    });
+
+    // Determine the dispatch area for this recommendation.
+    var dispatchArea = (state.countyWin && state.countyWin[county] !== undefined &&
+                        state.countyWin[county] !== null)
+      ? String(state.countyWin[county]).trim() : '';
+
+    checkBtn.addEventListener('click', function () {
+      var addr = addrInput.value.trim();
+      if (!addr) {
+        resultDiv.style.display = '';
+        resultDiv.className = 'cross-post-result cross-post-neutral';
+        resultDiv.textContent = 'Enter an address to check.';
+        return;
+      }
+      resultDiv.style.display = '';
+      resultDiv.className = 'cross-post-result cross-post-neutral';
+      resultDiv.textContent = 'Geocoding\u2026';
+      crossPostGeocode(addr, dispatchArea, resultDiv);
+    });
+  }
+
+  // Geocode an address via the Worker (same endpoint used for Tier 2 address
+  // search — the Worker proxies the Census geocoder server-side, avoiding CORS).
+  // On success, runs the cross-post distance check.
+  function crossPostGeocode(address, dispatchArea, resultDiv) {
+    try {
+      var url = WORKER_URL + '?address=' + encodeURIComponent(address) + '&radius_mi=1';
+      fetch(url).then(function (resp) {
+        if (!resp.ok) throw new Error('geocode_failed');
+        return resp.json();
+      }).then(function (data) {
+        var lat = data && data.animal_lat;
+        var lon = data && data.animal_lon;
+        if (lat == null || lon == null) throw new Error('no_coords');
+        crossPostDistanceCheck(lat, lon, dispatchArea, resultDiv);
+      }).catch(function () {
+        resultDiv.className = 'cross-post-result cross-post-neutral';
+        resultDiv.textContent = 'Could not geocode that address. Try a full street + city + state + ZIP.';
+      });
+    } catch (e) {
+      resultDiv.className = 'cross-post-result cross-post-neutral';
+      resultDiv.textContent = 'Cross-post check error.';
+    }
+  }
+
+  // Compute county centroids from the loaded GeoJSON, then check which other
+  // WIN areas have a county centroid within cross_post_radius_mi of the animal.
+  function crossPostDistanceCheck(lat, lon, dispatchArea, resultDiv) {
+    try {
+      var geo = state.geojson;
+      if (!geo || !geo.features) {
+        resultDiv.className = 'cross-post-result cross-post-neutral';
+        resultDiv.textContent = 'County map data not loaded \u2014 cannot check cross post.';
+        return;
+      }
+
+      var radiusMi = MSG.thresholds.cross_post_radius_mi || 25;
+
+      // Build county centroids and group by WIN area.
+      var areaCounties = {}; // area -> [{county, lat, lon}]
+      geo.features.forEach(function (f) {
+        var props = f.properties || {};
+        var area = props.win_area != null ? String(props.win_area).trim() : '';
+        if (!area) return;
+        var centroid = computeCentroid(f.geometry);
+        if (!centroid) return;
+        if (!areaCounties[area]) areaCounties[area] = [];
+        areaCounties[area].push({ county: props.county || '', lat: centroid[0], lon: centroid[1] });
+      });
+
+      // For each area OTHER than the dispatch area, find the nearest county
+      // centroid distance to the animal location.
+      var nearby = [];
+      Object.keys(areaCounties).forEach(function (area) {
+        if (area === dispatchArea) return;
+        var minDist = Infinity;
+        areaCounties[area].forEach(function (c) {
+          var d = haversineMiles(lat, lon, c.lat, c.lon);
+          if (d < minDist) minDist = d;
+        });
+        if (minDist <= radiusMi) {
+          // Normalize area to zero-padded 2-digit for display.
+          var displayArea = area;
+          if (/^\d+$/.test(displayArea) && displayArea.length < 2) displayArea = '0' + displayArea;
+          nearby.push(displayArea);
+        }
+      });
+
+      // Sort areas for consistent display.
+      nearby.sort(function (a, b) {
+        var na = parseInt(a, 10), nb = parseInt(b, 10);
+        if (!isNaN(na) && !isNaN(nb)) return na - nb;
+        return a < b ? -1 : a > b ? 1 : 0;
+      });
+
+      if (nearby.length > 0) {
+        resultDiv.className = 'cross-post-result cross-post-info';
+        resultDiv.textContent = 'Consider cross posting to Area' +
+          (nearby.length > 1 ? 's ' : ' ') + nearby.join(', ');
+      } else {
+        resultDiv.className = 'cross-post-result cross-post-neutral';
+        resultDiv.textContent = 'No other area within ' + radiusMi + ' mi \u2014 single area post';
+      }
+    } catch (e) {
+      resultDiv.className = 'cross-post-result cross-post-neutral';
+      resultDiv.textContent = 'Cross-post check error.';
+      console.warn('cross-post distance check error:', e);
+    }
+  }
+
+  // Compute the centroid of a GeoJSON geometry (Polygon or MultiPolygon) as
+  // [lat, lon] by averaging all boundary points.
+  function computeCentroid(geometry) {
+    if (!geometry) return null;
+    var coords = [];
+    if (geometry.type === 'Polygon' && geometry.coordinates) {
+      geometry.coordinates.forEach(function (ring) {
+        ring.forEach(function (pt) { coords.push(pt); });
+      });
+    } else if (geometry.type === 'MultiPolygon' && geometry.coordinates) {
+      geometry.coordinates.forEach(function (poly) {
+        poly.forEach(function (ring) {
+          ring.forEach(function (pt) { coords.push(pt); });
+        });
+      });
+    }
+    if (coords.length === 0) return null;
+    var sumLat = 0, sumLon = 0;
+    coords.forEach(function (pt) { sumLon += pt[0]; sumLat += pt[1]; });
+    return [sumLat / coords.length, sumLon / coords.length];
   }
 
   // Shared animal base info, entered ONCE at the top of the console and read by

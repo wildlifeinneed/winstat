@@ -64,7 +64,10 @@
       // Monitoring tier (cross-area monitors) — global defaults
       monitor_capture_min_available: 2,
       monitor_rvs_capture_min_available: 2,
-      monitor_transport_min_available: 4
+      monitor_transport_min_available: 4,
+      // Cross-post check: radius (miles) within which another WIN area's nearest
+      // county centroid triggers a "consider cross posting" suggestion.
+      cross_post_radius_mi: 25
     },
 
     // ── TIER 1 decision-engine wording (decision.js) ───────────────────────

@@ -1564,6 +1564,82 @@
       /* Secondary header nav links */
       .home-link { display: inline-block; min-height: 44px; line-height: 32px; padding: 6px 0; }
     }
+
+    /* ─── Cross-Post Check (compact, mobile-first) ─────────────── */
+    .cross-post-wrap { margin-top: 14px; }
+    .cross-post-btn {
+      background: var(--surface);
+      color: var(--green-deep);
+      border: 1.5px solid var(--green-deep);
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 13.5px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background var(--transition), border-color var(--transition);
+    }
+    .cross-post-btn:hover {
+      background: rgba(0, 0, 0, 0.04);
+      border-color: var(--green-dark);
+    }
+    .cross-post-input {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+      align-items: center;
+    }
+    .cross-post-addr {
+      flex: 1;
+      padding: 8px 10px;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 13.5px;
+      background: var(--bg);
+      color: var(--text);
+      outline: none;
+      min-width: 0;
+    }
+    .cross-post-addr:focus { border-color: var(--green); background: #fff; }
+    .cross-post-check-btn {
+      background: var(--green);
+      color: #fff;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 13.5px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .cross-post-check-btn:hover { background: var(--green-dark); }
+    .cross-post-result {
+      margin-top: 10px;
+      padding: 9px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .cross-post-info {
+      background: #e8f4fb;
+      border: 1px solid #b3d7ef;
+      border-left: 4px solid #1a7ab5;
+      color: #0d4f7a;
+      font-weight: 600;
+    }
+    .cross-post-neutral {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--text-light);
+      color: var(--text-muted);
+    }
+    @media (max-width: 640px) {
+      .cross-post-btn { min-height: 44px; }
+      .cross-post-check-btn { min-height: 44px; }
+      .cross-post-addr { min-height: 44px; }
+    }
   </style>
 </head>
 <body data-panel-key="page-dispatcher">
@@ -1891,8 +1967,8 @@
      filename can leave a browser running STALE JS against fresh HTML (e.g. new
      markup whose handlers live only in the new JS). Bump this token on any
      change to these files to force clients to fetch the new copy. -->
-<script src="assets/messages.js?v=20260627m"></script>
-<script src="assets/decision.js?v=20260627m"></script>
-<script src="assets/dispatcher.js?v=20260627m"></script>
+<script src="assets/messages.js?v=20260628a"></script>
+<script src="assets/decision.js?v=20260628a"></script>
+<script src="assets/dispatcher.js?v=20260628a"></script>
 </body>
 </html>
