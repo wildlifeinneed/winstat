@@ -1797,11 +1797,14 @@
         fillOpacity: fillOpacity,
         interactive: false
       }).addTo(cpMap.layers.areas);
-      poly.bindTooltip('Area ' + escapeHtml(area), {
-        permanent: true,
-        direction: 'center',
-        className: 't2-area-label'
-      });
+      // Only label suggested and dispatch areas (not dimmed background areas).
+      if (isSuggested || isDispatch) {
+        poly.bindTooltip('Area ' + escapeHtml(area), {
+          permanent: true,
+          direction: 'center',
+          className: 't2-area-label'
+        });
+      }
 
       // Include suggested + dispatch areas in bounds.
       if (isSuggested || isDispatch) {
@@ -1835,15 +1838,23 @@
       ? window.WildlifeDecision.qualifiesForAnimal : null;
     var hasBase = typeof issue === 'string' && issue !== '';
 
-    // ── Qualified volunteers in suggested areas ──
+    // ── Qualified volunteers in dispatch + suggested areas ──
     // Source: state.t1VolRows (fetched by the Worker aggregate endpoint).
+    // The Worker scopes t1VolRows to the DISPATCH area (the animal's own WIN
+    // area), so filtering by suggestedSet alone would yield zero results (the
+    // suggested areas are OTHER areas). Include the dispatch area in the
+    // accepted set so the animal's own area vols appear on the map.
+    var volAreaSet = {};
+    Object.keys(suggestedSet).forEach(function (k) { volAreaSet[k] = true; });
+    var normDispatch = String(dispatchArea).replace(/^0+/, '').trim();
+    if (normDispatch) volAreaSet[normDispatch] = true;
     var volRows = Array.isArray(state.t1VolRows) ? state.t1VolRows : [];
     var perCounty = {};
     volRows.forEach(function (row) {
       if (!row) return;
-      // Filter to suggested areas only.
+      // Filter to dispatch + suggested areas.
       var rowArea = row.win_area != null ? String(row.win_area).replace(/^0+/, '').trim() : '';
-      if (!rowArea || !suggestedSet[rowArea]) return;
+      if (!rowArea || !volAreaSet[rowArea]) return;
       // Qualification filter (same predicate as Tier 1/2 lists).
       if (qualifyFn && hasBase) {
         var roleList = Array.isArray(row.roles) ? row.roles : [];
@@ -1887,27 +1898,24 @@
       bounds.push([pinLat, pinLon]);
     });
 
-    // ── Qualified rehabbers in suggested areas ──
-    // Source: state.rehabbers (loaded from rehabbers.json). Filter by county →
-    // WIN area membership in suggested areas, then by animal-type acceptance.
-    var rehabbers = Array.isArray(state.rehabbers) ? state.rehabbers : [];
-    rehabbers.forEach(function (r) {
+    // ── Qualified rehabbers (same set as the dispatch summary) ──
+    // Use the SHARED nearbyRehabbers() helper so the map shows the SAME
+    // rehabbers the dispatch summary panel lists. nearbyRehabbers() filters
+    // state.rehabbers by county → WIN area membership + animal-type acceptance,
+    // which is the single source of truth for "nearby rehabbers".
+    var recCounty = state.t1RecCountyName || '';
+    var ordered = nearbyRehabbers(recCounty, animalType);
+    ordered.forEach(function (r) {
       if (!r || typeof r.lat !== 'number' || typeof r.lon !== 'number') return;
       if (!isFinite(r.lat) || !isFinite(r.lon)) return;
-      // Resolve rehabber's county to its WIN area.
-      var rCounty = String(r.county || '').trim();
-      var rArea = (rCounty && state.countyWin && state.countyWin[rCounty] !== undefined)
-        ? String(state.countyWin[rCounty]).replace(/^0+/, '').trim() : '';
-      if (!rArea || !suggestedSet[rArea]) return;
-      // Animal-type filter.
-      if (!rehabberAcceptsAnimal(r.availability, animalType)) return;
       var phone = r.phone ? ('<br>' + escapeHtml(String(r.phone))) : '';
-      var county = rCounty ? ('<br>' + escapeHtml(rCounty) + ' County') : '';
+      var rCounty = String(r.county || '').trim();
+      var countyLabel = rCounty ? ('<br>' + escapeHtml(rCounty) + ' County') : '';
       L.marker([r.lat, r.lon], {
         icon: t2DivIcon('t2-pin-rehab', 16),
         title: r.rehab_name || 'Rehabber'
       }).bindPopup('<strong>' + escapeHtml(String(r.rehab_name || 'Rehabber')) + '</strong>' +
-          county + phone)
+          countyLabel + phone)
         .addTo(cpMap.layers.rehabbers);
       bounds.push([r.lat, r.lon]);
     });
