@@ -810,9 +810,11 @@ def build_geocode_input(
     roles_text = _column_text(item, column_ids[COL_TITLE_ROLES])
     roles = parse_roles(roles_text)
 
+    name = (item.get("name") or "").strip()
     availability_text = _column_text(item, column_ids[COL_TITLE_AVAILABILITY])
     win_area_text = _column_text(item, column_ids[COL_TITLE_WIN_AREA])
     return {
+        "name": name,
         "county": county,
         "roles": roles,
         # Availability is computed here (SAME definition as build_volunteer_record
@@ -2198,9 +2200,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     existing_coord_records = (
         existing_coords if isinstance(existing_coords, list) else None
     )
-    coords = geocoder.batch_geocode_volunteers(
+    coords, geocode_failures = geocoder.batch_geocode_volunteers(
         geocode_inputs, existing=existing_coord_records, session=session
     )
+
+    # Write geocode_failures.json every run (empty array if no failures).
+    # This file is committed to the repo so it's available after git pull and
+    # can be checked by CI to create a GitHub Issue on failures.
+    failures_path = Path(__file__).resolve().parent / "geocode_failures.json"
+    if not args.dry_run:
+        atomic_write_json(failures_path, geocode_failures)
+        if geocode_failures:
+            logger.warning(
+                "Wrote %d geocode failure(s) to %s",
+                len(geocode_failures),
+                failures_path,
+            )
+        else:
+            logger.info("No geocode failures (wrote empty array to %s)", failures_path)
 
     # Check 1 — record integrity (BLOCKING). Validate every coords record has
     # all required fields and that each field still belongs to the SAME

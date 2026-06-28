@@ -33,30 +33,31 @@
   ];
 
   // ─── WIN Areas map (D5.2-5.3) ──────────────────────────────────────
-  // Stable per-area color map. 18 buckets (areas 1-16 + 15N/15S). These are
-  // soft, light pastel swatches — distinct but not garish — so each WIN area
-  // is visually distinguishable while staying readable over the map tiles.
+  // Stable per-area color map. 17 buckets (areas 1-16 + 15N/15S). High-contrast
+  // qualitative palette (ColorBrewer-inspired) so adjacent WIN areas are easy to
+  // tell apart at a glance. Saturated mid-tones — not pastels — with enough hue
+  // separation that even neighboring polygons read as clearly distinct.
   // Keyed by area number so the color is stable across refreshes. Defined here
   // (not raw inline hex scattered through markup) so the legend, paths, and
   // any future reuse share one source of truth.
   var AREA_COLORS = {
-    '1':   '#9ec9e8', // light blue
-    '2':   '#a7d8a0', // light green
-    '3':   '#f4b8a0', // light coral
-    '4':   '#f6c992', // light orange
-    '5':   '#9fd6cf', // light teal
-    '6':   '#f2dd8e', // light gold
-    '7':   '#cdb2da', // light purple
-    '8':   '#f6bcc6', // light pink
-    '9':   '#cdb59a', // light tan
-    '10':  '#b6ddd6', // light aqua
-    '11':  '#e8b3c6', // light rose
-    '12':  '#c3e6a6', // light lime
-    '13':  '#d9d2cb', // light stone
-    '14':  '#a6cfc9', // light seafoam
-    '15N': '#e2c4dd', // light mauve
-    '15S': '#dcd197', // light khaki
-    '16':  '#c4bdba'  // light grey
+    '1':   '#e41a1c', // red
+    '2':   '#377eb8', // blue
+    '3':   '#4daf4a', // green
+    '4':   '#984ea3', // purple
+    '5':   '#ff7f00', // orange
+    '6':   '#a65628', // brown
+    '7':   '#f781bf', // pink
+    '8':   '#17becf', // cyan
+    '9':   '#bcbd22', // olive-yellow
+    '10':  '#e377c2', // magenta-pink
+    '11':  '#7f7f7f', // grey
+    '12':  '#1b9e77', // teal
+    '13':  '#d95f02', // burnt orange
+    '14':  '#7570b3', // slate-purple
+    '15N': '#e6ab02', // gold
+    '15S': '#66a61e', // lime-green
+    '16':  '#a6761d'  // dark tan
   };
   var AREA_FALLBACK = '#cfd8dc';
   // Path to the committed PA county GeoJSON (relative to dispatcher.html, which
@@ -3295,19 +3296,18 @@
     Object.keys(byArea).forEach(function (area) {
       var color = areaColor(area);
       var poly = L.polygon(byArea[area].latlngs, {
-        // Boundary lines use a darkened version of the area's pastel fill so
-        // each border reads as a strong, high-contrast line against the
-        // light interior. The thicker weight makes it obvious where one WIN
-        // area ends and the next begins -- critical when an animal sits right
-        // on the line between two areas that both need alerting.
+        // Boundary lines use a darkened version of the area's fill so each
+        // border reads as a strong, high-contrast line against the interior.
+        // The thicker weight makes it obvious where one WIN area ends and the
+        // next begins -- critical when an animal sits right on the line
+        // between two areas that both need alerting.
         color: darkenColor(color, 0.45),
         weight: 3,
         opacity: 1,
-        // Pastel fills need a bit more opacity than the old saturated palette to
-        // read as distinct hues, while staying semi-transparent so the map
-        // underneath remains visible.
+        // Semi-transparent fill so the map tiles underneath remain visible
+        // while the saturated hues stay clearly distinguishable.
         fillColor: color,
-        fillOpacity: 0.35,
+        fillOpacity: 0.30,
         interactive: false
       }).addTo(t2map.layers.winArea);
       poly.bindTooltip('WIN Area ' + escapeHtml(area), {
@@ -4391,9 +4391,9 @@
   }
 
   // Darken a #rrggbb hex color by `amount` (0..1) toward black. Used to derive
-  // a strong, high-contrast boundary stroke from each area's pastel fill so
-  // the lines between WIN areas stand out clearly on the Tier-2 map. Falls back
-  // to a neutral dark grey if the input isn't a parseable 6-digit hex.
+  // a strong, high-contrast boundary stroke from each area's fill so the lines
+  // between WIN areas stand out clearly on the Tier-2 map. Falls back to a
+  // neutral dark grey if the input isn't a parseable 6-digit hex.
   function darkenColor(hex, amount) {
     var m = /^#?([0-9a-fA-F]{6})$/.exec(String(hex || '').trim());
     if (!m) return '#37474f';

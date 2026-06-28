@@ -159,14 +159,16 @@ def test_batch_strips_all_pii_fields():
     with mock.patch.object(
         geocoder, "geocode_address", return_value=(40.0, -76.3)
     ):
-        out = geocoder.batch_geocode_volunteers(volunteers)
+        out, failures = geocoder.batch_geocode_volunteers(volunteers)
 
     assert len(out) == 1
+    assert failures == []
     rec = out[0]
     # ONLY these keys allowed (plus the internal, non-PII _addr_sig and the
     # PII-free `available` boolean used for Tier 2 availability tallying).
     assert set(rec.keys()) == {
-        "lat", "lon", "roles", "home_county", "win_area", "available", "_addr_sig",
+        "lat", "lon", "roles", "home_county", "win_area", "available",
+        "availability_note", "connecteam_user", "monitored_areas", "_addr_sig",
     }
     # No PII leaked.
     for forbidden in ("name", "phone", "email", "street", "city", "address"):
@@ -198,7 +200,7 @@ def test_batch_unknown_county_yields_null_win_area():
     with mock.patch.object(
         geocoder, "geocode_address", return_value=(39.0, -77.0)
     ):
-        out = geocoder.batch_geocode_volunteers(volunteers)
+        out, _ = geocoder.batch_geocode_volunteers(volunteers)
     assert out[0]["win_area"] is None
 
 
@@ -212,11 +214,14 @@ def test_batch_skips_failed_geocode_without_aborting(caplog):
         return None if street == "bad" else (40.0, -76.3)
 
     with mock.patch.object(geocoder, "geocode_address", side_effect=fake_geocode):
-        out = geocoder.batch_geocode_volunteers(volunteers)
+        out, failures = geocoder.batch_geocode_volunteers(volunteers)
 
     # The bad one is skipped; the batch still produces the good record.
     assert len(out) == 1
     assert out[0]["home_county"] == "Lancaster"
+    # The bad one is recorded as a failure.
+    assert len(failures) == 1
+    assert failures[0]["reason"] == "No Census address match"
 
 
 # ---------------------------------------------------------------------------
@@ -246,7 +251,7 @@ def test_batch_reuses_cached_coord_for_unchanged_address():
     ]
 
     with mock.patch.object(geocoder, "geocode_address") as m:
-        out = geocoder.batch_geocode_volunteers([volunteer], existing=existing)
+        out, _ = geocoder.batch_geocode_volunteers([volunteer], existing=existing)
         # Cached hit -> geocode_address must NOT be called.
         m.assert_not_called()
 
@@ -275,7 +280,7 @@ def test_batch_changed_address_does_not_reuse_cache():
     with mock.patch.object(
         geocoder, "geocode_address", return_value=(41.1, -77.7)
     ) as m:
-        out = geocoder.batch_geocode_volunteers([volunteer], existing=existing)
+        out, _ = geocoder.batch_geocode_volunteers([volunteer], existing=existing)
         m.assert_called_once()
 
     assert out[0]["lat"] == 41.1
@@ -312,7 +317,7 @@ def test_batch_propagates_available_flag_true_and_false():
     with mock.patch.object(
         geocoder, "geocode_address", return_value=(40.0, -76.3)
     ):
-        out = geocoder.batch_geocode_volunteers(volunteers)
+        out, _ = geocoder.batch_geocode_volunteers(volunteers)
 
     assert len(out) == 2
     assert out[0]["available"] is True

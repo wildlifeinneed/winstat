@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   refresh:
@@ -195,7 +196,8 @@ jobs:
             docs/data/rehabbers.json \
             docs/data/coordinators.json \
             docs/data/facilities.json \
-            docs/data/facility_name_map.json"
+            docs/data/facility_name_map.json \
+            geocode_failures.json"
 
           if git diff --quiet -- $PUBLIC_PATHS; then
             echo "No public-aggregate changes to commit."
@@ -209,7 +211,7 @@ jobs:
           # (a) Allow-list assertion: the staged set must be a subset of the
           # public paths. If ANY other path is staged (e.g. a private file was
           # accidentally un-gitignored), abort before committing or pushing.
-          ALLOWED_RE='^docs/data/(county_capacity\.json|\.last_remote_update|rehabbers\.json|coordinators\.json|facilities\.json|facility_name_map\.json)$'
+          ALLOWED_RE='^(docs/data/(county_capacity\.json|\.last_remote_update|rehabbers\.json|coordinators\.json|facilities\.json|facility_name_map\.json)|geocode_failures\.json)$'
           staged="$(git diff --cached --name-only)"
           bad_paths="$(printf '%s\n' "$staged" | grep -Ev "$ALLOWED_RE" || true)"
           if [ -n "$bad_paths" ]; then
@@ -250,6 +252,42 @@ jobs:
             echo "push attempt $i failed, retrying..."
             sleep 3
           done
+
+      # Create a GitHub Issue when geocode failures are detected so the
+      # maintainer gets an email notification. Only fires when the failures
+      # file contains at least one entry (not on every run).
+      - name: Create GitHub Issue for geocode failures
+        if: steps.sentinel.outputs.refresh == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ ! -f geocode_failures.json ]; then
+            echo "No geocode_failures.json found — skipping issue creation."
+            exit 0
+          fi
+          count="$(python3 -c "import json; d=json.load(open('geocode_failures.json')); print(len(d))")"
+          if [ "$count" = "0" ]; then
+            echo "No geocode failures — skipping issue creation."
+            exit 0
+          fi
+          today="$(date -u +'%Y-%m-%d')"
+          body="$(python3 - <<'PY'
+          import json
+          failures = json.load(open("geocode_failures.json"))
+          lines = ["| Name | Address | Reason |", "| --- | --- | --- |"]
+          for f in failures:
+              name = f.get("name", "").replace("|", "\\|")
+              addr = f.get("address", "").replace("|", "\\|")
+              reason = f.get("reason", "").replace("|", "\\|")
+              lines.append(f"| {name} | {addr} | {reason} |")
+          print("\n".join(lines))
+          PY
+          )"
+          gh issue create \
+            --title "⚠️ Geocoding failures — ${today}" \
+            --body "${body}" \
+            --label "geocoding"
 
       # Record the sentinel date so the next run compares against it. Written
       # to a gitignored file (never committed). Runs only on a successful

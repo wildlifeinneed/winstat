@@ -174,12 +174,16 @@ def batch_geocode_volunteers(
     volunteers: List[Dict[str, Any]],
     existing: Optional[List[Dict[str, Any]]] = None,
     session: Optional[requests.Session] = None,
-) -> List[Dict[str, Any]]:
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, str]]]:
     """Geocode a list of volunteer dicts into the PRIVATE coords dataset.
 
     Each input volunteer dict is expected to carry the address fields
     ``street`` / ``city`` / ``state`` / ``zip`` plus ``roles`` and
-    ``county`` (home county). Output records contain ONLY::
+    ``county`` (home county).  An optional ``name`` field (the volunteer's
+    display name from Monday.com) is used only for failure reporting — it is
+    NEVER propagated to the output coords records.
+
+    Output records contain ONLY::
 
         {lat, lon, roles, home_county, win_area, available, _addr_sig}
 
@@ -193,11 +197,17 @@ def batch_geocode_volunteers(
 
     Graceful: any volunteer that can't be geocoded (and has no cached coord) is
     logged and skipped — the batch always completes.
+
+    Returns a ``(coords, failures)`` tuple where ``failures`` is a list of
+    ``{"name": ..., "address": ..., "reason": ...}`` dicts for every
+    volunteer whose geocode failed (no cached coord and Census returned no
+    match / errored).
     """
     session = session or requests.Session()
     cache = _coords_by_signature(existing)
 
     out: List[Dict[str, Any]] = []
+    failures: List[Dict[str, str]] = []
     for v in volunteers:
         if not isinstance(v, dict):
             continue
@@ -217,6 +227,23 @@ def batch_geocode_volunteers(
             )
             if coord is None:
                 # geocode_address already logged the reason; skip this one.
+                # Record the failure with the volunteer name for reporting.
+                vol_name = v.get("name", "")
+                addr_parts = [
+                    str(street or "").strip(),
+                    str(city or "").strip(),
+                    str(state or "").strip(),
+                    str(zip_code or "").strip(),
+                ]
+                addr_display = ", ".join(p for p in addr_parts if p)
+                reason = "No Census address match"
+                if not str(street or "").strip() or not str(city or "").strip():
+                    reason = "Missing street or city"
+                failures.append({
+                    "name": vol_name,
+                    "address": addr_display,
+                    "reason": reason,
+                })
                 continue
 
         lat, lon = coord
@@ -256,4 +283,8 @@ def batch_geocode_volunteers(
         len(out),
         len(volunteers),
     )
-    return out
+    if failures:
+        logger.warning(
+            "%d volunteer(s) failed geocoding", len(failures),
+        )
+    return out, failures
