@@ -2312,7 +2312,6 @@
           state.t1RecTier = 'monitor';
           recCounty.reasoning.push(
             fmt(T1.monitorVolsAvailable, { count: monCount }));
-          recCounty.reasoning.push(T1.monitorDispatchOption);
           // Low-capacity warning: monitor tier barely passes (count equals minimum)
           if (monCount <= monTier.min) {
             recCounty.marginal = true;

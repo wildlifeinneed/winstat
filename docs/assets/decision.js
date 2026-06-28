@@ -404,7 +404,7 @@
     }
     // Species-scope gate (ADDITIONAL to the two checks above): the county allows
     // this issue, but only for certain species. If the selected animal type is
-    // not among them, refer out. Unknown/absent species passes through.
+    // not among them, outside referral. Unknown/absent species passes through.
     var scopeList = scopeListForIssue(countyPolicy.species_scope, policyIssue);
     var speciesNotAllowed = !speciesAllowedByScope(animalType, scopeList);
 

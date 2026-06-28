@@ -1379,7 +1379,7 @@
       var refs = Array.isArray(rec.referral_targets) ? rec.referral_targets : [];
       detail = refs.length
         ? ('Refer to: ' + refs.map(function (r) { return r.name; }).filter(Boolean).join(', '))
-        : 'Referred out (no specific target listed).';
+        : 'Outside referral (no specific target listed).';
     } else if (rec.action === 'connecteam_task') {
       detail = 'Dispatch target: ' + (rec.target || '—') + (rec.marginal ? ' · low capacity' : '');
     } else if (rec.reasoning && rec.reasoning.length) {

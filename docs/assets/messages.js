@@ -79,37 +79,37 @@
         tbd_escalate: 'No automatic action - escalate to supervisor',
         // Set ONLY by applyCountyPolicy(): county policy forbids dispatch for
         // this call, so refer the finder to a named facility instead.
-        refer_out: 'Refer out - county policy: do not dispatch',
+        refer_out: 'Outside Referral - county policy: do not dispatch',
         dispatch_warning: 'Dispatch Task (area volunteers)',
         dispatcher_decides: 'Dispatch Task (monitoring vols)'
       },
       // enrichMarginal low-capacity note ({count} = available count).
-      lowCapacityWarning: 'Low capacity warning: only {count} available; consider calling PGC or cross posting.',
+      lowCapacityWarning: 'Low capacity warning: only {count} available.',
       // recommend() reasoning fragments, by branch.
-      missingCapacity: 'No volunteers in this county - Ask finder to call PGC.',
+      missingCapacity: 'No volunteers in this county.',
       unknownIssue: 'Issue type not recognized - select Capture or Transport.',
       // B. Capture + RVS animal
       rvsCaptureRule: 'Capture + RVS animal -> RVS-capable C&T required.',
-      rvsCaptureNone: 'No RVS-capable C&T volunteers available - Ask finder to call PGC.',
+      rvsCaptureNone: 'No RVS-capable C&T volunteers available.',
       // C. Capture + non-RVS animal
       nonRvsCaptureRule: 'Capture + non-RVS animal -> any C&T volunteer acceptable.',
-      nonRvsCaptureNone: 'No C&T volunteers available - Ask finder to call PGC.',
+      nonRvsCaptureNone: 'No C&T volunteers available.',
       // D. Transport
       transportRule: 'Transport request - couriers preferred; C&T volunteers also eligible for transport runs.',
       // {courier} = courier count, {ct} = C&T count.
       transportCourierAndCt: '{courier} courier(s) + {ct} C&T(s) available for transport.',
-      transportCtFallback: 'No couriers available; dispatching C&T for transport.',
-      transportNone: 'No courier or C&T transport capacity available - Ask finder to transport the animal themselves, or call PGC.',
+      transportCtFallback: 'No couriers available; C&T volunteers eligible for transport.',
+      transportNone: 'No courier or C&T transport capacity available.',
       // applyCountyPolicy() DOWNGRADE reasoning fragments.
-      policyDispatchDisabled: 'County policy: dispatch is disabled for this county - refer the finder out.',
+      policyDispatchDisabled: 'County policy: dispatch is disabled for this county.',
       // {issue} = policy issue key (capture / rvs_capture / transport).
-      policyIssueNotAllowed: 'County policy: dispatch not allowed for {issue} in this county - refer the finder out.',
+      policyIssueNotAllowed: 'County policy: dispatch not allowed for {issue} in this county.',
       // applyCountyPolicy() SPECIES-SCOPE downgrade reasoning. {species} = the
       // comma-separated allowed-species list for this issue (e.g. "birds").
-      policySpeciesNotAllowed: 'County policy restricts dispatch to {species} only for this issue - refer the finder out.',
+      policySpeciesNotAllowed: 'County policy restricts dispatch to {species} only for this issue.',
       // Area tier (step 3)
       areaVolsAvailable: '{count} qualified volunteers in WIN Area {area} (not in-county).',
-      areaDispatchWarning: 'No in-county volunteers. Dispatching to area volunteers.',
+      areaDispatchWarning: 'No in-county volunteers available.',
       areaInsufficient: 'Not enough in-area volunteers ({count} available, {min} needed).',
       // Monitoring tier (step 4)
       monitorVolsAvailable: '{count} monitoring volunteers from neighboring areas.',
@@ -167,7 +167,7 @@
       //    renderRecommendation when action === 'refer_out': who to call, their
       //    phone + notes, plus any county special instructions. {county} =
       //    selected county name.
-      referralHeader: 'County policy: do not dispatch - refer out',
+      referralHeader: 'County policy: do not dispatch - outside referral',
       referralIntro: '{county} County policy says do not dispatch for this call. Refer the finder to:',
       // One referral target row. {name} = facility name, {phone} = phone,
       // {notes} = optional per-target notes.

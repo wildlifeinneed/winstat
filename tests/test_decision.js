@@ -209,7 +209,7 @@ var zeroCapRvs = recommend(
 assert.strictEqual(zeroCapRvs.action, 'call_pa_game_comm',
   'zero-cap RVS capture -> call_pa_game_comm');
 assert.ok(zeroCapRvs.reasoning.some(function (r) {
-  return r.indexOf('No RVS-capable C&T volunteers available - ask the finder to call PA Game Commission') !== -1;
+  return r.indexOf('No RVS-capable C&T volunteers available') !== -1;
 }), 'zero-cap RVS capture should use friendly wording');
 passed++;
 
@@ -218,7 +218,7 @@ var zeroCapNonRvs = recommend(
 assert.strictEqual(zeroCapNonRvs.action, 'call_pa_game_comm',
   'zero-cap non-RVS capture -> call_pa_game_comm');
 assert.ok(zeroCapNonRvs.reasoning.some(function (r) {
-  return r.indexOf('No C&T volunteers available - ask the finder to call PA Game Commission') !== -1;
+  return r.indexOf('No C&T volunteers available') !== -1;
 }), 'zero-cap non-RVS capture should use friendly wording');
 passed++;
 
@@ -226,8 +226,8 @@ passed++;
 var missingRec = recommend(undefined, true, 'capture', DEFAULTS);
 assert.strictEqual(missingRec.action, 'call_pa_game_comm',
   'missing capacity -> call_pa_game_comm');
-assert.ok(missingRec.reasoning[0].indexOf('call PA Game Commission') !== -1,
-  'missing capacity reasoning should mention calling PA Game Commission');
+assert.ok(missingRec.reasoning[0].indexOf('No volunteers in this county') !== -1,
+  'missing capacity reasoning should mention no volunteers');
 passed++;
 
 // Phase 4d: regression guard — reasoning must never contain threshold math

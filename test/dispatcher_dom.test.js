@@ -4538,15 +4538,15 @@ async function runCountyPolicyReferOut() {
   // carries the escalate (warning) tone, not the green "go" dispatch tone.
   const actionEl = doc.querySelector('#rec-output .rec-action');
   assert.ok(actionEl, 'recommendation action headline rendered');
-  assert.ok(/refer out|do not dispatch/i.test(actionEl.textContent),
-    'dispatch_enabled=false county shows a refer_out headline (got: "' + actionEl.textContent + '")');
+  assert.ok(/outside referral|do not dispatch/i.test(actionEl.textContent),
+    'dispatch_enabled=false county shows an outside referral headline (got: "' + actionEl.textContent + '")');
   assert.ok(!/Dispatch via Connecteam/i.test(actionEl.textContent),
-    'refer_out replaces the count-based dispatch headline (no "Dispatch via Connecteam")');
+    'outside referral replaces the count-based dispatch headline (no "Dispatch via Connecteam")');
   assert.ok(actionEl.classList.contains('escalate'),
-    'refer_out action carries the escalate (warning) tone');
+    'outside referral action carries the escalate (warning) tone');
   // No dispatch target role row is shown for a referral.
   assert.strictEqual(doc.querySelector('#rec-output .rec-target'), null,
-    'refer_out shows no dispatch target role');
+    'outside referral shows no dispatch target role');
 
   // Referral block: who to call + phone (as a tel: link) + per-target notes.
   const referralEl = doc.querySelector('#rec-output .rec-referral');
@@ -4641,13 +4641,13 @@ async function runCountyPolicyReferOutEmptyCounty() {
   // POLICY refer_out with the referral block — NOT a raw count-based "Call PA
   // Game Commission".
   const actionEl = doc.querySelector('#rec-output .rec-action');
-  assert.ok(actionEl && /refer out|do not dispatch/i.test(actionEl.textContent),
-    'shows the policy refer_out headline even with empty in-county capacity (got: "' +
+  assert.ok(actionEl && /outside referral|do not dispatch/i.test(actionEl.textContent),
+    'shows the outside referral headline even with empty in-county capacity (got: "' +
       (actionEl ? actionEl.textContent : '') + '")');
   assert.ok(!/PA Game Commission/i.test(actionEl.textContent),
-    'headline is refer_out, NOT the raw count-based "Call PA Game Commission"');
+    'headline is outside referral, NOT the raw count-based "Call PA Game Commission"');
   assert.ok(actionEl.classList.contains('escalate'),
-    'refer_out carries the escalate tone');
+    'outside referral carries the escalate tone');
   const referralEl = doc.querySelector('#rec-output .rec-referral');
   assert.ok(referralEl, 'shows the referral block (who to call)');
   assert.ok(/West Shore Wildlife/i.test(referralEl.textContent),
@@ -4701,10 +4701,10 @@ async function runCountyPolicySpeciesScope() {
 
   const mammalAction = mammal.doc.querySelector('#rec-output .rec-action');
   assert.ok(mammalAction, 'recommendation action headline rendered for species refer_out');
-  assert.ok(/refer out|do not dispatch/i.test(mammalAction.textContent),
-    'birds-only county + mammal shows a refer_out headline (got: "' + mammalAction.textContent + '")');
+  assert.ok(/outside referral|do not dispatch/i.test(mammalAction.textContent),
+    'birds-only county + mammal shows an outside referral headline (got: "' + mammalAction.textContent + '")');
   assert.ok(mammalAction.classList.contains('escalate'),
-    'species refer_out carries the escalate (warning) tone');
+    'species outside referral carries the escalate (warning) tone');
   const mammalReferral = mammal.doc.querySelector('#rec-output .rec-referral');
   assert.ok(mammalReferral && /Allegheny Mammal Rehab/i.test(mammalReferral.textContent),
     'species refer_out shows the capture referral target');
@@ -5187,8 +5187,8 @@ async function runCascadePolicyOverride() {
 
   const actionEl = doc.querySelector('#rec-output .rec-action');
   assert.ok(actionEl, 'action element exists');
-  assert.ok(/refer out|do not dispatch/i.test(actionEl.textContent),
-    'policy override yields refer_out action (got: "' + actionEl.textContent + '")');
+  assert.ok(/outside referral|do not dispatch/i.test(actionEl.textContent),
+    'policy override yields outside referral action (got: "' + actionEl.textContent + '")');
 
   // No cascade elements (policy overrides cascade).
   assert.strictEqual(doc.querySelector('#rec-output .dual-action'), null,
@@ -5196,7 +5196,7 @@ async function runCascadePolicyOverride() {
   assert.strictEqual(doc.querySelector('#rec-output .dispatcher-instruction'), null,
     'no dispatcher instruction when policy overrides');
   assert.strictEqual(doc.querySelector('#rec-output .cascade-checks'), null,
-    'no cascade checks when policy overrides (refer_out uses reasoning fallback)');
+    'no cascade checks when policy overrides (outside referral uses reasoning fallback)');
 
   // Referral block should be present.
   const referral = doc.querySelector('#rec-output .rec-referral');
