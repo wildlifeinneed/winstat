@@ -1459,11 +1459,32 @@
     inputWrap.className = 'cross-post-input';
     inputWrap.style.display = 'none';
 
+    // Autocomplete wrapper: position:relative so the dropdown positions below
+    // the input, matching the Animal Address autocomplete layout.
+    var acWrap = document.createElement('div');
+    acWrap.className = 'ac-wrap';
+    acWrap.style.flex = '1';
+    acWrap.style.minWidth = '0';
+
     var addrInput = document.createElement('input');
     addrInput.type = 'text';
     addrInput.placeholder = 'Animal address';
     addrInput.className = 'cross-post-addr';
-    inputWrap.appendChild(addrInput);
+    addrInput.setAttribute('autocomplete', 'off');
+    addrInput.setAttribute('role', 'combobox');
+    addrInput.setAttribute('aria-autocomplete', 'list');
+    addrInput.setAttribute('aria-expanded', 'false');
+    acWrap.appendChild(addrInput);
+
+    // Autocomplete suggestion dropdown (same markup as #address-suggestions).
+    var acList = document.createElement('ul');
+    acList.className = 'ac-list';
+    acList.setAttribute('role', 'listbox');
+    acList.setAttribute('aria-label', 'Address suggestions');
+    acList.hidden = true;
+    acWrap.appendChild(acList);
+
+    inputWrap.appendChild(acWrap);
 
     var checkBtn = document.createElement('button');
     checkBtn.type = 'button';
@@ -1479,6 +1500,32 @@
     wrap.appendChild(resultDiv);
 
     container.appendChild(wrap);
+
+    // Track the autocomplete-selected coordinate for this cross-post instance.
+    var selectedCoord = { lat: null, lon: null };
+
+    // Wire up autocomplete on the cross-post address input (same API/dropdown
+    // as the Animal Address input, via the reusable createAutocomplete factory).
+    var cpAc = createAutocomplete({
+      getEls: function () { return { input: addrInput, list: acList }; },
+      idPrefix: 'cp-ac-opt',
+      onInputChange: function () {
+        // User edited the text after selecting — invalidate the cached coord.
+        selectedCoord.lat = null;
+        selectedCoord.lon = null;
+      },
+      onSelect: function (item) {
+        if (typeof item.lat === 'number' && typeof item.lon === 'number' &&
+            isFinite(item.lat) && isFinite(item.lon)) {
+          selectedCoord.lat = item.lat;
+          selectedCoord.lon = item.lon;
+        } else {
+          selectedCoord.lat = null;
+          selectedCoord.lon = null;
+        }
+      }
+    });
+    cpAc.setup();
 
     btn.addEventListener('click', function () {
       var showing = inputWrap.style.display !== 'none';
@@ -1502,15 +1549,34 @@
       resultDiv.style.display = '';
       resultDiv.className = 'cross-post-result cross-post-neutral';
       resultDiv.textContent = 'Geocoding\u2026';
-      crossPostGeocode(addr, dispatchArea, resultDiv);
+      crossPostGeocode(addr, dispatchArea, resultDiv, selectedCoord);
+    });
+
+    // Enter key on the input triggers the Check button (when no autocomplete
+    // suggestion is actively highlighted — the factory's onKeydown handles that).
+    addrInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.defaultPrevented) {
+        e.preventDefault();
+        checkBtn.click();
+      }
     });
   }
 
   // Geocode an address via the Worker (same endpoint used for Tier 2 address
   // search — the Worker proxies the Census geocoder server-side, avoiding CORS).
-  // On success, runs the cross-post distance check.
-  function crossPostGeocode(address, dispatchArea, resultDiv) {
+  // On success, runs the cross-post distance check. When the autocomplete
+  // already resolved a coordinate (selectedCoord), skip the geocode and use
+  // those coords directly.
+  function crossPostGeocode(address, dispatchArea, resultDiv, selectedCoord) {
     try {
+      // If the autocomplete already resolved coordinates, use them directly
+      // (same pattern as the Animal Address submit path).
+      if (selectedCoord && typeof selectedCoord.lat === 'number' &&
+          typeof selectedCoord.lon === 'number' &&
+          isFinite(selectedCoord.lat) && isFinite(selectedCoord.lon)) {
+        crossPostDistanceCheck(selectedCoord.lat, selectedCoord.lon, dispatchArea, resultDiv);
+        return;
+      }
       var url = WORKER_URL + '?address=' + encodeURIComponent(address) + '&radius_mi=1';
       fetch(url).then(function (resp) {
         if (!resp.ok) throw new Error('geocode_failed');
@@ -4068,13 +4134,10 @@
   // Debounced lookup proxied THROUGH the Worker (single CORS surface, key/
   // rate-limit stay server-side). Keyboard + click select; on select we fill
   // the input and the existing geocode+radius submit flow runs unchanged.
-  var ac = {
-    items: [],        // current [{label, lat?, lon?}]
-    active: -1,       // highlighted index, -1 = none
-    timer: null,      // debounce timer
-    seq: 0,           // request sequence guard (drop stale responses)
-    lastQuery: ''     // query that produced the open list (suppress re-open)
-  };
+  //
+  // The autocomplete logic is factored into a reusable createAutocomplete()
+  // factory so the same dropdown behavior can be attached to BOTH the Tier-2
+  // Animal Address input AND the cross-post address input.
 
   // ─── Pin-drop coordinate detection (P2) ────────────────────────────
   // A caller sometimes reads a Google-Maps pin-drop ("40.4612, -79.8553")
@@ -4115,177 +4178,204 @@
     return null;
   }
 
+  // ─── Reusable autocomplete factory ─────────────────────────────────
+  // createAutocomplete(opts) returns an object with setup() and close() methods.
+  // opts:
+  //   getEls:        function returning { input, list } DOM elements
+  //   onSelect:      function(item) called when a suggestion is picked
+  //   onInputChange: function() called when the input text diverges from the
+  //                  last selected suggestion (i.e. user is editing/typing)
+  //   idPrefix:      string prefix for option ids (default 'ac-opt')
+  function createAutocomplete(opts) {
+    var inst = {
+      items: [],
+      active: -1,
+      timer: null,
+      seq: 0,
+      lastQuery: ''
+    };
+    var getEls = opts.getEls;
+    var onSelect = opts.onSelect || function () {};
+    var onInputChange = opts.onInputChange || function () {};
+    var idPrefix = opts.idPrefix || 'ac-opt';
+
+    function close() {
+      var els = getEls();
+      if (els.list) { els.list.hidden = true; els.list.innerHTML = ''; }
+      if (els.input) els.input.setAttribute('aria-expanded', 'false');
+      if (els.input) els.input.removeAttribute('aria-activedescendant');
+      inst.items = [];
+      inst.active = -1;
+    }
+
+    function render() {
+      var els = getEls();
+      if (!els.list) return;
+      if (!inst.items.length) { close(); return; }
+      var html = '';
+      for (var i = 0; i < inst.items.length; i++) {
+        var sel = (i === inst.active);
+        html += '<li id="' + idPrefix + '-' + i + '" class="ac-item' + (sel ? ' ac-active' : '') +
+                '" role="option" data-idx="' + i + '"' +
+                (sel ? ' aria-selected="true"' : '') + '>' +
+                escapeHtml(inst.items[i].label) + '</li>';
+      }
+      els.list.innerHTML = html;
+      els.list.hidden = false;
+      if (els.input) {
+        els.input.setAttribute('aria-expanded', 'true');
+        if (inst.active >= 0) {
+          els.input.setAttribute('aria-activedescendant', idPrefix + '-' + inst.active);
+        } else {
+          els.input.removeAttribute('aria-activedescendant');
+        }
+      }
+    }
+
+    function select(idx) {
+      if (idx < 0 || idx >= inst.items.length) return;
+      var els = getEls();
+      var item = inst.items[idx];
+      var label = item.label;
+      if (els.input) els.input.value = label;
+      inst.lastQuery = label;
+      onSelect(item);
+      close();
+      if (els.input) els.input.focus();
+    }
+
+    function doFetch(query) {
+      var mySeq = ++inst.seq;
+      var url = WORKER_URL +
+        '?autocomplete=' + encodeURIComponent(query) +
+        '&limit=' + encodeURIComponent(AC_LIMIT);
+      fetch(url, { cache: 'no-store' })
+        .then(function (resp) {
+          if (!resp.ok) return { suggestions: [] };
+          return resp.json();
+        })
+        .then(function (data) {
+          if (mySeq !== inst.seq) return;
+          var list = (data && Array.isArray(data.suggestions)) ? data.suggestions : [];
+          inst.items = list.filter(function (it) {
+            return it && typeof it.label === 'string' && it.label.trim() !== '';
+          }).slice(0, AC_LIMIT);
+          inst.active = -1;
+          render();
+        })
+        .catch(function () {
+          if (mySeq !== inst.seq) return;
+          close();
+        });
+    }
+
+    function onInput(immediate) {
+      var els = getEls();
+      var q = (els.input && els.input.value ? els.input.value : '').trim();
+      if (inst.timer) { clearTimeout(inst.timer); inst.timer = null; }
+      if (q === inst.lastQuery) { return; }
+      inst.lastQuery = '';
+      onInputChange();
+      if (q.length < AC_MIN_CHARS) { close(); return; }
+      var pin = detectPinDrop(q);
+      if (pin) {
+        inst.seq++;
+        if (inst.timer) { clearTimeout(inst.timer); inst.timer = null; }
+        inst.items = [{
+          label: fmt(MSG.autocomplete.pinDrop, { lat: pin.lat, lon: pin.lon }),
+          lat: pin.lat,
+          lon: pin.lon
+        }];
+        inst.active = -1;
+        render();
+        return;
+      }
+      if (immediate === true) { doFetch(q); return; }
+      inst.timer = setTimeout(function () { doFetch(q); }, AC_DEBOUNCE_MS);
+    }
+
+    function onPaste() {
+      setTimeout(function () { onInput(true); }, 0);
+    }
+
+    function onKeydown(e) {
+      var open = inst.items.length > 0;
+      if (e.key === 'ArrowDown') {
+        if (!open) return;
+        e.preventDefault();
+        inst.active = (inst.active + 1) % inst.items.length;
+        render();
+      } else if (e.key === 'ArrowUp') {
+        if (!open) return;
+        e.preventDefault();
+        inst.active = (inst.active - 1 + inst.items.length) % inst.items.length;
+        render();
+      } else if (e.key === 'Enter') {
+        if (open && inst.active >= 0) {
+          e.preventDefault();
+          select(inst.active);
+        }
+      } else if (e.key === 'Escape') {
+        if (open) { e.preventDefault(); close(); }
+      }
+    }
+
+    function setup() {
+      var els = getEls();
+      if (!els.input || !els.list) return;
+      els.input.addEventListener('input', function () { onInput(false); });
+      els.input.addEventListener('paste', onPaste);
+      els.input.addEventListener('keydown', onKeydown);
+      els.list.addEventListener('mousedown', function (e) {
+        var li = e.target;
+        while (li && li !== els.list && !li.getAttribute) li = li.parentNode;
+        while (li && li !== els.list && li.getAttribute && li.getAttribute('data-idx') === null) {
+          li = li.parentNode;
+        }
+        if (li && li.getAttribute && li.getAttribute('data-idx') !== null) {
+          e.preventDefault();
+          select(Number(li.getAttribute('data-idx')));
+        }
+      });
+      els.input.addEventListener('blur', function () {
+        setTimeout(close, 120);
+      });
+    }
+
+    return { setup: setup, close: close, inst: inst };
+  }
+
+  // ─── Animal Address autocomplete instance ──────────────────────────
   function acEls() {
     return { input: $('#animal-address'), list: $('#address-suggestions') };
   }
 
-  function acClose() {
-    var els = acEls();
-    if (els.list) { els.list.hidden = true; els.list.innerHTML = ''; }
-    if (els.input) els.input.setAttribute('aria-expanded', 'false');
-    if (els.input) els.input.removeAttribute('aria-activedescendant');
-    ac.items = [];
-    ac.active = -1;
-  }
-
-  function acRender() {
-    var els = acEls();
-    if (!els.list) return;
-    if (!ac.items.length) { acClose(); return; }
-    var html = '';
-    for (var i = 0; i < ac.items.length; i++) {
-      var sel = (i === ac.active);
-      html += '<li id="ac-opt-' + i + '" class="ac-item' + (sel ? ' ac-active' : '') +
-              '" role="option" data-idx="' + i + '"' +
-              (sel ? ' aria-selected="true"' : '') + '>' +
-              escapeHtml(ac.items[i].label) + '</li>';
-    }
-    els.list.innerHTML = html;
-    els.list.hidden = false;
-    if (els.input) {
-      els.input.setAttribute('aria-expanded', 'true');
-      if (ac.active >= 0) {
-        els.input.setAttribute('aria-activedescendant', 'ac-opt-' + ac.active);
-      } else {
-        els.input.removeAttribute('aria-activedescendant');
-      }
-    }
-  }
-
-  function acSelect(idx) {
-    if (idx < 0 || idx >= ac.items.length) return;
-    var els = acEls();
-    var item = ac.items[idx];
-    var label = item.label;
-    if (els.input) els.input.value = label;
-    ac.lastQuery = label; // typing 'input' fires from value set? no — set manually
-    // Photon ALREADY resolved this suggestion to a coordinate (autocomplete.js
-    // populates lat/lon). Capture it so the submit can send animal_lat/animal_lon
-    // DIRECTLY and skip the weak Census exact-match geocode. Keyed to the exact
-    // label so acOnInput can detect a later edit and invalidate it.
-    if (typeof item.lat === 'number' && typeof item.lon === 'number' &&
-        isFinite(item.lat) && isFinite(item.lon)) {
-      state.selectedAnimalCoord = { lat: item.lat, lon: item.lon, label: label };
-    } else {
+  var animalAc = createAutocomplete({
+    getEls: acEls,
+    idPrefix: 'ac-opt',
+    onInputChange: function () {
+      // The text diverged from the selected suggestion's label: any captured
+      // coord is now stale (it belongs to a DIFFERENT address), so drop it.
       state.selectedAnimalCoord = null;
-    }
-    acClose();
-    if (els.input) els.input.focus();
-  }
-
-  function acFetch(query) {
-    var mySeq = ++ac.seq;
-    var url = WORKER_URL +
-      '?autocomplete=' + encodeURIComponent(query) +
-      '&limit=' + encodeURIComponent(AC_LIMIT);
-    fetch(url, { cache: 'no-store' })
-      .then(function (resp) {
-        if (!resp.ok) return { suggestions: [] };
-        return resp.json();
-      })
-      .then(function (data) {
-        if (mySeq !== ac.seq) return; // stale response — a newer keystroke won
-        var list = (data && Array.isArray(data.suggestions)) ? data.suggestions : [];
-        ac.items = list.filter(function (it) {
-          return it && typeof it.label === 'string' && it.label.trim() !== '';
-        }).slice(0, AC_LIMIT);
-        ac.active = -1;
-        acRender();
-      })
-      .catch(function () {
-        if (mySeq !== ac.seq) return;
-        acClose();
-      });
-  }
-
-  function acOnInput(immediate) {
-    var els = acEls();
-    var q = (els.input && els.input.value ? els.input.value : '').trim();
-    if (ac.timer) { clearTimeout(ac.timer); ac.timer = null; }
-    if (q === ac.lastQuery) { return; } // selection just filled the box
-    ac.lastQuery = '';
-    // The text diverged from the selected suggestion's label: any captured
-    // coord is now stale (it belongs to a DIFFERENT address), so drop it. Submit
-    // then reverts to the address-string path until a new suggestion is picked.
-    state.selectedAnimalCoord = null;
-    if (q.length < AC_MIN_CHARS) { acClose(); return; }
-    // PIN-DROP: a pasted/typed coordinate pair short-circuits geocoding. Surface
-    // it as a synthetic suggestion (same {label,lat,lon} shape) so the existing
-    // acSelect path captures the coord and the submit sends animal_lat/animal_lon.
-    var pin = detectPinDrop(q);
-    if (pin) {
-      ac.seq++; // invalidate any in-flight Photon fetch
-      if (ac.timer) { clearTimeout(ac.timer); ac.timer = null; }
-      ac.items = [{
-        label: fmt(MSG.autocomplete.pinDrop, { lat: pin.lat, lon: pin.lon }),
-        lat: pin.lat,
-        lon: pin.lon
-      }];
-      ac.active = -1;
-      acRender();
-      return;
-    }
-    // PASTE-AND-GO: a paste delivers a full address in one shot, so query Photon
-    // IMMEDIATELY (no debounce) — the matched candidate then appears in the same
-    // dropdown for the dispatcher to eyeball and pick (which reuses its Photon
-    // coords and bypasses Census). Typing still debounces.
-    if (immediate === true) { acFetch(q); return; }
-    ac.timer = setTimeout(function () { acFetch(q); }, AC_DEBOUNCE_MS);
-  }
-
-  // A paste fires BEFORE the input value is updated, so defer to the next tick
-  // to read the settled value, then run the same query path with no debounce.
-  function acOnPaste() {
-    setTimeout(function () { acOnInput(true); }, 0);
-  }
-
-  function acOnKeydown(e) {
-    var open = ac.items.length > 0;
-    if (e.key === 'ArrowDown') {
-      if (!open) return;
-      e.preventDefault();
-      ac.active = (ac.active + 1) % ac.items.length;
-      acRender();
-    } else if (e.key === 'ArrowUp') {
-      if (!open) return;
-      e.preventDefault();
-      ac.active = (ac.active - 1 + ac.items.length) % ac.items.length;
-      acRender();
-    } else if (e.key === 'Enter') {
-      if (open && ac.active >= 0) {
-        e.preventDefault();
-        acSelect(ac.active);
+    },
+    onSelect: function (item) {
+      // Photon ALREADY resolved this suggestion to a coordinate (autocomplete.js
+      // populates lat/lon). Capture it so the submit can send animal_lat/animal_lon
+      // DIRECTLY and skip the weak Census exact-match geocode. Keyed to the exact
+      // label so acOnInput can detect a later edit and invalidate it.
+      if (typeof item.lat === 'number' && typeof item.lon === 'number' &&
+          isFinite(item.lat) && isFinite(item.lon)) {
+        state.selectedAnimalCoord = { lat: item.lat, lon: item.lon, label: item.label };
       } else {
-        // No active suggestion — fall through to submit (handled separately).
+        state.selectedAnimalCoord = null;
       }
-    } else if (e.key === 'Escape') {
-      if (open) { e.preventDefault(); acClose(); }
     }
-  }
+  });
+
+  function acClose() { animalAc.close(); }
 
   function setupAutocomplete() {
-    var els = acEls();
-    if (!els.input || !els.list) return;
-    els.input.addEventListener('input', function () { acOnInput(false); });
-    els.input.addEventListener('paste', acOnPaste);
-    els.input.addEventListener('keydown', acOnKeydown);
-    // Click / tap select.
-    els.list.addEventListener('mousedown', function (e) {
-      // mousedown (not click) so it fires before the input blur closes the list.
-      var li = e.target;
-      while (li && li !== els.list && !li.getAttribute) li = li.parentNode;
-      while (li && li !== els.list && li.getAttribute && li.getAttribute('data-idx') === null) {
-        li = li.parentNode;
-      }
-      if (li && li.getAttribute && li.getAttribute('data-idx') !== null) {
-        e.preventDefault();
-        acSelect(Number(li.getAttribute('data-idx')));
-      }
-    });
-    // Close when focus leaves the input (after click handlers run).
-    els.input.addEventListener('blur', function () {
-      setTimeout(acClose, 120);
-    });
+    animalAc.setup();
   }
 
   // ─── WIN Areas map: render + dynamic highlight (D5.2-5.3) ──────────
