@@ -508,7 +508,6 @@
         if (ctRvsAvail >= cfg.ct_rvs_capture_min_available) {
           rec.action = 'connecteam_task';
           rec.target = 'ct_rvs';
-          rec.reasoning.push(T1.rvsCaptureDispatch);
           return enrichMarginal(rec, capacity, 'ct_rvs', cfg);
         }
         rec.action = 'call_pa_game_comm';
@@ -523,7 +522,6 @@
       if (ctAnyAvail >= cfg.ct_any_capture_min_available) {
         rec.action = 'connecteam_task';
         rec.target = 'ct_any';
-        rec.reasoning.push(T1.nonRvsCaptureDispatch);
         // Choose actual bucket: prefer ct_no_rvs to save RVS volunteers.
         var chosen = (ctNoRvsAvail > 0) ? 'ct_no_rvs' : 'ct_rvs';
         return enrichMarginal(rec, capacity, chosen, cfg, ctAnyAvail);
@@ -546,7 +544,6 @@
         if (ctAnyAvail > 0) {
           rec.reasoning.push(fmt(T1.transportCourierAndCt, { courier: courierAvail, ct: ctAnyAvail }));
         }
-        rec.reasoning.push(T1.transportCourierDispatch);
         return enrichMarginal(rec, capacity, 'courier', cfg, transportPool);
       }
       rec.target = 'ct_any';
