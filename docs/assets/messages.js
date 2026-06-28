@@ -84,7 +84,7 @@
         dispatcher_decides: 'Dispatch Task (monitoring vols)'
       },
       // enrichMarginal low-capacity note ({count} = available count).
-      lowCapacityWarning: 'Low capacity warning: only {count} available; consider calling PGC.',
+      lowCapacityWarning: 'Low capacity warning: only {count} available; consider calling PGC or cross posting.',
       // recommend() reasoning fragments, by branch.
       missingCapacity: 'No volunteers in this county - Ask finder to call PGC.',
       unknownIssue: 'Issue type not recognized - select Capture or Transport.',
@@ -339,7 +339,7 @@
       qualifiedHelpers: 'Qualified helpers: <strong>{count}</strong>  {areaClause}  within {radius} mi.',
       // Low-capacity warning shown when qualifiedCount > 0 but <= threshold.
       // {count} = qualified count, {phone} = PGC phone.
-      lowCapacityWarning: 'Low capacity: only {count} qualified \u2014 consider calling PA Game Commission: {phone}.',
+      lowCapacityWarning: 'Low capacity: only {count} qualified \u2014 consider calling PA Game Commission: {phone} or cross posting.',
       // Informational notice when some qualified volunteers are not on Connecteam.
       // {count} = number of non-Connecteam qualified volunteers.
       nonConnecteamNotice: '{count} volunteer(s) not on Connecteam \u2014 contact by text/phone.',
