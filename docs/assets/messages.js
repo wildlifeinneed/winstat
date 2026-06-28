@@ -204,7 +204,10 @@
       // automatically on county selection, so this is a transient state.
       summaryVolPending: 'Qualified-volunteer counts loading\u2026 open the In-County / WIN Area lists below.',
       // Nearby-rehabber section header + per-row line.
-      summaryRehabHeader: 'Nearby rehabbers',
+      // {area} = zero-padded WIN area number for the selected county.
+      summaryRehabHeader: 'Area {area} Rehabbers',
+      // Fallback when the WIN area is unknown for the selected county.
+      summaryRehabHeaderFallback: 'Nearby Rehabbers',
       // {name} = rehabber name, {phone} = formatted phone (or dash), {county} =
       // rehabber county.
       summaryRehabRow: '{name} ({phone})<br>{county}',

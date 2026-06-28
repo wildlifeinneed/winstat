@@ -793,7 +793,13 @@
     //    (species codes), so nearbyRehabbers() filters by animalType. Uses the
     //    SHARED nearbyRehabbers() helper so the transport-PGC block lists the
     //    exact same facilities.
-    html += '<div class="rec-summary-rehab-header">' + escapeHtml(REC.summaryRehabHeader) + '</div>';
+    var rehabWinArea = (state.countyWin && state.countyWin[county] !== undefined &&
+                        state.countyWin[county] !== null)
+      ? String(state.countyWin[county]).trim() : '';
+    var rehabHeaderLabel = rehabWinArea
+      ? fmt(REC.summaryRehabHeader, { area: escapeHtml(rehabWinArea) })
+      : escapeHtml(REC.summaryRehabHeaderFallback || REC.summaryRehabHeader);
+    html += '<div class="rec-summary-rehab-header">' + rehabHeaderLabel + '</div>';
     var ordered = nearbyRehabbers(county, animalType);
     if (ordered.length) {
       html += '<ul class="rec-summary-list rec-summary-rehab-list">';
