@@ -666,6 +666,72 @@
     }
 
     [hidden] { display: none !important; }
+
+    /* ─── Version history panel ──────────────────────────────── */
+    .version-list {
+      max-height: 320px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .version-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      font-size: 13.5px;
+      flex-wrap: wrap;
+    }
+    .version-row:hover { background: #eceae5; }
+    .version-row .version-date { font-weight: 600; flex: 1 1 200px; min-width: 0; }
+    .version-row .version-actions { display: flex; gap: 8px; flex-shrink: 0; }
+    .version-preview-pane {
+      margin-top: 14px;
+      padding: 14px;
+      border: 1px solid #c8e6d2;
+      border-left: 4px solid var(--green);
+      border-radius: 8px;
+      background: #f9fdf9;
+      font-size: 13px;
+    }
+    .version-preview-pane h4 {
+      font-family: 'Bitter', Georgia, serif;
+      font-size: 15px;
+      margin-bottom: 10px;
+      color: var(--green-deep);
+    }
+    .version-diff-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .version-diff-table th {
+      text-align: left;
+      padding: 6px 10px;
+      background: var(--green-light);
+      border-bottom: 1px solid #c8e6d2;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--green-dark);
+    }
+    .version-diff-table td {
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    .version-diff-table tr.changed td { background: var(--amber-light); }
+    .version-empty {
+      font-size: 13px;
+      color: var(--text-muted);
+      font-style: italic;
+      padding: 8px 2px;
+    }
   </style>
 </head>
 <body>
@@ -843,12 +909,27 @@
         </div>
         <div id="preview-out" class="preview-block" hidden>
           <div class="preview-grid" id="preview-grid"></div>
-          <p class="preview-foot">Runs the same decision engine the dispatcher uses, against this county’s current live counts and your in-progress rule edits.</p>
+          <p class="preview-foot">Runs the same decision engine the dispatcher uses, against this county's current live counts and your in-progress rule edits.</p>
         </div>
       </div>
     </div>
 
   </div><!-- /#editor-root -->
+
+  <!-- VERSION HISTORY (outside editor-root so it's always visible) -->
+  <div class="section-card rules" id="version-history-card" hidden>
+    <div class="section-head">
+      <span class="tag" style="background:#6b4fa0;">History</span>
+      <span class="section-title">Version History</span>
+      <span class="section-note">previous policy snapshots</span>
+    </div>
+    <div class="section-body">
+      <div id="version-list" class="version-list"></div>
+      <div id="version-empty" class="version-empty" hidden>No previous versions found.</div>
+      <div id="version-loading" class="version-empty">Loading version history…</div>
+      <div id="version-preview-pane" class="version-preview-pane" hidden></div>
+    </div>
+  </div>
 
   <div id="editor-error" class="inline-error" hidden></div>
 
@@ -857,6 +938,8 @@
     <div class="save-bar-inner">
       <span class="save-note">Save edits directly to the server, or download a local copy.</span>
       <span class="save-status" id="save-status" aria-live="polite"></span>
+      <button id="version-history-btn" class="btn-ghost" type="button">Version History</button>
+      <button id="print-policy-btn" class="btn-ghost" type="button">Print Policy</button>
       <button id="reset-county" class="btn-ghost" type="button">Revert county</button>
       <button id="download-btn" class="btn-ghost" type="button">Download JSON</button>
       <button id="save-btn" class="btn-primary" type="button">Save to server</button>
@@ -1621,6 +1704,307 @@
       .map(function (cb) { return cb.value; });
   }
 
+  // ── Version History ───────────────────────────────────────────────────
+  var versionCache = []; // cached list of {key, timestamp}
+
+  function loadVersionHistory() {
+    var card = $('#version-history-card');
+    var listEl = $('#version-list');
+    var emptyEl = $('#version-empty');
+    var loadingEl = $('#version-loading');
+    var previewPane = $('#version-preview-pane');
+
+    card.hidden = false;
+    listEl.innerHTML = '';
+    emptyEl.hidden = true;
+    loadingEl.hidden = false;
+    previewPane.hidden = true;
+
+    fetch(WORKER_URL + '?mode=policy_versions', { cache: 'no-store' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        loadingEl.hidden = true;
+        var versions = (data && Array.isArray(data.versions)) ? data.versions : [];
+        versionCache = versions;
+        if (!versions.length) {
+          emptyEl.hidden = false;
+          return;
+        }
+        versions.forEach(function (v) {
+          listEl.appendChild(buildVersionRow(v));
+        });
+      })
+      .catch(function (err) {
+        loadingEl.hidden = true;
+        emptyEl.hidden = false;
+        emptyEl.textContent = 'Could not load version history: ' + err.message;
+      });
+  }
+
+  function buildVersionRow(v) {
+    var dateStr = formatTimestamp(v.timestamp);
+    var previewBtn = el('button', { class: 'btn-ghost', type: 'button' }, ['Preview']);
+    var restoreBtn = el('button', { class: 'btn-secondary', type: 'button' }, ['Restore']);
+    var printBtn = el('button', { class: 'btn-ghost', type: 'button' }, ['Print']);
+
+    previewBtn.addEventListener('click', function () { previewVersion(v.key, dateStr); });
+    restoreBtn.addEventListener('click', function () { restoreVersion(v.key, dateStr); });
+    printBtn.addEventListener('click', function () { printVersion(v.key, dateStr); });
+
+    return el('div', { class: 'version-row' }, [
+      el('span', { class: 'version-date' }, [dateStr]),
+      el('div', { class: 'version-actions' }, [previewBtn, printBtn, restoreBtn])
+    ]);
+  }
+
+  function formatTimestamp(ts) {
+    try {
+      var d = new Date(ts);
+      if (isNaN(d.getTime())) return ts;
+      return d.toLocaleString(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+      });
+    } catch (e) { return ts; }
+  }
+
+  function fetchVersion(key) {
+    return fetch(WORKER_URL + '?mode=policy_version&key=' + encodeURIComponent(key), { cache: 'no-store' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      });
+  }
+
+  function previewVersion(key, dateStr) {
+    var pane = $('#version-preview-pane');
+    pane.hidden = false;
+    pane.innerHTML = '<em>Loading snapshot…</em>';
+
+    fetchVersion(key).then(function (snapshot) {
+      pane.innerHTML = '';
+      pane.appendChild(el('h4', {}, ['Snapshot: ' + dateStr]));
+
+      var currentDoc = buildExport();
+      var snapshotCounties = (snapshot && snapshot.counties) ? snapshot.counties : {};
+      var currentCounties = (currentDoc && currentDoc.counties) ? currentDoc.counties : {};
+
+      // Build a diff table comparing snapshot vs current.
+      var allNames = {};
+      Object.keys(snapshotCounties).forEach(function (n) { allNames[n] = true; });
+      Object.keys(currentCounties).forEach(function (n) { allNames[n] = true; });
+      var sorted = Object.keys(allNames).sort();
+
+      var table = el('table', { class: 'version-diff-table' });
+      var thead = el('tr', {}, [
+        el('th', {}, ['County']),
+        el('th', {}, ['Snapshot']),
+        el('th', {}, ['Current'])
+      ]);
+      table.appendChild(thead);
+
+      var diffCount = 0;
+      sorted.forEach(function (name) {
+        var snap = snapshotCounties[name];
+        var curr = currentCounties[name];
+        var snapSummary = snap ? summarizeCountyPolicy(snap) : '(not present)';
+        var currSummary = curr ? summarizeCountyPolicy(curr) : '(not present)';
+        var changed = snapSummary !== currSummary;
+        if (changed) diffCount++;
+        var tr = el('tr', { class: changed ? 'changed' : '' }, [
+          el('td', {}, [name]),
+          el('td', {}, [snapSummary]),
+          el('td', {}, [currSummary])
+        ]);
+        table.appendChild(tr);
+      });
+
+      pane.appendChild(el('p', { style: 'margin-bottom:10px;font-size:13px;color:var(--text-muted);' }, [
+        diffCount + ' of ' + sorted.length + ' counties differ from current policy.'
+      ]));
+      pane.appendChild(table);
+    }).catch(function (err) {
+      pane.innerHTML = '';
+      pane.appendChild(el('p', { style: 'color:var(--red);' }, ['Failed to load snapshot: ' + err.message]));
+    });
+  }
+
+  function summarizeCountyPolicy(p) {
+    var parts = [];
+    if (p.dispatch_enabled === false) {
+      parts.push('OFF');
+    } else {
+      parts.push('ON');
+    }
+    var ai = p.allowed_issues;
+    if (ai === 'all' || ai == null) {
+      parts.push('all issues');
+    } else if (Array.isArray(ai)) {
+      parts.push(ai.join(', ') || 'no issues');
+    }
+    var refs = Array.isArray(p.referral_targets) ? p.referral_targets.length : 0;
+    if (refs) parts.push(refs + ' referral' + (refs > 1 ? 's' : ''));
+    return parts.join(' \u00b7 ');
+  }
+
+  function restoreVersion(key, dateStr) {
+    if (!confirm('Restore the snapshot from ' + dateStr + '?\n\nThis will load the snapshot into the editor. You must click "Save to server" to make it live.')) {
+      return;
+    }
+    fetchVersion(key).then(function (snapshot) {
+      if (!snapshot || !snapshot.counties) {
+        alert('Invalid snapshot \u2014 no counties found.');
+        return;
+      }
+      // Replace the working policy with the snapshot.
+      state.policyDoc = JSON.parse(JSON.stringify(snapshot));
+      state.counties = (snapshot.counties && typeof snapshot.counties === 'object')
+        ? JSON.parse(JSON.stringify(snapshot.counties)) : {};
+
+      // Rebuild county order.
+      var names = {};
+      Object.keys(state.counties).forEach(function (n) { names[n] = true; });
+      Object.keys(state.capacity).forEach(function (n) { names[n] = true; });
+      state.order = Object.keys(names).sort();
+
+      // Mark all counties as dirty so the user knows they need to save.
+      state.order.forEach(function (n) { if (state.counties[n]) state.dirty[n] = true; });
+
+      // Rebuild the dropdown and re-select the current county.
+      var sel = $('#county-select');
+      // Remove all county options (keep the placeholder).
+      $all('option[data-county]', sel).forEach(function (opt) { opt.remove(); });
+      populateSelect();
+      if (state.current && state.counties[state.current]) {
+        selectCounty(state.current);
+      } else if (state.order.length) {
+        selectCounty(state.order[0]);
+      }
+
+      setSaveStatus('Restored snapshot from ' + dateStr + '. Save to make it live.', false);
+      // Hide the version preview pane.
+      $('#version-preview-pane').hidden = true;
+    }).catch(function (err) {
+      alert('Failed to restore snapshot: ' + err.message);
+    });
+  }
+
+  function printVersion(key, dateStr) {
+    fetchVersion(key).then(function (snapshot) {
+      if (!snapshot || !snapshot.counties) {
+        alert('Invalid snapshot \u2014 no counties found.');
+        return;
+      }
+      openPrintView(snapshot.counties, 'Policy Snapshot \u2014 ' + dateStr);
+    }).catch(function (err) {
+      alert('Failed to load snapshot for printing: ' + err.message);
+    });
+  }
+
+  // ── Print Policy ────────────────────────────────────────────────────────
+  function printCurrentPolicy() {
+    if (state.current) commitScope();
+    var doc = buildExport();
+    var counties = (doc && doc.counties) ? doc.counties : {};
+    openPrintView(counties, 'Current Policy');
+  }
+
+  function openPrintView(counties, title) {
+    var names = Object.keys(counties).sort();
+    var html = '<!DOCTYPE html><html><head><meta charset="UTF-8">';
+    html += '<title>WIN PA \u2014 ' + escHtml(title) + '</title>';
+    html += '<style>';
+    html += 'body{font-family:-apple-system,system-ui,sans-serif;font-size:13px;line-height:1.5;color:#1a1a1a;max-width:800px;margin:0 auto;padding:24px 20px;}';
+    html += 'h1{font-size:20px;margin-bottom:4px;}';
+    html += '.subtitle{font-size:13px;color:#666;margin-bottom:20px;}';
+    html += 'h2{font-size:15px;margin:18px 0 6px;padding:6px 10px;background:#e8f5ed;border-left:4px solid #1e6b3a;page-break-after:avoid;}';
+    html += 'table{width:100%;border-collapse:collapse;margin-bottom:12px;}';
+    html += 'th{text-align:left;padding:4px 8px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#666;border-bottom:1px solid #ddd;}';
+    html += 'td{padding:4px 8px;border-bottom:1px solid #eee;vertical-align:top;}';
+    html += '.off{color:#c0392b;font-weight:700;}';
+    html += '.on{color:#1e6b3a;font-weight:700;}';
+    html += '.ref{margin:4px 0 4px 12px;font-size:12px;color:#444;}';
+    html += '@media print{body{padding:0;font-size:11px;}h2{font-size:13px;margin:12px 0 4px;padding:4px 8px;}@page{margin:1.5cm;}}';
+    html += '</style></head><body>';
+    html += '<h1>Wildlife In Need PA \u2014 ' + escHtml(title) + '</h1>';
+    html += '<p class="subtitle">Generated ' + new Date().toLocaleString() + ' \u00b7 ' + names.length + ' counties</p>';
+
+    names.forEach(function (name) {
+      var p = counties[name];
+      html += '<h2>' + escHtml(name) + '</h2>';
+      html += '<table>';
+
+      // Dispatch enabled
+      var enabled = p.dispatch_enabled !== false;
+      html += '<tr><th style="width:160px;">Dispatch</th><td class="' + (enabled ? 'on' : 'off') + '">' + (enabled ? 'Enabled' : 'Disabled') + '</td></tr>';
+
+      // Allowed issues
+      var ai = p.allowed_issues;
+      var issueStr = 'All issues';
+      if (Array.isArray(ai)) {
+        issueStr = ai.length ? ai.join(', ') : '(none)';
+      }
+      html += '<tr><th>Allowed issues</th><td>' + escHtml(issueStr) + '</td></tr>';
+
+      // Species scope
+      var scope = p.species_scope;
+      var scopeStr = 'All species';
+      if (scope && typeof scope === 'object') {
+        var tokens = [];
+        Object.keys(scope).forEach(function (k) {
+          if (Array.isArray(scope[k])) scope[k].forEach(function (v) { tokens.push(v); });
+        });
+        scopeStr = tokens.length ? tokens.join(', ') : '(empty)';
+      }
+      html += '<tr><th>Species scope</th><td>' + escHtml(scopeStr) + '</td></tr>';
+
+      // Referral targets
+      var refs = Array.isArray(p.referral_targets) ? p.referral_targets : [];
+      if (refs.length) {
+        html += '<tr><th>Referral targets</th><td>';
+        refs.forEach(function (r) {
+          var parts = [];
+          if (r.name) parts.push('<strong>' + escHtml(r.name) + '</strong>');
+          if (r.phone) parts.push(escHtml(r.phone));
+          if (r.notes) parts.push('<em>' + escHtml(r.notes) + '</em>');
+          if (Array.isArray(r.for_issues) && r.for_issues.length) {
+            parts.push('(' + r.for_issues.join(', ') + ')');
+          }
+          html += '<div class="ref">' + parts.join(' \u00b7 ') + '</div>';
+        });
+        html += '</td></tr>';
+      }
+
+      // Special notes
+      if (p.special_notes && typeof p.special_notes === 'string' && p.special_notes.trim()) {
+        html += '<tr><th>Special notes</th><td>' + escHtml(p.special_notes) + '</td></tr>';
+      }
+
+      html += '</table>';
+    });
+
+    html += '</body></html>';
+
+    var w = window.open('', '_blank');
+    if (w) {
+      w.document.write(html);
+      w.document.close();
+      // Auto-trigger print dialog after a short delay for rendering.
+      setTimeout(function () { w.print(); }, 400);
+    } else {
+      alert('Pop-up blocked. Please allow pop-ups for this site to print.');
+    }
+  }
+
+  function escHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
   // ── Global controls ──────────────────────────────────────────────────────
   function wireGlobalControls() {
     $('#county-select').addEventListener('change', function () { selectCounty(this.value); });
@@ -1631,6 +2015,8 @@
     $('#preview-btn').addEventListener('click', runPreview);
     $('#download-btn').addEventListener('click', downloadPolicy);
     $('#save-btn').addEventListener('click', savePolicy);
+    $('#version-history-btn').addEventListener('click', loadVersionHistory);
+    $('#print-policy-btn').addEventListener('click', printCurrentPolicy);
 
     $('#reset-county').addEventListener('click', function () {
       if (!state.current) return;

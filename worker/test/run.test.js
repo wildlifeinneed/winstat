@@ -118,6 +118,7 @@ function mockKV(coordsArray) {
 }
 
 // Mock KV binding with both coords and optional policy + put support.
+// Also supports list({ prefix }) for the policy_versions endpoint.
 function mockKVWithPolicy(coordsArray, policyObj) {
   const store = {
     volunteer_coords: JSON.stringify(coordsArray),
@@ -128,6 +129,13 @@ function mockKVWithPolicy(coordsArray, policyObj) {
   return {
     get: async (key) => store[key] || null,
     put: async (key, value) => { store[key] = value; },
+    list: async (opts) => {
+      const prefix = (opts && opts.prefix) || '';
+      const keys = Object.keys(store)
+        .filter((k) => k.startsWith(prefix))
+        .map((k) => ({ name: k }));
+      return { keys, list_complete: true, cursor: null };
+    },
     _store: store,
   };
 }
@@ -2910,6 +2918,96 @@ async function main() {
     const res = await handleRequest(req, {
       ResponseCtor: MockResponse, kv: mockKVWithPolicy([]),
       policyPassword: 'secret',
+      allowedOrigin: 'https://wildlifeinneed.github.io',
+    });
+    assert.strictEqual(res.header('Access-Control-Allow-Origin'), 'https://wildlifeinneed.github.io');
+  });
+
+  // ── Policy version history endpoint tests ─────────────────────────────
+
+  await test('GET ?mode=policy_versions returns empty array when no snapshots', async () => {
+    const kv = mockKVWithPolicy([], { counties: {} });
+    const req = mockRequest('GET', { mode: 'policy_versions' });
+    const res = await handleRequest(req, { ResponseCtor: MockResponse, kv });
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.ok(Array.isArray(body.versions), 'versions should be an array');
+    assert.strictEqual(body.versions.length, 0);
+  });
+
+  await test('GET ?mode=policy_versions lists snapshots sorted newest-first', async () => {
+    const kv = mockKVWithPolicy([], { counties: {} });
+    // Manually insert snapshots into the store.
+    kv._store['policy_snapshot_2026-06-01T10:00:00.000Z'] = JSON.stringify({ counties: { Adams: {} } });
+    kv._store['policy_snapshot_2026-06-15T10:00:00.000Z'] = JSON.stringify({ counties: { Adams: {}, Berks: {} } });
+    kv._store['policy_snapshot_2026-06-10T10:00:00.000Z'] = JSON.stringify({ counties: { Adams: {} } });
+    const req = mockRequest('GET', { mode: 'policy_versions' });
+    const res = await handleRequest(req, { ResponseCtor: MockResponse, kv });
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.strictEqual(body.versions.length, 3);
+    // Newest first.
+    assert.strictEqual(body.versions[0].timestamp, '2026-06-15T10:00:00.000Z');
+    assert.strictEqual(body.versions[1].timestamp, '2026-06-10T10:00:00.000Z');
+    assert.strictEqual(body.versions[2].timestamp, '2026-06-01T10:00:00.000Z');
+    // Each entry has key and timestamp.
+    assert.strictEqual(body.versions[0].key, 'policy_snapshot_2026-06-15T10:00:00.000Z');
+  });
+
+  await test('GET ?mode=policy_versions has CORS headers', async () => {
+    const kv = mockKVWithPolicy([], { counties: {} });
+    const req = mockRequest('GET', { mode: 'policy_versions' });
+    const res = await handleRequest(req, {
+      ResponseCtor: MockResponse, kv,
+      allowedOrigin: 'https://wildlifeinneed.github.io',
+    });
+    assert.strictEqual(res.header('Access-Control-Allow-Origin'), 'https://wildlifeinneed.github.io');
+  });
+
+  await test('GET ?mode=policy_version returns 400 when key is missing', async () => {
+    const kv = mockKVWithPolicy([], { counties: {} });
+    const req = mockRequest('GET', { mode: 'policy_version' });
+    const res = await handleRequest(req, { ResponseCtor: MockResponse, kv });
+    assert.strictEqual(res.status, 400);
+    const body = await res.json();
+    assert.strictEqual(body.error, 'invalid_key');
+  });
+
+  await test('GET ?mode=policy_version returns 400 when key has wrong prefix', async () => {
+    const kv = mockKVWithPolicy([], { counties: {} });
+    const req = mockRequest('GET', { mode: 'policy_version', key: 'bad_key_2026' });
+    const res = await handleRequest(req, { ResponseCtor: MockResponse, kv });
+    assert.strictEqual(res.status, 400);
+    const body = await res.json();
+    assert.strictEqual(body.error, 'invalid_key');
+  });
+
+  await test('GET ?mode=policy_version returns 404 when snapshot not found', async () => {
+    const kv = mockKVWithPolicy([], { counties: {} });
+    const req = mockRequest('GET', { mode: 'policy_version', key: 'policy_snapshot_2026-01-01T00:00:00.000Z' });
+    const res = await handleRequest(req, { ResponseCtor: MockResponse, kv });
+    assert.strictEqual(res.status, 404);
+    const body = await res.json();
+    assert.strictEqual(body.error, 'not_found');
+  });
+
+  await test('GET ?mode=policy_version returns 200 with snapshot data', async () => {
+    const kv = mockKVWithPolicy([], { counties: {} });
+    const snapshotPolicy = { counties: { Adams: { dispatch_enabled: false } } };
+    kv._store['policy_snapshot_2026-06-20T12:00:00.000Z'] = JSON.stringify(snapshotPolicy);
+    const req = mockRequest('GET', { mode: 'policy_version', key: 'policy_snapshot_2026-06-20T12:00:00.000Z' });
+    const res = await handleRequest(req, { ResponseCtor: MockResponse, kv });
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.deepStrictEqual(body, snapshotPolicy);
+  });
+
+  await test('GET ?mode=policy_version has CORS headers', async () => {
+    const kv = mockKVWithPolicy([], { counties: {} });
+    kv._store['policy_snapshot_2026-06-20T12:00:00.000Z'] = JSON.stringify({ counties: {} });
+    const req = mockRequest('GET', { mode: 'policy_version', key: 'policy_snapshot_2026-06-20T12:00:00.000Z' });
+    const res = await handleRequest(req, {
+      ResponseCtor: MockResponse, kv,
       allowedOrigin: 'https://wildlifeinneed.github.io',
     });
     assert.strictEqual(res.header('Access-Control-Allow-Origin'), 'https://wildlifeinneed.github.io');

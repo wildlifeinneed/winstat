@@ -381,6 +381,71 @@ async function handleRequest(request, deps) {
     return jsonResponse(ResponseCtor, 200, parsed, allowedOrigin);
   }
 
+  // ── Policy VERSION LIST route ────────────────────────────────────────
+  // GET ?mode=policy_versions — lists all policy_snapshot_* keys from KV,
+  // sorted newest-first. Returns { versions: [{key, timestamp}, ...] }.
+  if (urlMode(request) === 'policy_versions' && method === 'GET') {
+    let versions = [];
+    if (deps.kv && typeof deps.kv.list === 'function') {
+      try {
+        let cursor = undefined;
+        let done = false;
+        while (!done) {
+          const opts = { prefix: 'policy_snapshot_' };
+          if (cursor) opts.cursor = cursor;
+          const result = await deps.kv.list(opts);
+          const keys = (result && Array.isArray(result.keys)) ? result.keys : [];
+          for (let i = 0; i < keys.length; i++) {
+            const k = keys[i];
+            const name = (typeof k === 'object' && k !== null) ? k.name : k;
+            const ts = String(name).replace('policy_snapshot_', '');
+            versions.push({ key: String(name), timestamp: ts });
+          }
+          if (result && !result.list_complete && result.cursor) {
+            cursor = result.cursor;
+          } else {
+            done = true;
+          }
+        }
+      } catch (e) {
+        // list failure is non-fatal; return empty.
+      }
+    }
+    // Sort newest-first by timestamp (ISO strings sort lexicographically).
+    versions.sort(function (a, b) { return a.timestamp > b.timestamp ? -1 : a.timestamp < b.timestamp ? 1 : 0; });
+    return jsonResponse(ResponseCtor, 200, { versions: versions }, allowedOrigin);
+  }
+
+  // ── Policy SINGLE VERSION route ────────────────────────────────────
+  // GET ?mode=policy_version&key=policy_snapshot_<ISO> — returns the full
+  // policy JSON for a specific snapshot. 400 if key missing/invalid, 404
+  // if not found in KV.
+  if (urlMode(request) === 'policy_version' && method === 'GET') {
+    let versionKey = null;
+    try {
+      versionKey = new URL(request.url).searchParams.get('key');
+    } catch (e) { /* ignore */ }
+    if (!versionKey || !String(versionKey).startsWith('policy_snapshot_')) {
+      return jsonResponse(ResponseCtor, 400, { error: 'invalid_key' }, allowedOrigin);
+    }
+    let raw = null;
+    if (deps.kv && typeof deps.kv.get === 'function') {
+      try {
+        raw = await deps.kv.get(String(versionKey));
+      } catch (e) { /* ignore */ }
+    }
+    if (!raw) {
+      return jsonResponse(ResponseCtor, 404, { error: 'not_found' }, allowedOrigin);
+    }
+    let parsed;
+    try {
+      parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    } catch (e) {
+      return jsonResponse(ResponseCtor, 404, { error: 'not_found' }, allowedOrigin);
+    }
+    return jsonResponse(ResponseCtor, 200, parsed, allowedOrigin);
+  }
+
   // ── Policy SAVE route ──────────────────────────────────────────────
   // POST ?mode=save_policy — saves updated policy.json to KV with password
   // auth. Before overwriting, snapshots the current version under a
