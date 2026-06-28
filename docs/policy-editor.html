@@ -853,16 +853,6 @@
           <p class="rule-hint">Actions NOT listed here are referred out even when dispatch is enabled. "All actions" stores the string <code>"all"</code>.</p>
         </div>
 
-        <!-- referral_targets -->
-        <div class="rule-field">
-          <label class="field-label">Referral targets</label>
-          <div id="referral-list" class="referral-list"></div>
-          <div id="referral-empty" class="referral-empty">No referral targets yet. Add one if dispatch is off or some issues are referred out.</div>
-          <div class="add-row">
-            <button id="add-referral" class="btn-secondary" type="button">+ Add referral target</button>
-          </div>
-        </div>
-
         <!-- species_scope -->
         <div class="rule-field">
           <label class="field-label">Species Restrictions</label>
@@ -882,6 +872,16 @@
             <p class="rule-hint">Check the species this county dispatches. Stored as <code>{ "capture": [ … ] }</code> (or <code>{ "rvs": [ … ] }</code> when the existing scope used that key). Choose “All species” to store <code>null</code>.</p>
           </div>
           <p class="scope-all-note" id="scope-all-note" hidden>Stored as <code>null</code> — policy applies to all species.</p>
+        </div>
+
+        <!-- referral_targets -->
+        <div class="rule-field">
+          <label class="field-label">Referral targets</label>
+          <div id="referral-list" class="referral-list"></div>
+          <div id="referral-empty" class="referral-empty">No referral targets yet. Add one if dispatch is off or some issues are referred out.</div>
+          <div class="add-row">
+            <button id="add-referral" class="btn-secondary" type="button">+ Add referral target</button>
+          </div>
         </div>
 
         <!-- special_notes -->
