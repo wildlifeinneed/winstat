@@ -33,6 +33,9 @@ export default {
       // ORS Matrix API key for the PUBLIC rehabber driving-distance route.
       // Read from the Worker secret; empty/unset -> haversine fallback.
       orsApiKey: env.ORS_API_KEY,
+      // Shared password for policy editor save. Set as a Worker secret:
+      //   wrangler secret put POLICY_PASSWORD
+      policyPassword: env.POLICY_PASSWORD,
     });
   },
 };

@@ -36,6 +36,11 @@ ALLOWED_ORIGIN = "https://wildlifeinneed.github.io,https://*.pages.dev"
 # secret on deploy (Wrangler treats them as one binding namespace). While unset,
 # the /?mode=rehabber_distances route degrades gracefully to haversine
 # straight-line distances (duration_min: null) — the panel never breaks.
+#
+# Shared password for the policy editor save endpoint. Set as a Worker SECRET:
+#     wrangler secret put POLICY_PASSWORD
+# The policy editor prompts the admin for this password on first save. It MUST
+# NOT appear in [vars] (same override concern as ORS_API_KEY).
 
 # PRIVATE volunteer coords store. The Phase F refresh job writes the coords
 # array (JSON) under key `volunteer_coords`. id is a PLACEHOLDER -- replace at

@@ -42,6 +42,9 @@ const PA_COUNTIES_GEOJSON = require('../../docs/data/pa_counties.json');
 // KV key under which the Phase F refresh job stores the coords array (JSON).
 const KV_COORDS_KEY = 'volunteer_coords';
 
+// KV key for the admin-editable policy.json (written by the policy editor).
+const KV_POLICY_KEY = 'policy_json';
+
 // Fallback CORS origin if env.ALLOWED_ORIGIN is unset. TODO(deploy): set this
 // to the project's GitHub Pages origin in wrangler.toml [vars].
 const DEFAULT_ALLOWED_ORIGIN = 'https://example.github.io';
@@ -354,6 +357,86 @@ async function handleRequest(request, deps) {
     return jsonResponse(ResponseCtor, 200, result, allowedOrigin);
   }
 
+  // ── Policy GET route ────────────────────────────────────────────────
+  // GET ?mode=policy — returns the current policy.json from KV (no auth).
+  // 200 with the JSON when present; 404 when KV has no policy stored.
+  if (urlMode(request) === 'policy' && method === 'GET') {
+    let raw;
+    try {
+      raw = deps.kv && typeof deps.kv.get === 'function'
+        ? await deps.kv.get(KV_POLICY_KEY)
+        : null;
+    } catch (e) {
+      raw = null;
+    }
+    if (!raw) {
+      return jsonResponse(ResponseCtor, 404, { error: 'not_found' }, allowedOrigin);
+    }
+    let parsed;
+    try {
+      parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    } catch (e) {
+      return jsonResponse(ResponseCtor, 404, { error: 'not_found' }, allowedOrigin);
+    }
+    return jsonResponse(ResponseCtor, 200, parsed, allowedOrigin);
+  }
+
+  // ── Policy SAVE route ──────────────────────────────────────────────
+  // POST ?mode=save_policy — saves updated policy.json to KV with password
+  // auth. Before overwriting, snapshots the current version under a
+  // timestamped key for future restore.
+  if (urlMode(request) === 'save_policy' && method === 'POST') {
+    let body;
+    try {
+      body = await request.json();
+    } catch (e) {
+      return jsonResponse(ResponseCtor, 400, { error: 'invalid_body' }, allowedOrigin);
+    }
+    if (!body || typeof body !== 'object') {
+      return jsonResponse(ResponseCtor, 400, { error: 'invalid_body' }, allowedOrigin);
+    }
+
+    // Auth: validate password against the POLICY_PASSWORD secret.
+    const password = body.password;
+    const expected = deps.policyPassword;
+    if (!expected || !password || String(password) !== String(expected)) {
+      return jsonResponse(ResponseCtor, 401, { error: 'unauthorized' }, allowedOrigin);
+    }
+
+    // Validate payload shape.
+    const policy = body.policy;
+    if (!policy || typeof policy !== 'object' || !policy.counties || typeof policy.counties !== 'object') {
+      return jsonResponse(ResponseCtor, 400, { error: 'invalid_policy', detail: 'policy must have a counties object' }, allowedOrigin);
+    }
+
+    // Snapshot the current version before overwriting.
+    let snapshotKey = null;
+    if (deps.kv && typeof deps.kv.get === 'function' && typeof deps.kv.put === 'function') {
+      try {
+        const current = await deps.kv.get(KV_POLICY_KEY);
+        if (current) {
+          snapshotKey = 'policy_snapshot_' + new Date().toISOString();
+          await deps.kv.put(snapshotKey, current);
+        }
+      } catch (e) {
+        // Snapshot failure is non-fatal; proceed with the save.
+      }
+
+      // Write the new policy.
+      try {
+        await deps.kv.put(KV_POLICY_KEY, JSON.stringify(policy));
+      } catch (e) {
+        return jsonResponse(ResponseCtor, 500, { error: 'kv_write_failed' }, allowedOrigin);
+      }
+    } else {
+      return jsonResponse(ResponseCtor, 500, { error: 'kv_unavailable' }, allowedOrigin);
+    }
+
+    const result = { ok: true };
+    if (snapshotKey) result.snapshot_key = snapshotKey;
+    return jsonResponse(ResponseCtor, 200, result, allowedOrigin);
+  }
+
   const params = await readParams(request);
 
   // ── Address AUTOCOMPLETE route ──────────────────────────────────────
@@ -641,6 +724,7 @@ async function handleRequest(request, deps) {
 
 module.exports = {
   KV_COORDS_KEY,
+  KV_POLICY_KEY,
   DEFAULT_ALLOWED_ORIGIN,
   resolveAllowedOrigin,
   corsHeaders,

@@ -687,7 +687,7 @@
 </header>
 
 <div class="status-strip beta" role="status">
-  <strong>Admin Tool</strong><span class="sub">Edits here are downloaded as <code>policy.json</code> and committed by hand — nothing saves to the live site automatically.</span>
+  <strong>Admin Tool</strong><span class="sub">Edits save directly to the server. Download is available as a secondary option.</span>
 </div>
 
 <div id="load-banner" class="refresh-banner">Loading policy &amp; live counts…</div>
@@ -855,10 +855,11 @@
   <!-- Sticky save bar -->
   <div class="save-bar">
     <div class="save-bar-inner">
-      <span class="save-note">Download the full <code>policy.json</code>, then commit it to the repo via the GitHub web UI.</span>
+      <span class="save-note">Save edits directly to the server, or download a local copy.</span>
       <span class="save-status" id="save-status" aria-live="polite"></span>
       <button id="reset-county" class="btn-ghost" type="button">Revert county</button>
-      <button id="download-btn" class="btn-primary" type="button">Download policy.json</button>
+      <button id="download-btn" class="btn-ghost" type="button">Download JSON</button>
+      <button id="save-btn" class="btn-primary" type="button">Save to server</button>
     </div>
   </div>
 </main>
@@ -878,6 +879,8 @@
 
   var ISSUE_KEYS = ['capture', 'transport', 'rvs_capture'];
 
+  var WORKER_URL = 'https://pa-wildlife-dispatcher.winstat.workers.dev';
+
   var state = {
     policyDoc: null,    // full parsed policy.json (preserves _comment etc.)
     counties: {},       // working copy of policyDoc.counties (edited in place)
@@ -885,7 +888,9 @@
     countyWin: {},      // county -> WIN area (optional)
     order: [],          // sorted county names
     current: null,      // selected county name
-    dirty: {}           // county -> true once edited
+    dirty: {},          // county -> true once edited
+    policyPassword: null, // session-only password for server save
+    policySource: null  // 'server' or 'static' — where policy was loaded from
   };
 
   function $(sel, ctx) { return (ctx || document).querySelector(sel); }
@@ -916,9 +921,27 @@
     });
   }
 
+  // Load policy from Worker KV first; fall back to static file.
+  function loadPolicyFromWorkerOrStatic() {
+    return fetch(WORKER_URL + '?mode=policy', { cache: 'no-store' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json().then(function (json) {
+          state.policySource = 'server';
+          return json;
+        });
+      })
+      .catch(function () {
+        return fetchJson('data/policy.json').then(function (json) {
+          state.policySource = 'static';
+          return json;
+        });
+      });
+  }
+
   function init() {
     Promise.all([
-      fetchJson('data/policy.json'),
+      loadPolicyFromWorkerOrStatic(),
       fetchJson('data/county_capacity.json'),
       fetchJson('data/county_win.json').catch(function () { return {}; })
     ]).then(function (res) {
@@ -940,9 +963,13 @@
 
       populateSelect();
       var banner = $('#load-banner');
+      var sourceNote = state.policySource === 'server'
+        ? ' (from server)'
+        : ' (from static file — server unavailable)';
       banner.textContent = 'Loaded ' + state.order.length + ' counties · ' +
-        Object.keys(state.counties).length + ' with policy. Select a county to begin.';
+        Object.keys(state.counties).length + ' with policy' + sourceNote + '. Select a county to begin.';
       banner.classList.remove('warn');
+      if (state.policySource === 'static') banner.classList.add('warn');
 
       wireGlobalControls();
     }).catch(function (err) {
@@ -1468,7 +1495,56 @@
     a.click();
     document.body.removeChild(a);
     setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
-    setSaveStatus('Downloaded — commit it to docs/data/policy.json via GitHub.', true);
+    setSaveStatus('Downloaded policy.json.', true);
+  }
+
+  function savePolicy() {
+    // Commit any in-flight live-form edits for the active county first.
+    if (state.current) commitScope();
+
+    // Prompt for password on first save (session-only).
+    if (!state.policyPassword) {
+      var pw = prompt('Enter the admin password to save policy:');
+      if (!pw) {
+        setSaveStatus('Save cancelled.');
+        return;
+      }
+      state.policyPassword = pw;
+    }
+
+    var doc = buildExport();
+    var saveBtn = $('#save-btn');
+    saveBtn.disabled = true;
+    setSaveStatus('Saving…');
+
+    fetch(WORKER_URL + '?mode=save_policy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: state.policyPassword, policy: doc })
+    }).then(function (r) {
+      return r.json().then(function (body) { return { status: r.status, body: body }; });
+    }).then(function (res) {
+      saveBtn.disabled = false;
+      if (res.status === 200 && res.body && res.body.ok) {
+        // Success: clear dirty flags and update the original doc reference.
+        state.dirty = {};
+        state.policyDoc = JSON.parse(JSON.stringify(doc));
+        state.policySource = 'server';
+        updateDirtyFlag();
+        var msg = 'Saved to server.';
+        if (res.body.snapshot_key) msg += ' Snapshot: ' + res.body.snapshot_key;
+        setSaveStatus(msg, true);
+      } else if (res.status === 401) {
+        state.policyPassword = null;
+        setSaveStatus('Wrong password — try again.');
+      } else {
+        var detail = (res.body && res.body.error) ? res.body.error : 'unknown error';
+        setSaveStatus('Save failed: ' + detail);
+      }
+    }).catch(function (err) {
+      saveBtn.disabled = false;
+      setSaveStatus('Save failed: ' + (err.message || 'network error'));
+    });
   }
 
   // ── Wire form controls (active county) ───────────────────────────────────
@@ -1554,6 +1630,7 @@
 
     $('#preview-btn').addEventListener('click', runPreview);
     $('#download-btn').addEventListener('click', downloadPolicy);
+    $('#save-btn').addEventListener('click', savePolicy);
 
     $('#reset-county').addEventListener('click', function () {
       if (!state.current) return;

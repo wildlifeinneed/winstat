@@ -117,6 +117,23 @@ function makeFetch(workerHost, opts) {
           json: function () { return Promise.resolve(rehabDist); },
         });
       }
+      // Policy GET route: return the policy from dataRoutes if supplied,
+      // otherwise 404 so the dispatcher falls back to the static file.
+      if (u.indexOf('mode=policy') !== -1) {
+        var policyPayload = dataRoutes['policy.json'];
+        if (policyPayload) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: function () { return Promise.resolve(policyPayload); },
+          });
+        }
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          json: function () { return Promise.resolve({ error: 'not_found' }); },
+        });
+      }
       aggCalls.push(u);
       return Promise.resolve({
         ok: true,

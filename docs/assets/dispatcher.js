@@ -5286,25 +5286,36 @@
       });
   }
 
-  // loadPolicy(): fetch the per-county dispatch policy overlay (policy.json),
-  // loaded exactly like config.json. Stored as state.policy = { counties: {...} }
-  // (or null when missing/malformed). The recommendation flow looks up the
-  // selected county in this map and passes that county's block to recommend()
-  // as the DOWNGRADE-ONLY post-step. Missing/malformed policy → null → no
-  // overlay → today's count-based behavior is preserved.
+  // loadPolicy(): fetch the per-county dispatch policy overlay (policy.json).
+  // Tries the Worker KV endpoint first (live edits from the policy editor);
+  // falls back to the committed static file when the Worker is unavailable.
+  // Stored as state.policy = { counties: {...} } (or null when missing/
+  // malformed). The recommendation flow looks up the selected county in this
+  // map and passes that county's block to recommend() as the DOWNGRADE-ONLY
+  // post-step. Missing/malformed policy → null → no overlay → today's
+  // count-based behavior is preserved.
   function loadPolicy() {
-    return fetch('data/policy.json', { cache: 'no-store' })
+    return fetch(WORKER_URL + '?mode=policy', { cache: 'no-store' })
       .then(function (resp) {
-        if (resp.status === 404) { state.policy = null; return null; }
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
-        return resp.text().then(function (txt) {
-          try { return JSON.parse(txt); }
-          catch (e) { return null; }
-        });
+        return resp.json();
       })
       .then(function (json) { state.policy = json; })
       .catch(function () {
-        state.policy = null;
+        // Worker unavailable — fall back to static file.
+        return fetch('data/policy.json', { cache: 'no-store' })
+          .then(function (resp) {
+            if (resp.status === 404) { state.policy = null; return null; }
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            return resp.text().then(function (txt) {
+              try { return JSON.parse(txt); }
+              catch (e) { return null; }
+            });
+          })
+          .then(function (json) { state.policy = json; })
+          .catch(function () {
+            state.policy = null;
+          });
       });
   }
 

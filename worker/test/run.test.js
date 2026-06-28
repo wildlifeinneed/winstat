@@ -117,6 +117,21 @@ function mockKV(coordsArray) {
   };
 }
 
+// Mock KV binding with both coords and optional policy + put support.
+function mockKVWithPolicy(coordsArray, policyObj) {
+  const store = {
+    volunteer_coords: JSON.stringify(coordsArray),
+  };
+  if (policyObj !== undefined) {
+    store.policy_json = JSON.stringify(policyObj);
+  }
+  return {
+    get: async (key) => store[key] || null,
+    put: async (key, value) => { store[key] = value; },
+    _store: store,
+  };
+}
+
 // Mock Census fetch -> deterministic match (x=lon, y=lat), no network.
 function mockCensusFetch(lat, lon) {
   return async (url) => ({
@@ -2768,6 +2783,136 @@ async function main() {
     });
     assert.strictEqual(res.status, 204);
     assert.strictEqual(res.header('Access-Control-Allow-Origin'), 'https://winstat.pages.dev');
+  });
+
+  // ── Policy endpoint tests ─────────────────────────────────────────────────
+
+  await test('GET ?mode=policy returns 404 when KV has no policy', async () => {
+    const req = mockRequest('GET', { mode: 'policy' });
+    const res = await handleRequest(req, {
+      ResponseCtor: MockResponse, kv: mockKVWithPolicy([], undefined),
+    });
+    assert.strictEqual(res.status, 404);
+    const body = await res.json();
+    assert.strictEqual(body.error, 'not_found');
+  });
+
+  await test('GET ?mode=policy returns 200 with policy from KV', async () => {
+    const policy = { counties: { Adams: { dispatch_enabled: true } } };
+    const req = mockRequest('GET', { mode: 'policy' });
+    const res = await handleRequest(req, {
+      ResponseCtor: MockResponse, kv: mockKVWithPolicy([], policy),
+    });
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.deepStrictEqual(body, policy);
+  });
+
+  await test('GET ?mode=policy has CORS headers', async () => {
+    const policy = { counties: {} };
+    const req = mockRequest('GET', { mode: 'policy' });
+    const res = await handleRequest(req, {
+      ResponseCtor: MockResponse, kv: mockKVWithPolicy([], policy),
+      allowedOrigin: 'https://wildlifeinneed.github.io',
+    });
+    assert.strictEqual(res.header('Access-Control-Allow-Origin'), 'https://wildlifeinneed.github.io');
+  });
+
+  await test('POST ?mode=save_policy returns 401 on wrong password', async () => {
+    const req = mockRequest('POST', { mode: 'save_policy' }, {
+      password: 'wrong', policy: { counties: {} },
+    });
+    const res = await handleRequest(req, {
+      ResponseCtor: MockResponse, kv: mockKVWithPolicy([]),
+      policyPassword: 'correct-password',
+    });
+    assert.strictEqual(res.status, 401);
+    const body = await res.json();
+    assert.strictEqual(body.error, 'unauthorized');
+  });
+
+  await test('POST ?mode=save_policy returns 401 when no password configured', async () => {
+    const req = mockRequest('POST', { mode: 'save_policy' }, {
+      password: 'anything', policy: { counties: {} },
+    });
+    const res = await handleRequest(req, {
+      ResponseCtor: MockResponse, kv: mockKVWithPolicy([]),
+      // policyPassword not set
+    });
+    assert.strictEqual(res.status, 401);
+  });
+
+  await test('POST ?mode=save_policy returns 400 on missing counties', async () => {
+    const req = mockRequest('POST', { mode: 'save_policy' }, {
+      password: 'secret', policy: { noCounties: true },
+    });
+    const res = await handleRequest(req, {
+      ResponseCtor: MockResponse, kv: mockKVWithPolicy([]),
+      policyPassword: 'secret',
+    });
+    assert.strictEqual(res.status, 400);
+    const body = await res.json();
+    assert.strictEqual(body.error, 'invalid_policy');
+  });
+
+  await test('POST ?mode=save_policy saves policy and creates snapshot', async () => {
+    const oldPolicy = { counties: { Adams: { dispatch_enabled: false } } };
+    const newPolicy = { counties: { Adams: { dispatch_enabled: true } } };
+    const kv = mockKVWithPolicy([], oldPolicy);
+    const req = mockRequest('POST', { mode: 'save_policy' }, {
+      password: 'secret', policy: newPolicy,
+    });
+    const res = await handleRequest(req, {
+      ResponseCtor: MockResponse, kv: kv,
+      policyPassword: 'secret',
+    });
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.strictEqual(body.ok, true);
+    assert.ok(body.snapshot_key, 'should have a snapshot_key');
+    assert.ok(body.snapshot_key.startsWith('policy_snapshot_'), 'snapshot_key should start with policy_snapshot_');
+
+    // Verify the new policy was written to KV.
+    const stored = JSON.parse(kv._store.policy_json);
+    assert.deepStrictEqual(stored, newPolicy);
+
+    // Verify the snapshot was created with the old policy.
+    const snapshotValue = kv._store[body.snapshot_key];
+    assert.ok(snapshotValue, 'snapshot should exist in KV');
+    assert.deepStrictEqual(JSON.parse(snapshotValue), oldPolicy);
+  });
+
+  await test('POST ?mode=save_policy with no prior policy skips snapshot', async () => {
+    const newPolicy = { counties: { Adams: { dispatch_enabled: true } } };
+    const kv = mockKVWithPolicy([], undefined); // no existing policy
+    const req = mockRequest('POST', { mode: 'save_policy' }, {
+      password: 'secret', policy: newPolicy,
+    });
+    const res = await handleRequest(req, {
+      ResponseCtor: MockResponse, kv: kv,
+      policyPassword: 'secret',
+    });
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.strictEqual(body.ok, true);
+    // No snapshot_key when there was nothing to snapshot.
+    assert.strictEqual(body.snapshot_key, undefined);
+
+    // Verify the new policy was written.
+    const stored = JSON.parse(kv._store.policy_json);
+    assert.deepStrictEqual(stored, newPolicy);
+  });
+
+  await test('POST ?mode=save_policy has CORS headers', async () => {
+    const req = mockRequest('POST', { mode: 'save_policy' }, {
+      password: 'secret', policy: { counties: {} },
+    });
+    const res = await handleRequest(req, {
+      ResponseCtor: MockResponse, kv: mockKVWithPolicy([]),
+      policyPassword: 'secret',
+      allowedOrigin: 'https://wildlifeinneed.github.io',
+    });
+    assert.strictEqual(res.header('Access-Control-Allow-Origin'), 'https://wildlifeinneed.github.io');
   });
 
   console.log('\n----------------------------------------');
