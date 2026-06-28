@@ -619,6 +619,58 @@
     }
 
     .add-row { margin-top: 12px; }
+    .add-referral-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+    .add-referral-row .grow { flex: 1 1 260px; min-width: 200px; }
+    .add-referral-row select {
+      width: 100%;
+    }
+    .referral-card.rehabber-card {
+      border-left-color: var(--green);
+      background: #f9fdf9;
+    }
+    .referral-card .ref-readonly {
+      padding: 8px 12px;
+      background: var(--bg);
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      font-size: 14.5px;
+      color: var(--text);
+      cursor: default;
+    }
+    .referral-card .ref-codes {
+      margin-top: 6px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+    .referral-card .ref-code-chip {
+      display: inline-block;
+      padding: 2px 9px;
+      font-size: 12px;
+      font-weight: 700;
+      border-radius: 999px;
+      background: var(--green-light);
+      color: var(--green-dark);
+      border: 1px solid #c8e6d2;
+    }
+    .referral-card .ref-source-tag {
+      display: inline-block;
+      padding: 2px 9px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      border-radius: 999px;
+      margin-left: auto;
+    }
+    .ref-source-tag.rehabber { background: var(--green-light); color: var(--green-dark); border: 1px solid #c8e6d2; }
+    .ref-source-tag.custom { background: var(--amber-light); color: #7a4900; border: 1px solid #f0c070; }
 
     .help-text {
       font-size: 12.5px;
@@ -879,8 +931,14 @@
           <label class="field-label">Referral targets</label>
           <div id="referral-list" class="referral-list"></div>
           <div id="referral-empty" class="referral-empty">No referral targets yet. Add one if dispatch is off or some issues are referred out.</div>
-          <div class="add-row">
-            <button id="add-referral" class="btn-secondary" type="button">+ Add referral target</button>
+          <div class="add-referral-row">
+            <div class="grow">
+              <label class="field-label" for="referral-source-select">Add referral target</label>
+              <select id="referral-source-select" aria-label="Choose a rehabber or custom target">
+                <option value="">— choose a rehabber or custom —</option>
+              </select>
+            </div>
+            <button id="add-referral" class="btn-secondary" type="button">+ Add</button>
           </div>
         </div>
 
@@ -1212,7 +1270,15 @@
     });
 
     // referral_targets
-    renderReferrals(Array.isArray(p.referral_targets) ? p.referral_targets : []);
+    var loadedTargets = Array.isArray(p.referral_targets) ? p.referral_targets : [];
+    // Tag existing targets that match a known rehabber (for read-only display).
+    loadedTargets.forEach(function (t) {
+      if (!t._rehabber_key) {
+        var matched = findRehabberByName(t.name);
+        if (matched) t._rehabber_key = rehabberKey(matched);
+      }
+    });
+    renderReferrals(loadedTargets);
 
     // species_scope
     renderScope(p.species_scope);
@@ -1237,6 +1303,47 @@
       $('#referral-empty').hidden = true;
     }
     targets.forEach(function (t, i) { list.appendChild(buildReferralCard(t, i)); });
+    populateReferralDropdown();
+  }
+
+  // Populate the rehabber dropdown, dimming already-added rehabbers.
+  function populateReferralDropdown() {
+    var sel = $('#referral-source-select');
+    if (!sel) return;
+    // Preserve the placeholder, clear the rest.
+    var placeholder = sel.querySelector('option[value=""]');
+    sel.innerHTML = '';
+    if (placeholder) sel.appendChild(placeholder);
+    else sel.appendChild(el('option', { value: '' }, ['\u2014 choose a rehabber or custom \u2014']));
+
+    // Collect names already in the referral list (normalized for comparison).
+    var p = state.current ? state.counties[state.current] : null;
+    var existing = {};
+    if (p && Array.isArray(p.referral_targets)) {
+      p.referral_targets.forEach(function (t) {
+        if (t._rehabber_key) existing[t._rehabber_key] = true;
+      });
+    }
+
+    // Add rehabber options.
+    state.rehabbers.forEach(function (r, idx) {
+      var key = rehabberKey(r);
+      var label = r.rehab_name + ' (' + r.county + ')';
+      var opt = el('option', { value: 'rehab:' + idx }, [label]);
+      if (existing[key]) {
+        opt.disabled = true;
+        opt.textContent = label + ' \u2014 already added';
+      }
+      sel.appendChild(opt);
+    });
+
+    // Custom option at the bottom.
+    sel.appendChild(el('option', { value: 'custom' }, ['+ Custom\u2026']));
+  }
+
+  // Stable key for a rehabber (used for duplicate detection).
+  function rehabberKey(r) {
+    return (r.rehab_name || '').toLowerCase().trim() + '|' + (r.phone || '').trim();
   }
 
   // Match a referral target name to a rehabber in rehabbers.json.
@@ -1272,18 +1379,7 @@
   }
 
   function buildReferralCard(t, idx) {
-    var nameInput = el('input', {
-      type: 'text', value: t.name || '', placeholder: 'Facility / contact name',
-      'data-field': 'name', 'aria-label': 'Referral name'
-    });
-    var phoneInput = el('input', {
-      type: 'tel', value: t.phone || '', placeholder: 'digits only, e.g. 8337429453',
-      'data-field': 'phone', 'aria-label': 'Referral phone'
-    });
-    var notesInput = el('input', {
-      type: 'text', value: (typeof t.notes === 'string') ? t.notes : '', placeholder: 'optional notes',
-      'data-field': 'notes', 'aria-label': 'Referral notes'
-    });
+    var isRehabber = !!t._rehabber_key;
 
     var removeBtn = el('button', { class: 'btn-danger', type: 'button', 'aria-label': 'Remove referral' }, ['Remove']);
     removeBtn.addEventListener('click', function () {
@@ -1294,18 +1390,71 @@
       runValidation();
     });
 
-    // Build the info row: if the target matches a rehabber, show their
-    // animal availability codes (read-only). Otherwise just show notes.
-    var infoRow = null;
-    var rehabber = findRehabberByName(t.name);
-    if (rehabber) {
-      var codes = extractRehabCodes(rehabber.availability);
-      var codesText = codes.length ? codes.join(', ') : '(no codes on file)';
-      infoRow = el('div', { style: 'margin-top:6px;' }, [
-        el('span', { class: 'ref-sub-label' }, ['Rehabber — accepts']),
-        el('span', { style: 'font-size:13px;color:var(--green-dark);font-weight:600;' }, [codesText])
-      ]);
+    var sourceTag = el('span', {
+      class: 'ref-source-tag ' + (isRehabber ? 'rehabber' : 'custom')
+    }, [isRehabber ? 'Rehabber' : 'Custom']);
+
+    if (isRehabber) {
+      // Read-only card for rehabber targets.
+      var rehabber = findRehabberByName(t.name);
+      var codes = rehabber ? extractRehabCodes(rehabber.availability) : [];
+
+      var codesRow = null;
+      if (codes.length) {
+        var chips = codes.map(function (c) {
+          return el('span', { class: 'ref-code-chip' }, [c]);
+        });
+        codesRow = el('div', { class: 'ref-codes' }, chips);
+      }
+
+      var notesInput = el('input', {
+        type: 'text', value: (typeof t.notes === 'string') ? t.notes : '', placeholder: 'optional notes',
+        'data-field': 'notes', 'aria-label': 'Referral notes'
+      });
+      notesInput.addEventListener('input', function () {
+        var p = state.counties[state.current];
+        p.referral_targets[idx].notes = notesInput.value;
+        markDirty();
+      });
+
+      var card = el('div', { class: 'referral-card rehabber-card' }, [
+        el('div', { class: 'ref-top' }, [
+          el('div', { class: 'ref-name-wrap' }, [
+            el('span', { class: 'ref-sub-label' }, ['Name']),
+            el('div', { class: 'ref-readonly' }, [t.name || ''])
+          ]),
+          sourceTag,
+          removeBtn
+        ]),
+        el('div', { class: 'ref-grid' }, [
+          el('div', {}, [
+            el('span', { class: 'ref-sub-label' }, ['Phone']),
+            el('div', { class: 'ref-readonly' }, [t.phone || ''])
+          ]),
+          el('div', {}, [
+            el('span', { class: 'ref-sub-label' }, ['Notes']),
+            notesInput
+          ])
+        ]),
+        codesRow
+      ].filter(Boolean));
+
+      return card;
     }
+
+    // Editable card for custom targets.
+    var nameInput = el('input', {
+      type: 'text', value: t.name || '', placeholder: 'Facility / contact name',
+      'data-field': 'name', 'aria-label': 'Referral name'
+    });
+    var phoneInput = el('input', {
+      type: 'tel', value: t.phone || '', placeholder: 'digits only, e.g. 8337429453',
+      'data-field': 'phone', 'aria-label': 'Referral phone'
+    });
+    var notesInputCustom = el('input', {
+      type: 'text', value: (typeof t.notes === 'string') ? t.notes : '', placeholder: 'optional notes',
+      'data-field': 'notes', 'aria-label': 'Referral notes'
+    });
 
     var card = el('div', { class: 'referral-card' }, [
       el('div', { class: 'ref-top' }, [
@@ -1313,27 +1462,23 @@
           el('span', { class: 'ref-sub-label' }, ['Name']),
           nameInput
         ]),
+        sourceTag,
         removeBtn
       ]),
       el('div', { class: 'ref-grid' }, [
         el('div', {}, [el('span', { class: 'ref-sub-label' }, ['Phone']), phoneInput]),
-        el('div', {}, [el('span', { class: 'ref-sub-label' }, ['Notes']), notesInput])
-      ]),
-      infoRow
-    ].filter(Boolean));
+        el('div', {}, [el('span', { class: 'ref-sub-label' }, ['Notes']), notesInputCustom])
+      ])
+    ]);
 
     // Wire field edits straight into the model.
-    [nameInput, phoneInput, notesInput].forEach(function (input) {
+    [nameInput, phoneInput, notesInputCustom].forEach(function (input) {
       input.addEventListener('input', function () {
         var p = state.counties[state.current];
         var tgt = p.referral_targets[idx];
         tgt[input.getAttribute('data-field')] = input.value;
         markDirty();
         runValidation();
-        // Re-render to update rehabber match when name changes.
-        if (input.getAttribute('data-field') === 'name') {
-          renderReferrals(p.referral_targets);
-        }
       });
     });
 
@@ -1549,6 +1694,7 @@
         ? ISSUE_KEYS.filter(function (k) { return t.for_issues.indexOf(k) !== -1; })
         : [];
       o.for_issues = fi;
+      // _rehabber_key is internal only — never serialized.
       return o;
     }).filter(function (o) { return o.name; });
 
@@ -1689,7 +1835,30 @@
     $('#add-referral').addEventListener('click', function () {
       var p = state.counties[state.current];
       if (!Array.isArray(p.referral_targets)) p.referral_targets = [];
-      p.referral_targets.push({ name: '', phone: '', for_issues: [] });
+      var sel = $('#referral-source-select');
+      var val = sel.value;
+      if (!val) return; // nothing selected
+
+      if (val === 'custom') {
+        p.referral_targets.push({ name: '', phone: '', for_issues: [] });
+      } else if (val.indexOf('rehab:') === 0) {
+        var idx = parseInt(val.replace('rehab:', ''), 10);
+        var r = state.rehabbers[idx];
+        if (!r) return;
+        // Check for duplicate.
+        var key = rehabberKey(r);
+        var alreadyAdded = p.referral_targets.some(function (t) { return t._rehabber_key === key; });
+        if (alreadyAdded) return;
+        // Get the full facility name from the availability field's first line.
+        var fullName = String(r.availability || '').split('\n')[0].trim();
+        p.referral_targets.push({
+          name: fullName || r.rehab_name,
+          phone: r.phone || '',
+          for_issues: [],
+          _rehabber_key: key
+        });
+      }
+      sel.value = '';
       markDirty();
       renderReferrals(p.referral_targets);
       runValidation();
