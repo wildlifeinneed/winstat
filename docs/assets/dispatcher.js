@@ -1626,28 +1626,27 @@
         }
       });
 
-      // Collect areas within the radius.
+      // Collect areas within the radius with their distances.
       var nearby = [];
       Object.keys(areaMinDist).forEach(function (area) {
         if (areaMinDist[area] <= radiusMi) {
           // Normalize area to zero-padded 2-digit for display.
           var displayArea = area;
           if (/^\d+$/.test(displayArea) && displayArea.length < 2) displayArea = '0' + displayArea;
-          nearby.push(displayArea);
+          nearby.push({ area: displayArea, dist: areaMinDist[area] });
         }
       });
 
-      // Sort areas for consistent display.
-      nearby.sort(function (a, b) {
-        var na = parseInt(a, 10), nb = parseInt(b, 10);
-        if (!isNaN(na) && !isNaN(nb)) return na - nb;
-        return a < b ? -1 : a > b ? 1 : 0;
-      });
+      // Sort by distance ascending (closest area first).
+      nearby.sort(function (a, b) { return a.dist - b.dist; });
 
       if (nearby.length > 0) {
         resultDiv.className = 'cross-post-result cross-post-info';
+        var labels = nearby.map(function (n) {
+          return n.area + ' (' + Math.round(n.dist) + ' mi)';
+        });
         resultDiv.textContent = 'Consider cross posting to Area' +
-          (nearby.length > 1 ? 's ' : ' ') + nearby.join(', ');
+          (nearby.length > 1 ? 's ' : ' ') + labels.join(', ');
       } else {
         resultDiv.className = 'cross-post-result cross-post-neutral';
         resultDiv.textContent = 'No other area within ' + radiusMi + ' mi \u2014 single area post';
