@@ -1530,8 +1530,10 @@
     }
   }
 
-  // Compute county centroids from the loaded GeoJSON, then check which other
-  // WIN areas have a county centroid within cross_post_radius_mi of the animal.
+  // Compute distance from the animal lat/lon to the NEAREST EDGE (polygon
+  // boundary segment) of each county in OTHER WIN areas. Group by area — if
+  // the nearest county edge in another area is within cross_post_radius_mi,
+  // that area is a cross-post candidate.
   function crossPostDistanceCheck(lat, lon, dispatchArea, resultDiv) {
     try {
       var geo = state.geojson;
@@ -1543,29 +1545,25 @@
 
       var radiusMi = MSG.thresholds.cross_post_radius_mi || 25;
 
-      // Build county centroids and group by WIN area.
-      var areaCounties = {}; // area -> [{county, lat, lon}]
+      // For each feature, compute the minimum distance from the animal to any
+      // boundary segment of the county polygon, then group by WIN area.
+      var areaMinDist = {}; // area -> minimum distance (mi)
       geo.features.forEach(function (f) {
         var props = f.properties || {};
         var area = props.win_area != null ? String(props.win_area).trim() : '';
-        if (!area) return;
-        var centroid = computeCentroid(f.geometry);
-        if (!centroid) return;
-        if (!areaCounties[area]) areaCounties[area] = [];
-        areaCounties[area].push({ county: props.county || '', lat: centroid[0], lon: centroid[1] });
+        if (!area || area === dispatchArea) return;
+
+        var d = minDistToGeometry(lat, lon, f.geometry);
+        if (d === null) return;
+        if (areaMinDist[area] === undefined || d < areaMinDist[area]) {
+          areaMinDist[area] = d;
+        }
       });
 
-      // For each area OTHER than the dispatch area, find the nearest county
-      // centroid distance to the animal location.
+      // Collect areas within the radius.
       var nearby = [];
-      Object.keys(areaCounties).forEach(function (area) {
-        if (area === dispatchArea) return;
-        var minDist = Infinity;
-        areaCounties[area].forEach(function (c) {
-          var d = haversineMiles(lat, lon, c.lat, c.lon);
-          if (d < minDist) minDist = d;
-        });
-        if (minDist <= radiusMi) {
+      Object.keys(areaMinDist).forEach(function (area) {
+        if (areaMinDist[area] <= radiusMi) {
           // Normalize area to zero-padded 2-digit for display.
           var displayArea = area;
           if (/^\d+$/.test(displayArea) && displayArea.length < 2) displayArea = '0' + displayArea;
@@ -1595,26 +1593,43 @@
     }
   }
 
-  // Compute the centroid of a GeoJSON geometry (Polygon or MultiPolygon) as
-  // [lat, lon] by averaging all boundary points.
-  function computeCentroid(geometry) {
+  // Minimum Haversine distance (mi) from a point to any boundary segment of a
+  // GeoJSON Polygon or MultiPolygon geometry.
+  function minDistToGeometry(lat, lon, geometry) {
     if (!geometry) return null;
-    var coords = [];
+    var rings = [];
     if (geometry.type === 'Polygon' && geometry.coordinates) {
-      geometry.coordinates.forEach(function (ring) {
-        ring.forEach(function (pt) { coords.push(pt); });
-      });
+      rings = geometry.coordinates;
     } else if (geometry.type === 'MultiPolygon' && geometry.coordinates) {
       geometry.coordinates.forEach(function (poly) {
-        poly.forEach(function (ring) {
-          ring.forEach(function (pt) { coords.push(pt); });
-        });
+        poly.forEach(function (ring) { rings.push(ring); });
       });
     }
-    if (coords.length === 0) return null;
-    var sumLat = 0, sumLon = 0;
-    coords.forEach(function (pt) { sumLon += pt[0]; sumLat += pt[1]; });
-    return [sumLat / coords.length, sumLon / coords.length];
+    if (rings.length === 0) return null;
+
+    var minD = Infinity;
+    rings.forEach(function (ring) {
+      for (var i = 0; i < ring.length - 1; i++) {
+        // GeoJSON coords are [lon, lat].
+        var d = pointToSegmentDist(lat, lon,
+          ring[i][1], ring[i][0], ring[i + 1][1], ring[i + 1][0]);
+        if (d < minD) minD = d;
+      }
+    });
+    return minD === Infinity ? null : minD;
+  }
+
+  // Haversine distance from a point (px, py) to the nearest point on the
+  // line segment (ax, ay)–(bx, by), where all coordinates are lat/lon.
+  // Projects onto the segment in Cartesian approximation, then measures the
+  // actual Haversine distance to the projected point.
+  function pointToSegmentDist(px, py, ax, ay, bx, by) {
+    var dx = bx - ax, dy = by - ay;
+    var lenSq = dx * dx + dy * dy;
+    var t = lenSq === 0 ? 0 : ((px - ax) * dx + (py - ay) * dy) / lenSq;
+    t = Math.max(0, Math.min(1, t));
+    var nx = ax + t * dx, ny = ay + t * dy;
+    return haversineMiles(px, py, nx, ny);
   }
 
   // Shared animal base info, entered ONCE at the top of the console and read by
