@@ -1636,6 +1636,39 @@
       border-left: 4px solid var(--text-light);
       color: var(--text-muted);
     }
+    /* ─── Cross-Post Map (Leaflet, inline below cross-post result) ──── */
+    .cp-map-wrap { margin-top: 10px; }
+    .cp-map {
+      width: 100%;
+      height: 340px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #eef3ef;
+      z-index: 0;
+    }
+    .cp-map-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 16px;
+      margin-top: 8px;
+    }
+    .cp-map-legend .leg-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text);
+    }
+    .cp-map-legend .leg-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      border: 1px solid rgba(0,0,0,.25);
+    }
+    @media (max-width: 640px) {
+      .cp-map { height: 280px; }
+    }
     @media (max-width: 640px) {
       .cross-post-btn { min-height: 44px; }
       .cross-post-check-btn { min-height: 44px; }

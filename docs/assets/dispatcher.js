@@ -1590,10 +1590,12 @@
       }).catch(function () {
         resultDiv.className = 'cross-post-result cross-post-neutral';
         resultDiv.textContent = 'Could not geocode that address. Try a full street + city + state + ZIP.';
+        destroyCrossPostMap();
       });
     } catch (e) {
       resultDiv.className = 'cross-post-result cross-post-neutral';
       resultDiv.textContent = 'Cross-post check error.';
+      destroyCrossPostMap();
     }
   }
 
@@ -1607,6 +1609,7 @@
       if (!geo || !geo.features) {
         resultDiv.className = 'cross-post-result cross-post-neutral';
         resultDiv.textContent = 'County map data not loaded \u2014 cannot check cross post.';
+        destroyCrossPostMap();
         return;
       }
 
@@ -1648,15 +1651,284 @@
         });
         resultDiv.textContent = 'Consider cross posting to Area' +
           (nearby.length > 1 ? 's ' : ' ') + labels.join(', ');
+        // Render the cross-post map below the result text.
+        renderCrossPostMap(lat, lon, dispatchArea, nearby, resultDiv);
       } else {
         resultDiv.className = 'cross-post-result cross-post-neutral';
         resultDiv.textContent = 'No other area within ' + radiusMi + ' mi \u2014 single area post';
+        destroyCrossPostMap();
       }
     } catch (e) {
       resultDiv.className = 'cross-post-result cross-post-neutral';
       resultDiv.textContent = 'Cross-post check error.';
+      destroyCrossPostMap();
       console.warn('cross-post distance check error:', e);
     }
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  //  CROSS-POST MAP (Leaflet) — inline below the cross-post result text.
+  //  Shows: geocoded address pin, ALL WIN area polygons (suggested areas
+  //  highlighted, others dimmed), qualified volunteers in suggested areas,
+  //  qualified rehabbers in suggested areas, and a compact legend.
+  //  Separate Leaflet instance from the Tier-2 address-mode map (t2map)
+  //  because both can be visible simultaneously.
+  // ════════════════════════════════════════════════════════════════════
+
+  var cpMap = {
+    instance: null,   // Leaflet map (created lazily)
+    layers: null,     // { pin, areas, vols, rehabbers } layer groups
+    wrap: null        // the .cp-map-wrap container element
+  };
+
+  function destroyCrossPostMap() {
+    if (cpMap.instance) {
+      cpMap.instance.remove();
+      cpMap.instance = null;
+      cpMap.layers = null;
+    }
+    if (cpMap.wrap && cpMap.wrap.parentNode) {
+      cpMap.wrap.parentNode.removeChild(cpMap.wrap);
+      cpMap.wrap = null;
+    }
+  }
+
+  // Build (or rebuild) the cross-post Leaflet map below `resultDiv`.
+  // `lat`, `lon` = geocoded animal address. `dispatchArea` = the county's own
+  // WIN area (shown at medium opacity). `nearby` = array of { area, dist }
+  // objects for the suggested cross-post areas (highlighted).
+  function renderCrossPostMap(lat, lon, dispatchArea, nearby, resultDiv) {
+    if (typeof L === 'undefined' || !L.map) return; // Leaflet not loaded
+
+    // Ensure GeoJSON is available (needed for area polygons).
+    var geo = state.geojson;
+    if (!geo || !geo.features) {
+      // Try loading it; re-render when ready.
+      loadMap().then(function () {
+        if (state.geojson) renderCrossPostMap(lat, lon, dispatchArea, nearby, resultDiv);
+      });
+      return;
+    }
+
+    // Tear down any previous cross-post map.
+    destroyCrossPostMap();
+
+    // Build the suggested-area lookup set (normalized keys).
+    var suggestedSet = {};
+    (nearby || []).forEach(function (n) {
+      var key = String(n.area).replace(/^0+/, '').trim();
+      if (key) suggestedSet[key] = true;
+    });
+
+    // ── Container ──
+    var wrap = document.createElement('div');
+    wrap.className = 'cp-map-wrap';
+    var mapDiv = document.createElement('div');
+    mapDiv.className = 'cp-map';
+    wrap.appendChild(mapDiv);
+
+    // Insert after resultDiv (inside the same .cross-post-wrap parent).
+    var parent = resultDiv.parentNode;
+    if (parent) {
+      if (resultDiv.nextSibling) parent.insertBefore(wrap, resultDiv.nextSibling);
+      else parent.appendChild(wrap);
+    }
+    cpMap.wrap = wrap;
+
+    // ── Leaflet instance ──
+    var map = L.map(mapDiv, { scrollWheelZoom: true, attributionControl: true })
+      .setView([lat, lon], 9);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+    cpMap.instance = map;
+    cpMap.layers = {
+      areas: L.layerGroup().addTo(map),
+      pin: L.layerGroup().addTo(map),
+      rehabbers: L.layerGroup().addTo(map),
+      vols: L.layerGroup().addTo(map)
+    };
+
+    var bounds = [[lat, lon]];
+
+    // ── Draw ALL WIN area polygons ──
+    // Group county features by win_area.
+    var byArea = {};
+    geo.features.forEach(function (f) {
+      var props = f.properties || {};
+      var area = (props.win_area === null || props.win_area === undefined)
+        ? '' : String(props.win_area).trim();
+      if (!area) return;
+      if (!byArea[area]) byArea[area] = [];
+      var multi = geojsonToLatLngs(f.geometry);
+      multi.forEach(function (polyRings) {
+        byArea[area].push(polyRings);
+      });
+    });
+
+    Object.keys(byArea).forEach(function (area) {
+      var color = areaColor(area);
+      var normArea = area.replace(/^0+/, '').trim();
+      var isSuggested = !!suggestedSet[normArea];
+      var isDispatch = (normArea === String(dispatchArea).replace(/^0+/, '').trim());
+
+      // Visual treatment: suggested = bright, dispatch = medium, other = dim.
+      var fillOpacity, weight, borderOpacity;
+      if (isSuggested) {
+        fillOpacity = 0.40;
+        weight = 3;
+        borderOpacity = 1;
+      } else if (isDispatch) {
+        fillOpacity = 0.25;
+        weight = 2;
+        borderOpacity = 0.7;
+      } else {
+        fillOpacity = 0.10;
+        weight = 1;
+        borderOpacity = 0.3;
+      }
+
+      var poly = L.polygon(byArea[area], {
+        color: darkenColor(color, 0.45),
+        weight: weight,
+        opacity: borderOpacity,
+        fillColor: color,
+        fillOpacity: fillOpacity,
+        interactive: false
+      }).addTo(cpMap.layers.areas);
+      poly.bindTooltip('Area ' + escapeHtml(area), {
+        permanent: true,
+        direction: 'center',
+        className: 't2-area-label'
+      });
+
+      // Include suggested + dispatch areas in bounds.
+      if (isSuggested || isDispatch) {
+        var b = poly.getBounds();
+        if (b && b.isValid()) {
+          bounds.push([b.getSouth(), b.getWest()]);
+          bounds.push([b.getNorth(), b.getEast()]);
+        }
+      }
+    });
+
+    // ── Animal location pin ──
+    L.marker([lat, lon], {
+      icon: t2DivIcon('t2-pin-animal', 14),
+      zIndexOffset: 1000,
+      title: 'Animal location'
+    }).bindPopup('<strong>Animal location</strong><br>Cross-post check address')
+      .addTo(cpMap.layers.pin);
+
+    // ── Read current animal inputs for qualification filtering ──
+    var rvsEl = document.getElementById('rvs-yes') ||
+                document.querySelector('input[name="rvs"][value="yes"]');
+    var rvs = rvsEl ? rvsEl.checked : false;
+    var issueEl = document.getElementById('issue') || $('#issue');
+    var issue = issueEl ? issueEl.value : '';
+    var animalTypeEl = document.getElementById('animal-type') || $('#animal-type');
+    var animalType = animalTypeEl ? animalTypeEl.value : '';
+
+    var qualifyFn = (window.WildlifeDecision &&
+                     typeof window.WildlifeDecision.qualifiesForAnimal === 'function')
+      ? window.WildlifeDecision.qualifiesForAnimal : null;
+    var hasBase = typeof issue === 'string' && issue !== '';
+
+    // ── Qualified volunteers in suggested areas ──
+    // Source: state.t1VolRows (fetched by the Worker aggregate endpoint).
+    var volRows = Array.isArray(state.t1VolRows) ? state.t1VolRows : [];
+    var perCounty = {};
+    volRows.forEach(function (row) {
+      if (!row) return;
+      // Filter to suggested areas only.
+      var rowArea = row.win_area != null ? String(row.win_area).replace(/^0+/, '').trim() : '';
+      if (!rowArea || !suggestedSet[rowArea]) return;
+      // Qualification filter (same predicate as Tier 1/2 lists).
+      if (qualifyFn && hasBase) {
+        var roleList = Array.isArray(row.roles) ? row.roles : [];
+        if (!qualifyFn(roleList, rvs, issue)) return;
+      }
+      // Resolve coordinates: prefer jittered, fall back to county centroid.
+      var vLat = NaN, vLon = NaN, placed = false;
+      if (typeof row.approx_lat === 'number' && isFinite(row.approx_lat) &&
+          typeof row.approx_lon === 'number' && isFinite(row.approx_lon)) {
+        vLat = row.approx_lat;
+        vLon = row.approx_lon;
+        placed = true;
+      } else if (row.county) {
+        var c = state.countyCentroids && state.countyCentroids[row.county];
+        if (c && isFinite(c.lat) && isFinite(c.lon)) {
+          vLat = c.lat;
+          vLon = c.lon;
+          placed = true;
+        }
+      }
+      if (!placed) return;
+      // Stacked-pin spiral offset for centroid-fallback pins.
+      var pinLat = vLat, pinLon = vLon;
+      if (!(typeof row.approx_lat === 'number' && isFinite(row.approx_lat))) {
+        var key = row.county || (vLat + ',' + vLon);
+        var n = perCounty[key] || 0;
+        perCounty[key] = n + 1;
+        var ang = n * 2.399;
+        var rad = n === 0 ? 0 : 0.012 + 0.006 * n;
+        pinLat = vLat + rad * Math.cos(ang);
+        pinLon = vLon + rad * Math.sin(ang);
+      }
+      var lines = [];
+      if (row.roles && row.roles.length) lines.push(escapeHtml(row.roles.join(', ')));
+      if (row.county) lines.push('County: ' + escapeHtml(row.county));
+      L.marker([pinLat, pinLon], {
+        icon: t2DivIcon(t2VolPinClass(row.roles), 14),
+        title: 'Volunteer'
+      }).bindPopup(lines.length ? lines.join('<br>') : '')
+        .addTo(cpMap.layers.vols);
+      bounds.push([pinLat, pinLon]);
+    });
+
+    // ── Qualified rehabbers in suggested areas ──
+    // Source: state.rehabbers (loaded from rehabbers.json). Filter by county →
+    // WIN area membership in suggested areas, then by animal-type acceptance.
+    var rehabbers = Array.isArray(state.rehabbers) ? state.rehabbers : [];
+    rehabbers.forEach(function (r) {
+      if (!r || typeof r.lat !== 'number' || typeof r.lon !== 'number') return;
+      if (!isFinite(r.lat) || !isFinite(r.lon)) return;
+      // Resolve rehabber's county to its WIN area.
+      var rCounty = String(r.county || '').trim();
+      var rArea = (rCounty && state.countyWin && state.countyWin[rCounty] !== undefined)
+        ? String(state.countyWin[rCounty]).replace(/^0+/, '').trim() : '';
+      if (!rArea || !suggestedSet[rArea]) return;
+      // Animal-type filter.
+      if (!rehabberAcceptsAnimal(r.availability, animalType)) return;
+      var phone = r.phone ? ('<br>' + escapeHtml(String(r.phone))) : '';
+      var county = rCounty ? ('<br>' + escapeHtml(rCounty) + ' County') : '';
+      L.marker([r.lat, r.lon], {
+        icon: t2DivIcon('t2-pin-rehab', 16),
+        title: r.rehab_name || 'Rehabber'
+      }).bindPopup('<strong>' + escapeHtml(String(r.rehab_name || 'Rehabber')) + '</strong>' +
+          county + phone)
+        .addTo(cpMap.layers.rehabbers);
+      bounds.push([r.lat, r.lon]);
+    });
+
+    // ── Legend ──
+    var legend = document.createElement('div');
+    legend.className = 'cp-map-legend';
+    legend.setAttribute('aria-label', 'Cross-post map legend');
+    legend.innerHTML =
+      '<span class="leg-item"><span class="leg-dot leg-animal"></span>Animal location</span>' +
+      '<span class="leg-item"><span class="leg-dot leg-vol"></span>Volunteers</span>' +
+      '<span class="leg-item"><span class="leg-dot leg-rehab"></span>Rehabbers</span>';
+    wrap.appendChild(legend);
+
+    // ── Fit bounds ──
+    if (bounds.length === 1) {
+      map.setView(bounds[0], 11);
+    } else if (bounds.length > 1) {
+      map.fitBounds(bounds, { padding: [30, 30], maxZoom: 12 });
+    }
+    map.invalidateSize();
   }
 
   // Minimum Haversine distance (mi) from a point to any boundary segment of a
