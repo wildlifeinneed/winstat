@@ -1295,13 +1295,6 @@
         }
       });
       html += '</ul></div>';
-    } else if (rec.marginal) {
-      var marginalHeaderFb = rec.marginalTier === 'county' ? REC.lowCapacityCounty
-        : rec.marginalTier === 'area' ? REC.lowCapacityArea
-        : rec.marginalTier === 'monitor' ? REC.lowCapacityMonitor
-        : REC.lowCapacityHeader;
-      html += '<div class="rec-marginal"><div class="rec-marginal-header">' + marginalHeaderFb + '</div>' +
-              '<p style="font-size:13px;">' + REC.noRosterRecorded + '</p></div>';
     }
 
     // Cascade checks (terse mobile-friendly lines) replace the old reasoning

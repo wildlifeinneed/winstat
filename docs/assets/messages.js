@@ -147,7 +147,6 @@
       lowCapacityArea: 'Low capacity for Area',
       lowCapacityMonitor: 'Low capacity for Monitoring',
       noAvailabilityInfo: '(no availability info)',
-      noRosterRecorded: 'No marginal-volunteer roster recorded for this bucket.',
       reasoningHeader: 'Reasoning',
       // Cascade check display lines (terse, mobile-scannable).
       cascadeChecksHeader: 'Cascade checks',
