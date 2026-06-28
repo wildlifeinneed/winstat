@@ -495,9 +495,7 @@
       color: var(--text-muted);
       margin-bottom: 4px;
     }
-    .ref-issues { display: flex; gap: 12px; flex-wrap: wrap; }
-    .ref-issues label { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; cursor: pointer; }
-    .ref-issues input { width: 15px; height: 15px; accent-color: var(--amber); }
+    /* (ref-issues styles removed — issue toggles no longer shown) */
     .referral-empty {
       font-size: 13px;
       color: var(--text-muted);
@@ -505,7 +503,7 @@
       padding: 8px 2px;
     }
 
-    /* Tag list (species scope) */
+    /* Tag list (species restrictions) */
     .tag-input-wrap {
       display: flex;
       flex-wrap: wrap;
@@ -844,15 +842,15 @@
 
         <!-- allowed_issues -->
         <div class="rule-field">
-          <label class="field-label">Allowed issues</label>
+          <label class="field-label">Allowed Actions</label>
           <div class="issue-grid" id="issue-grid">
-            <label class="check-pill all-pill"><input type="checkbox" id="f-issue-all" /> All issues</label>
+            <label class="check-pill all-pill"><input type="checkbox" id="f-issue-all" /> All actions</label>
             <span class="issue-divider">or pick specific:</span>
             <label class="check-pill"><input type="checkbox" class="issue-cb" value="capture" /> Capture</label>
             <label class="check-pill"><input type="checkbox" class="issue-cb" value="transport" /> Transport</label>
             <label class="check-pill"><input type="checkbox" class="issue-cb" value="rvs_capture" /> RVS capture</label>
           </div>
-          <p class="rule-hint">Issues NOT listed here are referred out even when dispatch is enabled. “All issues” stores the string <code>"all"</code>.</p>
+          <p class="rule-hint">Actions NOT listed here are referred out even when dispatch is enabled. "All actions" stores the string <code>"all"</code>.</p>
         </div>
 
         <!-- referral_targets -->
@@ -867,7 +865,7 @@
 
         <!-- species_scope -->
         <div class="rule-field">
-          <label class="field-label">Species scope</label>
+          <label class="field-label">Species Restrictions</label>
           <div class="scope-mode">
             <label><input type="radio" name="scope-mode" value="all" id="scope-all" /> All species</label>
             <label><input type="radio" name="scope-mode" value="custom" id="scope-custom" /> Limit by species</label>
@@ -969,6 +967,7 @@
     counties: {},       // working copy of policyDoc.counties (edited in place)
     capacity: {},       // county_capacity.json -> counties
     countyWin: {},      // county -> WIN area (optional)
+    rehabbers: [],      // parsed rehabbers.json (for referral target info display)
     order: [],          // sorted county names
     current: null,      // selected county name
     dirty: {},          // county -> true once edited
@@ -1026,17 +1025,20 @@
     Promise.all([
       loadPolicyFromWorkerOrStatic(),
       fetchJson('data/county_capacity.json'),
-      fetchJson('data/county_win.json').catch(function () { return {}; })
+      fetchJson('data/county_win.json').catch(function () { return {}; }),
+      fetchJson('data/rehabbers.json').catch(function () { return []; })
     ]).then(function (res) {
       var policyDoc = res[0] || {};
       var cap = res[1] || {};
       var win = res[2] || {};
+      var rehab = res[3] || [];
 
       state.policyDoc = policyDoc;
       state.counties = (policyDoc && policyDoc.counties && typeof policyDoc.counties === 'object')
         ? policyDoc.counties : {};
       state.capacity = (cap && cap.counties && typeof cap.counties === 'object') ? cap.counties : {};
       state.countyWin = (win && typeof win === 'object' && !Array.isArray(win)) ? win : {};
+      state.rehabbers = Array.isArray(rehab) ? rehab : [];
 
       // Union of counties present in policy OR capacity, sorted.
       var names = {};
@@ -1237,9 +1239,39 @@
     targets.forEach(function (t, i) { list.appendChild(buildReferralCard(t, i)); });
   }
 
-  function buildReferralCard(t, idx) {
-    var forIssues = Array.isArray(t.for_issues) ? t.for_issues : [];
+  // Match a referral target name to a rehabber in rehabbers.json.
+  // Returns the rehabber object or null.
+  function findRehabberByName(targetName) {
+    if (!targetName) return null;
+    var norm = targetName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    for (var i = 0; i < state.rehabbers.length; i++) {
+      var r = state.rehabbers[i];
+      var avail = String(r.availability || '');
+      // The availability field's first line is the facility name.
+      var rehabName = avail.split('\n')[0].trim();
+      var normRehab = rehabName.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (normRehab && norm && normRehab.indexOf(norm) !== -1) return r;
+      if (normRehab && norm && norm.indexOf(normRehab) !== -1) return r;
+    }
+    return null;
+  }
 
+  // Extract animal availability codes from a rehabber's availability field.
+  function extractRehabCodes(availability) {
+    var text = String(availability == null ? '' : availability);
+    // Codes appear after the name (usually on the second line or after whitespace).
+    var tokens = text.toUpperCase().split(/[^A-Z]+/);
+    var KNOWN = ['M', 'P', 'R', 'RA', 'RVS', 'END'];
+    var out = [];
+    for (var i = 0; i < KNOWN.length; i++) {
+      for (var j = 0; j < tokens.length; j++) {
+        if (tokens[j] === KNOWN[i]) { out.push(KNOWN[i]); break; }
+      }
+    }
+    return out;
+  }
+
+  function buildReferralCard(t, idx) {
     var nameInput = el('input', {
       type: 'text', value: t.name || '', placeholder: 'Facility / contact name',
       'data-field': 'name', 'aria-label': 'Referral name'
@@ -1253,12 +1285,6 @@
       'data-field': 'notes', 'aria-label': 'Referral notes'
     });
 
-    var issueBoxes = ISSUE_KEYS.map(function (key) {
-      var cb = el('input', { type: 'checkbox', value: key, 'data-issue': key });
-      if (forIssues.indexOf(key) !== -1) cb.checked = true;
-      return el('label', {}, [cb, ' ' + issueLabel(key)]);
-    });
-
     var removeBtn = el('button', { class: 'btn-danger', type: 'button', 'aria-label': 'Remove referral' }, ['Remove']);
     removeBtn.addEventListener('click', function () {
       var p = state.counties[state.current];
@@ -1267,6 +1293,19 @@
       renderReferrals(p.referral_targets);
       runValidation();
     });
+
+    // Build the info row: if the target matches a rehabber, show their
+    // animal availability codes (read-only). Otherwise just show notes.
+    var infoRow = null;
+    var rehabber = findRehabberByName(t.name);
+    if (rehabber) {
+      var codes = extractRehabCodes(rehabber.availability);
+      var codesText = codes.length ? codes.join(', ') : '(no codes on file)';
+      infoRow = el('div', { style: 'margin-top:6px;' }, [
+        el('span', { class: 'ref-sub-label' }, ['Rehabber — accepts']),
+        el('span', { style: 'font-size:13px;color:var(--green-dark);font-weight:600;' }, [codesText])
+      ]);
+    }
 
     var card = el('div', { class: 'referral-card' }, [
       el('div', { class: 'ref-top' }, [
@@ -1280,11 +1319,8 @@
         el('div', {}, [el('span', { class: 'ref-sub-label' }, ['Phone']), phoneInput]),
         el('div', {}, [el('span', { class: 'ref-sub-label' }, ['Notes']), notesInput])
       ]),
-      el('div', {}, [
-        el('span', { class: 'ref-sub-label' }, ['For issues']),
-        el('div', { class: 'ref-issues' }, issueBoxes)
-      ])
-    ]);
+      infoRow
+    ].filter(Boolean));
 
     // Wire field edits straight into the model.
     [nameInput, phoneInput, notesInput].forEach(function (input) {
@@ -1294,23 +1330,10 @@
         tgt[input.getAttribute('data-field')] = input.value;
         markDirty();
         runValidation();
-      });
-    });
-    $all('input[type=checkbox]', card).forEach(function (cb) {
-      var issue = cb.getAttribute('data-issue');
-      if (!issue) return;
-      cb.addEventListener('change', function () {
-        var p = state.counties[state.current];
-        var tgt = p.referral_targets[idx];
-        var fi = Array.isArray(tgt.for_issues) ? tgt.for_issues : [];
-        if (cb.checked) {
-          if (fi.indexOf(issue) === -1) fi.push(issue);
-        } else {
-          fi = fi.filter(function (x) { return x !== issue; });
+        // Re-render to update rehabber match when name changes.
+        if (input.getAttribute('data-field') === 'name') {
+          renderReferrals(p.referral_targets);
         }
-        // Keep canonical order.
-        tgt.for_issues = ISSUE_KEYS.filter(function (k) { return fi.indexOf(k) !== -1; });
-        markDirty();
       });
     });
 
@@ -1428,7 +1451,7 @@
     }
 
     if (Array.isArray(p.allowed_issues) && p.allowed_issues.length === 0) {
-      warnings.push('Allowed issues is an empty list — every call would be referred out. Pick at least one issue, or turn dispatch OFF on purpose.');
+      warnings.push('Allowed actions is an empty list — every call would be referred out. Pick at least one action, or turn dispatch OFF on purpose.');
     }
 
     // Soft hints (still warnings, helpful):
@@ -1841,9 +1864,9 @@
     }
     var ai = p.allowed_issues;
     if (ai === 'all' || ai == null) {
-      parts.push('all issues');
+      parts.push('all actions');
     } else if (Array.isArray(ai)) {
-      parts.push(ai.join(', ') || 'no issues');
+      parts.push(ai.join(', ') || 'no actions');
     }
     var refs = Array.isArray(p.referral_targets) ? p.referral_targets.length : 0;
     if (refs) parts.push(refs + ' referral' + (refs > 1 ? 's' : ''));
@@ -1941,15 +1964,15 @@
       var enabled = p.dispatch_enabled !== false;
       html += '<tr><th style="width:160px;">Dispatch</th><td class="' + (enabled ? 'on' : 'off') + '">' + (enabled ? 'Enabled' : 'Disabled') + '</td></tr>';
 
-      // Allowed issues
+      // Allowed actions
       var ai = p.allowed_issues;
-      var issueStr = 'All issues';
+      var issueStr = 'All actions';
       if (Array.isArray(ai)) {
         issueStr = ai.length ? ai.join(', ') : '(none)';
       }
-      html += '<tr><th>Allowed issues</th><td>' + escHtml(issueStr) + '</td></tr>';
+      html += '<tr><th>Allowed Actions</th><td>' + escHtml(issueStr) + '</td></tr>';
 
-      // Species scope
+      // Species restrictions
       var scope = p.species_scope;
       var scopeStr = 'All species';
       if (scope && typeof scope === 'object') {
@@ -1959,7 +1982,7 @@
         });
         scopeStr = tokens.length ? tokens.join(', ') : '(empty)';
       }
-      html += '<tr><th>Species scope</th><td>' + escHtml(scopeStr) + '</td></tr>';
+      html += '<tr><th>Species Restrictions</th><td>' + escHtml(scopeStr) + '</td></tr>';
 
       // Referral targets
       var refs = Array.isArray(p.referral_targets) ? p.referral_targets : [];
@@ -1970,9 +1993,6 @@
           if (r.name) parts.push('<strong>' + escHtml(r.name) + '</strong>');
           if (r.phone) parts.push(escHtml(r.phone));
           if (r.notes) parts.push('<em>' + escHtml(r.notes) + '</em>');
-          if (Array.isArray(r.for_issues) && r.for_issues.length) {
-            parts.push('(' + r.for_issues.join(', ') + ')');
-          }
           html += '<div class="ref">' + parts.join(' \u00b7 ') + '</div>';
         });
         html += '</td></tr>';
