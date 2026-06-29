@@ -1100,7 +1100,7 @@
 
         <!-- special_notes -->
         <div class="rule-field" id="special-notes-field">
-          <label class="field-label" for="f-special-notes">Special notes</label>
+          <label class="field-label" for="f-special-notes">Special notes <span id="special-notes-helper" style="font-weight:500;text-transform:none;letter-spacing:normal;color:var(--text-muted);"></span></label>
           <textarea id="f-special-notes" placeholder="Free text shown to dispatchers (e.g. who to refer to, blackout dates, coordinator)."></textarea>
         </div>
 
@@ -1475,6 +1475,8 @@
     var badge = $('#county-area-badge');
     badge.textContent = area ? ('WIN Area ' + area) : 'WIN Area —';
     $('#rules-county-name').textContent = name;
+    var notesHelper = $('#special-notes-helper');
+    if (notesHelper) notesHelper.textContent = '(notes always show when ' + name + ' selected)';
 
     renderVolunteerInfo(name);
     renderRules(state.counties[name]);
@@ -1602,7 +1604,7 @@
         var monByCounty = { ct_no_rvs: {}, ct_rvs: {}, courier: {} };
         monVols.forEach(function (mv) {
           var roles = Array.isArray(mv.roles) ? mv.roles : [];
-          var county = (mv.home_county || '').trim();
+          var county = (mv.home_county || '').trim() || 'Unknown';
           roles.forEach(function (r) {
             var key = null;
             if (r === 'C&T') key = 'ct_no_rvs';
@@ -1610,9 +1612,7 @@
             else if (r === 'COURIER') key = 'courier';
             if (key) {
               monCounts[key]++;
-              if (county) {
-                monByCounty[key][county] = (monByCounty[key][county] || 0) + 1;
-              }
+              monByCounty[key][county] = (monByCounty[key][county] || 0) + 1;
             }
           });
         });
@@ -1626,7 +1626,7 @@
             Object.keys(countyMap).sort().forEach(function (c) {
               if (countyMap[c] > 0) parts.push(c + ': ' + countyMap[c]);
             });
-            monDetail.textContent = parts.length > 1 ? parts.join(', ') : '';
+            monDetail.textContent = parts.length ? parts.join(', ') : '';
           }
         });
 
@@ -1636,9 +1636,9 @@
         var areaLabel = areaNum ? String(areaNum).padStart(2, '0') : '—';
         var titleEl = $('#vol-unavail-title');
         titleEl.textContent = '';
-        titleEl.appendChild(document.createTextNode('Flagging '));
+        titleEl.appendChild(document.createTextNode('Flagging potential '));
         titleEl.appendChild(el('span', { style: 'color: #2563eb' }, ['Area ' + areaLabel]));
-        titleEl.appendChild(document.createTextNode(' unavailable volunteers'));
+        titleEl.appendChild(document.createTextNode(' availability issues'));
 
         var rows = (agg && Array.isArray(agg.out_of_county)) ? agg.out_of_county : [];
         // Also check out_of_county_all if present (full set before overflow trim).
