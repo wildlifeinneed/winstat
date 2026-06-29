@@ -396,6 +396,9 @@ def main() -> int:
         logger.error("Fatal error scraping PAWR: %s", exc)
         return 1
 
+    # Count distinct counties scraped.
+    counties_scraped = len({f.get("county", "") for f in pawr_facilities})
+
     if not pawr_facilities:
         logger.warning(
             "No facilities scraped from PAWR — site may be down or structure changed. "
@@ -403,6 +406,10 @@ def main() -> int:
         )
         # Write empty diff so the workflow doesn't fail.
         OUTPUT_PATH.write_text("[]", encoding="utf-8")
+        print(
+            f"Scraped {counties_scraped} counties, found 0 facilities on PAWR. "
+            "Skipped comparison."
+        )
         return 0
 
     local_facilities = load_facilities_json()
@@ -419,6 +426,17 @@ def main() -> int:
             logger.info("  %s: %s (%s)", d["type"].upper(), d["name"], d.get("county", ""))
     else:
         logger.info("No differences found between PAWR and facilities.json")
+
+    # Print a human-readable summary to stdout.
+    added = sum(1 for d in diffs if d["type"] == "added")
+    removed = sum(1 for d in diffs if d["type"] == "removed")
+    phone_mismatches = sum(1 for d in diffs if d["type"] == "phone_mismatch")
+    print(
+        f"Scraped {counties_scraped} counties, found {len(pawr_facilities)} facilities "
+        f"on PAWR. Local facilities.json has {len(local_facilities)}. "
+        f"Differences: {added} added, {removed} removed, "
+        f"{phone_mismatches} phone mismatches."
+    )
 
     return 0
 

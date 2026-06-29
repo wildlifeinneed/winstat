@@ -32,6 +32,39 @@ jobs:
       - name: Run PAWR comparison
         run: python3 check_pawr.py
 
+      - name: Write job summary
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, pathlib
+
+          diff_path = pathlib.Path("pawr_diff.json")
+          fac_path  = pathlib.Path("docs/data/facilities.json")
+
+          if not diff_path.exists():
+              print("**PAWR check did not produce a diff file.** The scrape may have failed.")
+          else:
+              diffs = json.load(open(diff_path))
+              local = json.load(open(fac_path))
+              added   = sum(1 for d in diffs if d["type"] == "added")
+              removed = sum(1 for d in diffs if d["type"] == "removed")
+              phones  = sum(1 for d in diffs if d["type"] == "phone_mismatch")
+              total_diffs = len(diffs)
+              icon = "✅" if total_diffs == 0 else "⚠️"
+              print(f"### {icon} PAWR Facility Sync")
+              print()
+              print(f"| Metric | Count |")
+              print(f"| --- | ---: |")
+              print(f"| Local facilities (facilities.json) | {len(local)} |")
+              print(f"| Differences — added | {added} |")
+              print(f"| Differences — removed | {removed} |")
+              print(f"| Differences — phone mismatches | {phones} |")
+              if total_diffs == 0:
+                  print()
+                  print("No differences found between PAWR and `facilities.json`.")
+          PY
+
       - name: Create GitHub Issue if differences found
         env:
           GH_TOKEN: ${{ github.token }}
