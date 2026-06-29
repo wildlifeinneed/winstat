@@ -220,6 +220,32 @@ def _is_candidate_name(text: str) -> bool:
     if len(text) < 3 or len(text) > 120:
         return False
 
+    lower = text.lower()
+
+    # Reject strings that start with common intake-status phrases.
+    status_prefixes = [
+        "closed to", "open for", "currently", "not accepting",
+        "no longer", "temporarily",
+    ]
+    if any(lower.startswith(p) for p in status_prefixes):
+        return False
+
+    # Reject boilerplate and status text.
+    reject_phrases = [
+        "closed to", "temporarily", "not accepting", "no longer",
+        "by appointment", "until further notice",
+        "specializing in", "rehabilitates", "species category",
+        "please speak", "please call", "please contact",
+        "physical address", "mailing address",
+        "p.o. box", "po box",
+        "website", "email", "facebook", "phone", "fax",
+        "click here", "back to", "navigation",
+        "search", "menu", "home", "legend",
+        "ext ", "ext.",
+    ]
+    if any(kw in lower for kw in reject_phrases):
+        return False
+
     # Reject if it looks like a phone number or digit-only fragment.
     if re.match(r"^[\d\s()\-.\+]+$", text):
         return False
