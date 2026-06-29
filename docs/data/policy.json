@@ -44,7 +44,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.",
       "time_windows": null
     },
     "Armstrong": {
@@ -56,7 +55,7 @@
         {
           "name": "Wildbird Recovery",
           "phone": "7248981788",
-          "notes": "Songbirds; refer captures here",
+          "notes": "Songbirds",
           "for_issues": [
             "capture"
           ]
@@ -64,7 +63,7 @@
         {
           "name": "Forest Friends",
           "phone": "4127324076",
-          "notes": "RVS and Fawn; refer captures here",
+          "notes": "RVS and Fawn",
           "for_issues": [
             "capture",
             "rvs_capture"
@@ -73,7 +72,6 @@
         {
           "name": "Humane Animal Rescue Wildlife Center",
           "phone": "4123457300",
-          "notes": "Refer captures here",
           "for_issues": [
             "capture",
             "rvs_capture"
@@ -89,7 +87,7 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS. Julia or Sue may respond depending on availability.",
+      "special_notes": "Julia or Sue may respond depending on availability.",
       "time_windows": null
     },
     "Bedford": {
@@ -97,7 +95,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.",
       "time_windows": null
     },
     "Berks": {
@@ -105,7 +102,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.  ",
       "time_windows": null
     },
     "Blair": {
@@ -113,7 +109,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.",
       "time_windows": null
     },
     "Bradford": {
@@ -141,7 +136,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.  ",
       "time_windows": null
     },
     "Butler": {
@@ -149,7 +143,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.  ",
       "time_windows": null
     },
     "Cambria": {
@@ -157,7 +150,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.",
       "time_windows": null
     },
     "Cameron": {
@@ -165,7 +157,7 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS. Coordinator may respond depending on availability.  ",
+      "special_notes": "Coordinator may respond depending on availability.  ",
       "time_windows": null
     },
     "Carbon": {
@@ -173,7 +165,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.",
       "time_windows": null
     },
     "Centre": {
@@ -181,7 +172,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.",
       "time_windows": null
     },
     "Chester": {
@@ -261,7 +251,7 @@
           "bats"
         ]
       },
-      "special_notes": "No volunteers. Enter dispatch for captures and transports; RVS bats only. Refer songbirds to Wildbird Recovery; refer non-bat RVS to Humane Animal Rescue Wildlife Center. Sue may respond depending on availability.",
+      "special_notes": "No volunteers. Enter dispatch for captures and transports of RVS bats only. Refer songbirds to Wildbird Recovery; refer non-bat RVS to Humane Animal Rescue Wildlife Center. Sue may respond depending on availability.",
       "time_windows": null
     },
     "Clearfield": {
@@ -269,7 +259,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.",
       "time_windows": null
     },
     "Clinton": {
@@ -351,7 +340,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.  ",
       "time_windows": null
     },
     "Cumberland": {
@@ -359,7 +347,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.",
       "time_windows": null
     },
     "Dauphin": {
@@ -367,7 +354,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.",
       "time_windows": null
     },
     "Delaware": {
@@ -382,9 +368,9 @@
           "phone": "2674169453",
           "notes": "RVS finders + off-window",
           "for_issues": [
-            "rvs_capture",
             "capture",
-            "transport"
+            "transport",
+            "rvs_capture"
           ]
         },
         {
@@ -392,9 +378,9 @@
           "phone": "2152491938",
           "notes": "RVS finders + off-window",
           "for_issues": [
-            "rvs_capture",
             "capture",
-            "transport"
+            "transport",
+            "rvs_capture"
           ]
         }
       ],
@@ -407,7 +393,7 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS. Jane or Sue may respond depending on availability.  ",
+      "special_notes": "Jane or Sue may respond depending on availability.  ",
       "time_windows": null
     },
     "Erie": {
@@ -447,7 +433,7 @@
           "bats"
         ]
       },
-      "special_notes": "Enter dispatch for captures; RVS bats only. Refer transports to Tamarack Wildlife. Refer non-bat RVS to Humane Animal Wildlife Rescue or PGC. Sue to respond to Erie County as well.  ",
+      "special_notes": "Enter dispatch for captures of RVS bats only. Refer transports to Tamarack Wildlife. Refer non-bat RVS to Humane Animal Wildlife Rescue or PGC. Sue to respond to Erie County as well.  ",
       "time_windows": null
     },
     "Fayette": {
@@ -455,7 +441,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.",
       "time_windows": null
     },
     "Forest": {
@@ -615,7 +600,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.",
       "time_windows": null
     },
     "Indiana": {
@@ -669,7 +653,7 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS. Either Jane or Sue may respond depending on availability.",
+      "special_notes": "Jane or Sue may respond depending on availability.",
       "time_windows": null
     },
     "Juniata": {
@@ -677,7 +661,7 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS. Gary may respond depending on availability.",
+      "special_notes": "Gary may respond depending on availability.",
       "time_windows": null
     },
     "Lackawanna": {
@@ -687,7 +671,7 @@
         {
           "name": "PA Game Commission (PGC)",
           "phone": "8337429453",
-          "notes": "Blackout May 29-31: refer captures/RVS here",
+          "notes": "refer captures/RVS here",
           "for_issues": [
             "capture",
             "rvs_capture"
@@ -703,7 +687,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.  ",
       "time_windows": null
     },
     "Lawrence": {
@@ -861,7 +844,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.",
       "time_windows": null
     },
     "Lycoming": {
@@ -869,7 +851,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.",
       "time_windows": null
     },
     "McKean": {
@@ -945,7 +926,7 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS. Jane may respond depending on availability.",
+      "special_notes": "Jane may respond depending on availability.",
       "time_windows": null
     },
     "Monroe": {
@@ -953,7 +934,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS. Note: a transporter is unavailable 10/3/26-10/18/26 (volunteer-level; reflected in live counts).",
       "time_windows": null
     },
     "Montgomery": {
@@ -961,7 +941,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.  ",
       "time_windows": null
     },
     "Montour": {
@@ -1021,7 +1000,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.  ",
       "time_windows": null
     },
     "Northumberland": {
@@ -1032,7 +1010,7 @@
       ],
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures and transports (no RVS line).",
+      "special_notes": "Enter dispatch for captures and transports (no RVS).",
       "time_windows": null
     },
     "Perry": {
@@ -1040,7 +1018,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.",
       "time_windows": null
     },
     "Philadelphia": {
@@ -1144,7 +1121,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.  ",
       "time_windows": null
     },
     "Snyder": {
@@ -1187,7 +1163,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS. Other volunteers may respond depending on availability.",
       "time_windows": null
     },
     "Sullivan": {
@@ -1415,7 +1390,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.",
       "time_windows": null
     },
     "Wyoming": {
@@ -1442,7 +1416,6 @@
       "allowed_issues": "all",
       "referral_targets": [],
       "species_scope": null,
-      "special_notes": "Enter dispatch for captures, transports and RVS.  ",
       "time_windows": null
     }
   }
