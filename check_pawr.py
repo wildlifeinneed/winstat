@@ -32,7 +32,7 @@ FACILITIES_PATH = Path(__file__).resolve().parent / "docs" / "data" / "facilitie
 OUTPUT_PATH = Path(__file__).resolve().parent / "pawr_diff.json"
 FETCH_DELAY = 1  # seconds between county page fetches
 REQUEST_TIMEOUT = 30
-USER_AGENT = "PA-Wildlife-Rehab-Sync/1.0 (+https://github.com/)"
+USER_AGENT = "Mozilla/5.0 (compatible; PAWRChecker/1.0)"
 
 logging.basicConfig(
     level=logging.INFO,
