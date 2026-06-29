@@ -3013,6 +3013,58 @@ async function main() {
     assert.strictEqual(res.header('Access-Control-Allow-Origin'), 'https://wildlifeinneed.github.io');
   });
 
+  // ── check_password endpoint tests ─────────────────────────────────────
+
+  await test('POST ?mode=check_password returns 200 on correct password', async () => {
+    const req = mockRequest('POST', { mode: 'check_password' }, { password: 'secret' });
+    const res = await handleRequest(req, {
+      ResponseCtor: MockResponse, kv: mockKVWithPolicy([]),
+      policyPassword: 'secret',
+    });
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.strictEqual(body.ok, true);
+  });
+
+  await test('POST ?mode=check_password returns 401 on wrong password', async () => {
+    const req = mockRequest('POST', { mode: 'check_password' }, { password: 'wrong' });
+    const res = await handleRequest(req, {
+      ResponseCtor: MockResponse, kv: mockKVWithPolicy([]),
+      policyPassword: 'secret',
+    });
+    assert.strictEqual(res.status, 401);
+    const body = await res.json();
+    assert.strictEqual(body.error, 'unauthorized');
+  });
+
+  await test('POST ?mode=check_password returns 401 when no password configured', async () => {
+    const req = mockRequest('POST', { mode: 'check_password' }, { password: 'anything' });
+    const res = await handleRequest(req, {
+      ResponseCtor: MockResponse, kv: mockKVWithPolicy([]),
+    });
+    assert.strictEqual(res.status, 401);
+  });
+
+  await test('POST ?mode=check_password returns 400 on invalid body', async () => {
+    const req = mockRequest('POST', { mode: 'check_password' });
+    // mockRequest with no jsonBody -> request.json() will throw
+    const res = await handleRequest(req, {
+      ResponseCtor: MockResponse, kv: mockKVWithPolicy([]),
+      policyPassword: 'secret',
+    });
+    assert.strictEqual(res.status, 400);
+  });
+
+  await test('POST ?mode=check_password has CORS headers', async () => {
+    const req = mockRequest('POST', { mode: 'check_password' }, { password: 'secret' });
+    const res = await handleRequest(req, {
+      ResponseCtor: MockResponse, kv: mockKVWithPolicy([]),
+      policyPassword: 'secret',
+      allowedOrigin: 'https://wildlifeinneed.github.io',
+    });
+    assert.strictEqual(res.header('Access-Control-Allow-Origin'), 'https://wildlifeinneed.github.io');
+  });
+
   console.log('\n----------------------------------------');
   console.log('Total: ' + (passed + failed) + '  Passed: ' + passed + '  Failed: ' + failed);
   if (failed > 0) {

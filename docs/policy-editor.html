@@ -1149,11 +1149,12 @@
     <div class="save-bar-inner">
       <span class="save-note">Save edits directly to the server, or download a local copy.</span>
       <span class="save-status" id="save-status" aria-live="polite"></span>
-      <button id="version-history-btn" class="btn-ghost" type="button">Version History</button>
+      <button id="admin-login-btn" class="btn-secondary" type="button">🔒 Admin</button>
+      <button id="version-history-btn" class="btn-ghost" type="button" hidden>Version History</button>
       <button id="print-policy-btn" class="btn-ghost" type="button">Print Policy</button>
-      <button id="reset-county" class="btn-ghost" type="button">Revert county</button>
-      <button id="download-btn" class="btn-ghost" type="button">Download JSON</button>
-      <button id="save-btn" class="btn-primary" type="button">Save to server</button>
+      <button id="reset-county" class="btn-ghost" type="button" hidden>Revert county</button>
+      <button id="download-btn" class="btn-ghost" type="button" hidden>Download JSON</button>
+      <button id="save-btn" class="btn-primary" type="button" hidden>Save to server</button>
     </div>
   </div>
 </main>
@@ -1186,6 +1187,7 @@
     current: null,      // selected county name
     dirty: {},          // county -> true once edited
     policyPassword: null, // session-only password for server save
+    adminAuthenticated: false, // true after successful admin login
     policySource: null  // 'server' or 'static' — where policy was loaded from
   };
 
@@ -2225,6 +2227,7 @@
         setSaveStatus(msg, true);
       } else if (res.status === 401) {
         state.policyPassword = null;
+        setAdminUI(false);
         setSaveStatus('Wrong password — try again.');
       } else {
         var detail = (res.body && res.body.error) ? res.body.error : 'unknown error';
@@ -2663,6 +2666,53 @@
     return d.innerHTML;
   }
 
+  // ── Admin login gate ──────────────────────────────────────────────────────
+  function setAdminUI(authenticated) {
+    state.adminAuthenticated = authenticated;
+    var loginBtn = $('#admin-login-btn');
+    var gatedBtns = ['#version-history-btn', '#reset-county', '#download-btn', '#save-btn'];
+    if (authenticated) {
+      loginBtn.textContent = 'Admin \u2713';
+      loginBtn.disabled = true;
+      loginBtn.style.opacity = '0.6';
+      loginBtn.style.cursor = 'default';
+      gatedBtns.forEach(function (sel) { $(sel).hidden = false; });
+    } else {
+      loginBtn.textContent = '\uD83D\uDD12 Admin';
+      loginBtn.disabled = false;
+      loginBtn.style.opacity = '';
+      loginBtn.style.cursor = '';
+      gatedBtns.forEach(function (sel) { $(sel).hidden = true; });
+    }
+  }
+
+  function adminLogin() {
+    var pw = prompt('Enter the admin password:');
+    if (!pw) return;
+
+    var loginBtn = $('#admin-login-btn');
+    loginBtn.disabled = true;
+    loginBtn.textContent = 'Checking…';
+
+    fetch(WORKER_URL + '?mode=check_password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw })
+    }).then(function (r) {
+      if (r.status === 200) {
+        state.policyPassword = pw;
+        setAdminUI(true);
+        setSaveStatus('Admin access granted.', true);
+      } else {
+        setAdminUI(false);
+        setSaveStatus('Wrong password — try again.');
+      }
+    }).catch(function () {
+      setAdminUI(false);
+      setSaveStatus('Could not verify password (network error).');
+    });
+  }
+
   // ── Global controls ──────────────────────────────────────────────────────
   function wireGlobalControls() {
     $('#county-select').addEventListener('change', function () { selectCounty(this.value); });
@@ -2683,6 +2733,7 @@
     $('#save-btn').addEventListener('click', savePolicy);
     $('#version-history-btn').addEventListener('click', loadVersionHistory);
     $('#print-policy-btn').addEventListener('click', printCurrentPolicy);
+    $('#admin-login-btn').addEventListener('click', adminLogin);
 
     $('#reset-county').addEventListener('click', function () {
       if (!state.current) return;

@@ -446,6 +446,28 @@ async function handleRequest(request, deps) {
     return jsonResponse(ResponseCtor, 200, parsed, allowedOrigin);
   }
 
+  // ── Password CHECK route ─────────────────────────────────────────────
+  // POST ?mode=check_password — lightweight auth check. Validates the
+  // password against POLICY_PASSWORD and returns 200 {ok:true} or 401.
+  // Used by the policy editor Admin Login gate before unlocking action buttons.
+  if (urlMode(request) === 'check_password' && method === 'POST') {
+    let body;
+    try {
+      body = await request.json();
+    } catch (e) {
+      return jsonResponse(ResponseCtor, 400, { error: 'invalid_body' }, allowedOrigin);
+    }
+    if (!body || typeof body !== 'object') {
+      return jsonResponse(ResponseCtor, 400, { error: 'invalid_body' }, allowedOrigin);
+    }
+    const password = body.password;
+    const expected = deps.policyPassword;
+    if (!expected || !password || String(password) !== String(expected)) {
+      return jsonResponse(ResponseCtor, 401, { error: 'unauthorized' }, allowedOrigin);
+    }
+    return jsonResponse(ResponseCtor, 200, { ok: true }, allowedOrigin);
+  }
+
   // ── Policy SAVE route ──────────────────────────────────────────────
   // POST ?mode=save_policy — saves updated policy.json to KV with password
   // auth. Before overwriting, snapshots the current version under a
