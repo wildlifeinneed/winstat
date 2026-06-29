@@ -53,11 +53,14 @@ logger = logging.getLogger("check_pawr")
 
 _MULTI_WS = re.compile(r"\s+")
 
-# PA address pattern: number + street text + comma/newline + city + PA + zip
+# PA address pattern: number + street name (on one line) + city + PA + zip.
+# The street portion must stay on a single line (no \n) to avoid matching
+# phone-number fragments that happen to precede an address on the next line.
 _PA_ADDRESS_RE = re.compile(
-    r"\b(P\.?O\.?\s*Box\s+\d+|\d+\s+[\w\s.]+(?:Road|Rd|Street|St|Drive|Dr|"
-    r"Ave|Avenue|Way|Lane|Ln|Blvd|Highway|Hwy|Run|Circle|Pike|Trail)\.?)"
-    r"[,\s]+([A-Za-z\s.]+),?\s*PA\s+(\d{5})",
+    r"\b(P\.?O\.?\s*Box\s+\d+|\d+[ \t]+[A-Za-z0-9 \t.]+?"
+    r"(?:Road|Rd|Street|St|Drive|Dr|Ave(?:nue)?|Way|Lane|Ln|Blvd|Boulevard|"
+    r"Highway|Hwy|Run|Circle|Cir|Pike|Trail|Route|Rt)\.?)"
+    r"[,\s]+([A-Za-z][A-Za-z .']+),?\s*PA\s+(\d{5})",
     re.IGNORECASE,
 )
 
@@ -254,8 +257,9 @@ def _is_candidate_name(text: str) -> bool:
 
     # Reject street address lines (e.g. "1531 Upper Stump Road").
     if re.match(
-        r"^\d+\s+[\w\s.]+(?:Road|Rd|Street|St|Drive|Dr|Ave|Avenue|Way|"
-        r"Lane|Ln|Blvd|Highway|Hwy|Run|Circle|Pike|Trail)\.?,?$",
+        r"^\d+\s+[\w\s.]+(?:Road|Rd|Street|St|Drive|Dr|Ave(?:nue)?|Way|"
+        r"Lane|Ln|Blvd|Boulevard|Highway|Hwy|Run|Circle|Cir|Pike|Trail|"
+        r"Route|Rt)\.?,?$",
         text, re.IGNORECASE,
     ):
         return False
@@ -294,14 +298,30 @@ def _scan_for_new_facilities(
     new_facilities: List[Dict[str, str]] = []
     norm_ignore = {_normalise_text(n) for n in ignore_names}
 
+    # Pre-compile a pattern that detects block separators: horizontal rules
+    # (--- or more dashes, possibly with spaces) or blank-line gaps (two or
+    # more consecutive newlines, optionally with whitespace between them).
+    _BLOCK_SEP = re.compile(r"\n[ \t]*-{3,}[ \t]*\n|\n\s*\n")
+
     for m in _PA_ADDRESS_RE.finditer(page_text):
         addr_start = m.start()
 
-        # Use a tight window before the address to check for known facilities.
-        # This avoids cross-contamination from adjacent facility blocks.
-        window_before = page_text[max(0, addr_start - 200):addr_start]
+        # Build a lookback window that does NOT cross block boundaries.
+        # Start with up to 300 chars before the address, then trim at the
+        # last block separator so we stay within the same facility block.
+        raw_window_start = max(0, addr_start - 300)
+        raw_window = page_text[raw_window_start:addr_start]
 
-        # Check if any known facility name appears in this window.
+        # Find the last block separator in the raw window; if present, only
+        # keep text after it (i.e. within the current block).
+        sep_hits = list(_BLOCK_SEP.finditer(raw_window))
+        if sep_hits:
+            last_sep_end = sep_hits[-1].end()
+            window_before = raw_window[last_sep_end:]
+        else:
+            window_before = raw_window
+
+        # Check if any known facility name appears in this block-local window.
         window_has_known = False
         for known in known_names:
             if known and _facility_appears_on_page(known, window_before):
