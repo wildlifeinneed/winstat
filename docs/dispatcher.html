@@ -1430,6 +1430,98 @@
       border: 2px solid #76b7b2;
       border-radius: 3px;
     }
+    /* ─── Enhanced map legend panel (Tier-2 + cross-post) ──────────── */
+    .map-legend-panel {
+      margin-top: 10px;
+      padding: 10px 14px;
+      background: rgba(255,255,255,.92);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .map-legend-panel .mlp-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .map-legend-panel .mlp-items {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 14px;
+    }
+    .map-legend-panel .mlp-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      color: var(--text);
+      white-space: nowrap;
+    }
+    .map-legend-panel .mlp-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      border: 1px solid rgba(0,0,0,.25);
+    }
+    .map-legend-panel .mlp-animal {
+      border-radius: 2px;
+      background: var(--red);
+      transform: rotate(45deg);
+      border-color: #7d241a;
+    }
+    .map-legend-panel .mlp-rehab { background: #7b3fbf; border-color: #532a82; }
+    .map-legend-panel .mlp-vol-courier { background: #1d6fb8; border-color: #14507f; }
+    .map-legend-panel .mlp-vol-ct { background: #5bbf5b; border-color: #3a8a3a; }
+    .map-legend-panel .mlp-vol-rvsct { background: #1f7a33; border-color: #145222; }
+    .map-legend-panel .mlp-area-dispatch {
+      background: rgba(118,183,178,0.30);
+      border: 2px solid #76b7b2;
+      border-radius: 3px;
+    }
+    .map-legend-panel .mlp-area-suggested {
+      background: rgba(228,26,28,0.25);
+      border: 2px solid #e41a1c;
+      border-radius: 3px;
+    }
+    .map-legend-panel .mlp-count {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .map-legend-panel .mlp-sep {
+      width: 100%;
+      height: 0;
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 4px 0;
+    }
+    .map-legend-panel .mlp-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      color: var(--text);
+      cursor: pointer;
+      user-select: none;
+    }
+    .map-legend-panel .mlp-toggle input[type="checkbox"] {
+      margin: 0;
+      cursor: pointer;
+    }
+    .map-legend-panel .mlp-filter-note {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-style: italic;
+      margin-top: 2px;
+    }
+    /* Dimmed pin for unavailable volunteers */
+    .t2-pin-unavail {
+      opacity: 0.35;
+    }
     .t2map-note {
       font-size: 11.5px;
       color: var(--text-muted);
@@ -1961,21 +2053,8 @@
           <div id="t2map" class="t2map" role="application"
                aria-label="Map of the animal location and nearby helpers"></div>
           <div id="t2map-unavailable" class="t2map-unavailable" style="display:none;"></div>
-          <div class="t2map-legend" id="t2map-legend" aria-label="Map legend">
-            <span class="leg-item"><span class="leg-dot leg-animal"></span>Animal location</span>
-            <span class="leg-item"><span class="leg-dot leg-rehab"></span>Rehabbers</span>
-            <!-- === VOLUNTEER MARKERS START (legend entry) === -->
-            <!-- Volunteer pins are colored by ROLE (highest-priority role wins).
-                 The wrapper carries id=t2map-leg-vol so the single SHOW_VOLUNTEER_MARKERS
-                 flag still toggles every volunteer legend entry at once. -->
-            <span id="t2map-leg-vol" class="t2map-leg-vol-group">
-              <span class="leg-item"><span class="leg-dot leg-vol-courier"></span>Courier</span>
-              <span class="leg-item"><span class="leg-dot leg-vol-ct"></span>C&amp;T</span>
-              <span class="leg-item"><span class="leg-dot leg-vol-rvsct"></span>RVS C&amp;T</span>
-            </span>
-            <!-- === VOLUNTEER MARKERS END (legend entry) === -->
-            <span class="leg-item"><span class="leg-dot leg-area"></span>WIN service area</span>
-          </div>
+          <!-- Legend is built dynamically by paintT2MapLegend() with counts + availability toggle -->
+          <div id="t2map-legend-panel" class="map-legend-panel" style="display:none;" aria-label="Map legend"></div>
           <p class="t2map-note">
             Pins show the entered animal address (diamond), nearby rehabbers, and
             volunteer pins placed near their base location (exact volunteer locations are
@@ -2029,6 +2108,6 @@
      change to these files to force clients to fetch the new copy. -->
 <script src="assets/messages.js?v=20260628a"></script>
 <script src="assets/decision.js?v=20260628a"></script>
-<script src="assets/dispatcher.js?v=20260628a"></script>
+<script src="assets/dispatcher.js?v=20260629a"></script>
 </body>
 </html>

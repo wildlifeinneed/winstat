@@ -1869,6 +1869,7 @@
     // Show dispatch-area vols from the existing cache (state.t1VolRows).
     var volRows = Array.isArray(state.t1VolRows) ? state.t1VolRows : [];
     var perCounty = {};
+    var cpVolMarkers = []; // {marker, available, roles} for legend counts + toggle
     volRows.forEach(function (row) {
       if (!row) return;
       var rowArea = row.win_area != null ? String(row.win_area).replace(/^0+/, '').trim() : '';
@@ -1902,14 +1903,19 @@
         pinLat = vLat + rad * Math.cos(ang);
         pinLon = vLon + rad * Math.sin(ang);
       }
+      var vNote = row.availability_note ? String(row.availability_note).trim() : '';
+      var rowAvail = row.available !== false && !isUnavailNote(vNote);
       var lines = [];
       if (row.roles && row.roles.length) lines.push(escapeHtml(row.roles.join(', ')));
       if (row.county) lines.push('County: ' + escapeHtml(row.county));
-      L.marker([pinLat, pinLon], {
-        icon: t2DivIcon(t2VolPinClass(row.roles), 14),
-        title: 'Volunteer'
-      }).bindPopup(lines.length ? lines.join('<br>') : '')
-        .addTo(cpMap.layers.vols);
+      if (!rowAvail) lines.push('<em style="color:#999;">Unavailable</em>');
+      var pinCls = t2VolPinClass(row.roles) + (rowAvail ? '' : ' t2-pin-unavail');
+      var marker = L.marker([pinLat, pinLon], {
+        icon: t2DivIcon(pinCls, 14),
+        title: 'Volunteer' + (rowAvail ? '' : ' (unavailable)')
+      }).bindPopup(lines.length ? lines.join('<br>') : '');
+      marker.addTo(cpMap.layers.vols);
+      cpVolMarkers.push({ marker: marker, available: rowAvail, roles: Array.isArray(row.roles) ? row.roles : [] });
       bounds.push([pinLat, pinLon]);
     });
 
@@ -1985,12 +1991,19 @@
             var lines2 = [];
             if (row.roles && row.roles.length) lines2.push(escapeHtml(row.roles.join(', ')));
             if (row.county) lines2.push('County: ' + escapeHtml(row.county));
-            L.marker([pinLat, pinLon], {
-              icon: t2DivIcon(t2VolPinClass(row.roles), 14),
-              title: 'Volunteer'
-            }).bindPopup(lines2.length ? lines2.join('<br>') : '')
-              .addTo(cpMapRef.layers.vols);
+            var vNote2 = row.availability_note ? String(row.availability_note).trim() : '';
+            var rowAvail2 = row.available !== false && !isUnavailNote(vNote2);
+            if (!rowAvail2) lines2.push('<em style="color:#999;">Unavailable</em>');
+            var pinCls2 = t2VolPinClass(row.roles) + (rowAvail2 ? '' : ' t2-pin-unavail');
+            var mk = L.marker([pinLat, pinLon], {
+              icon: t2DivIcon(pinCls2, 14),
+              title: 'Volunteer' + (rowAvail2 ? '' : ' (unavailable)')
+            }).bindPopup(lines2.length ? lines2.join('<br>') : '');
+            mk.addTo(cpMapRef.layers.vols);
+            cpVolMarkers.push({ marker: mk, available: rowAvail2, roles: Array.isArray(row.roles) ? row.roles : [] });
           });
+          // Re-render the cross-post legend with updated counts after async vols arrive.
+          paintCpMapLegend(cpMapRef, wrap, cpVolMarkers, allRehabbers, suggestedSet, dispatchArea);
         })
         .catch(function () { /* best-effort: suggested-area vol fetch failed */ });
     });
@@ -2035,15 +2048,8 @@
       bounds.push([r.lat, r.lon]);
     });
 
-    // ── Legend ──
-    var legend = document.createElement('div');
-    legend.className = 'cp-map-legend';
-    legend.setAttribute('aria-label', 'Cross-post map legend');
-    legend.innerHTML =
-      '<span class="leg-item"><span class="leg-dot leg-animal"></span>Animal location</span>' +
-      '<span class="leg-item"><span class="leg-dot leg-vol"></span>Volunteers</span>' +
-      '<span class="leg-item"><span class="leg-dot leg-rehab"></span>Rehabbers</span>';
-    wrap.appendChild(legend);
+    // ── Legend (dynamic, with counts + availability toggle) ──
+    paintCpMapLegend(cpMap, wrap, cpVolMarkers, allRehabbers, suggestedSet, dispatchArea);
 
     // ── Fit bounds ──
     if (bounds.length === 1) {
@@ -2052,6 +2058,87 @@
       map.fitBounds(bounds, { padding: [30, 30], maxZoom: 12 });
     }
     map.invalidateSize();
+  }
+
+  // ── Dynamic legend for the cross-post map ─────────────────────────
+  // Builds a compact legend panel showing pin types with per-role counts,
+  // area highlighting colors, and an "Include unavailable" toggle.
+  // Called once on initial render and again after each async suggested-area
+  // volunteer fetch completes (to update counts).
+  function paintCpMapLegend(cpMapRef, wrap, volMarkers, rehabbers, suggestedSet, dispatchArea) {
+    // Remove any previous legend from this wrap.
+    var prev = wrap.querySelector('.map-legend-panel');
+    if (prev) prev.parentNode.removeChild(prev);
+
+    var panel = document.createElement('div');
+    panel.className = 'map-legend-panel';
+    panel.setAttribute('aria-label', 'Cross-post map legend');
+
+    // Count by role + availability
+    var counts = { ct: 0, ctAvail: 0, rvsct: 0, rvsctAvail: 0, courier: 0, courierAvail: 0 };
+    (volMarkers || []).forEach(function (entry) {
+      var cls = t2VolPinClass(entry.roles);
+      var avail = !!entry.available;
+      if (cls === 't2-pin-vol-rvsct') { counts.rvsct++; if (avail) counts.rvsctAvail++; }
+      else if (cls === 't2-pin-vol-ct') { counts.ct++; if (avail) counts.ctAvail++; }
+      else { counts.courier++; if (avail) counts.courierAvail++; }
+    });
+    var rehabCount = (rehabbers || []).length;
+    var hasSuggested = suggestedSet && Object.keys(suggestedSet).length > 0;
+
+    var html = '<div class="mlp-title">Legend — showing qualified volunteers</div>';
+    html += '<div class="mlp-items">';
+    html += '<span class="mlp-item"><span class="mlp-dot mlp-animal"></span>Animal location</span>';
+    if (rehabCount > 0) {
+      html += '<span class="mlp-item"><span class="mlp-dot mlp-rehab"></span>Rehabbers <span class="mlp-count">(' + rehabCount + ')</span></span>';
+    }
+    if (counts.rvsct > 0) {
+      html += '<span class="mlp-item"><span class="mlp-dot mlp-vol-rvsct"></span>RVS C&amp;T <span class="mlp-count">' +
+        counts.rvsct + ' (' + counts.rvsctAvail + ' avail)</span></span>';
+    }
+    if (counts.ct > 0) {
+      html += '<span class="mlp-item"><span class="mlp-dot mlp-vol-ct"></span>C&amp;T <span class="mlp-count">' +
+        counts.ct + ' (' + counts.ctAvail + ' avail)</span></span>';
+    }
+    if (counts.courier > 0) {
+      html += '<span class="mlp-item"><span class="mlp-dot mlp-vol-courier"></span>Courier <span class="mlp-count">' +
+        counts.courier + ' (' + counts.courierAvail + ' avail)</span></span>';
+    }
+    // Area highlighting
+    html += '<span class="mlp-item"><span class="mlp-dot mlp-area-dispatch"></span>Dispatch area</span>';
+    if (hasSuggested) {
+      html += '<span class="mlp-item"><span class="mlp-dot mlp-area-suggested"></span>Suggested areas</span>';
+    }
+    html += '</div>';
+
+    // Availability toggle
+    var hasUnavail = (volMarkers || []).some(function (e) { return !e.available; });
+    if (hasUnavail) {
+      html += '<hr class="mlp-sep">';
+      html += '<label class="mlp-toggle"><input type="checkbox" class="cp-avail-toggle" checked> Include unavailable</label>';
+    }
+
+    panel.innerHTML = html;
+    wrap.appendChild(panel);
+
+    // Wire the toggle
+    var toggle = panel.querySelector('.cp-avail-toggle');
+    if (toggle && volMarkers && cpMapRef.layers) {
+      toggle.addEventListener('change', function () {
+        var show = toggle.checked;
+        volMarkers.forEach(function (entry) {
+          if (!entry.available) {
+            if (show) {
+              if (!cpMapRef.layers.vols.hasLayer(entry.marker)) {
+                entry.marker.addTo(cpMapRef.layers.vols);
+              }
+            } else {
+              cpMapRef.layers.vols.removeLayer(entry.marker);
+            }
+          }
+        });
+      });
+    }
   }
 
   // Minimum Haversine distance (mi) from a point to any boundary segment of a
@@ -3816,6 +3903,8 @@
     // Worker never sends an exact volunteer coordinate (PII rule). County-centroid
     // fallback pins share one point per county, so those are spread with a small
     // spiral offset; jittered pins keep their own point. Gated by the flag above.
+    // Unavailable volunteers get a dimmed pin (t2-pin-unavail class).
+    var t2VolMarkers = []; // {marker, available} for toggle filtering
     if (SHOW_VOLUNTEER_MARKERS) {
       var perCounty = {};
       (payload.volunteers || []).forEach(function (v) {
@@ -3856,11 +3945,14 @@
         if (v.county) {
           lines.push('County: ' + escapeHtml(v.county));
         }
-        L_.marker([lat, lon], {
-          icon: t2DivIcon(t2VolPinClass(v.roles), 14),
-          title: 'Volunteer'
-        }).bindPopup(lines.length ? lines.join('<br>') : '')
-          .addTo(t2map.layers.volunteer);
+        if (!v.available) lines.push('<em style="color:#999;">Unavailable</em>');
+        var pinCls = t2VolPinClass(v.roles) + (v.available ? '' : ' t2-pin-unavail');
+        var marker = L_.marker([lat, lon], {
+          icon: t2DivIcon(pinCls, 14),
+          title: 'Volunteer' + (v.available ? '' : ' (unavailable)')
+        }).bindPopup(lines.length ? lines.join('<br>') : '');
+        marker.addTo(t2map.layers.volunteer);
+        t2VolMarkers.push({ marker: marker, available: !!v.available });
         bounds.push([lat, lon]);
       });
     }
@@ -3873,6 +3965,86 @@
     }
     // Container may have just become visible — recompute tile size.
     t2map.instance.invalidateSize();
+
+    // ── Dynamic legend with counts + availability toggle ──
+    paintT2MapLegend(payload, t2VolMarkers);
+  }
+
+  // ── Dynamic legend for the Tier-2 map ──────────────────────────────
+  // Builds a compact legend panel showing pin types with counts, area
+  // highlighting, and an "Include unavailable" toggle that hides/shows
+  // unavailable volunteer markers without re-fetching data.
+  function paintT2MapLegend(payload, volMarkers) {
+    var panel = document.getElementById('t2map-legend-panel');
+    if (!panel) return;
+
+    var vols = payload.volunteers || [];
+    // Count by role + availability
+    var counts = { ct: 0, ctAvail: 0, rvsct: 0, rvsctAvail: 0, courier: 0, courierAvail: 0 };
+    vols.forEach(function (v) {
+      if (!v) return;
+      var cls = t2VolPinClass(v.roles);
+      var avail = !!v.available;
+      if (cls === 't2-pin-vol-rvsct') { counts.rvsct++; if (avail) counts.rvsctAvail++; }
+      else if (cls === 't2-pin-vol-ct') { counts.ct++; if (avail) counts.ctAvail++; }
+      else { counts.courier++; if (avail) counts.courierAvail++; }
+    });
+    var rehabCount = (payload.rehabbers || []).length;
+    var hasAreas = !!(payload.winAreas && payload.winAreas.length);
+
+    var html = '<div class="mlp-title">Legend — showing qualified volunteers</div>';
+    html += '<div class="mlp-items">';
+    html += '<span class="mlp-item"><span class="mlp-dot mlp-animal"></span>Animal location</span>';
+    if (rehabCount > 0) {
+      html += '<span class="mlp-item"><span class="mlp-dot mlp-rehab"></span>Rehabbers <span class="mlp-count">(' + rehabCount + ')</span></span>';
+    }
+    if (SHOW_VOLUNTEER_MARKERS) {
+      if (counts.rvsct > 0) {
+        html += '<span class="mlp-item"><span class="mlp-dot mlp-vol-rvsct"></span>RVS C&amp;T <span class="mlp-count">' +
+          counts.rvsct + ' (' + counts.rvsctAvail + ' avail)</span></span>';
+      }
+      if (counts.ct > 0) {
+        html += '<span class="mlp-item"><span class="mlp-dot mlp-vol-ct"></span>C&amp;T <span class="mlp-count">' +
+          counts.ct + ' (' + counts.ctAvail + ' avail)</span></span>';
+      }
+      if (counts.courier > 0) {
+        html += '<span class="mlp-item"><span class="mlp-dot mlp-vol-courier"></span>Courier <span class="mlp-count">' +
+          counts.courier + ' (' + counts.courierAvail + ' avail)</span></span>';
+      }
+    }
+    if (hasAreas) {
+      html += '<span class="mlp-item"><span class="mlp-dot mlp-area-dispatch"></span>WIN service area</span>';
+    }
+    html += '</div>';
+
+    // Availability toggle (only when there are unavailable volunteers)
+    var hasUnavail = vols.some(function (v) { return v && !v.available; });
+    if (SHOW_VOLUNTEER_MARKERS && hasUnavail) {
+      html += '<hr class="mlp-sep">';
+      html += '<label class="mlp-toggle"><input type="checkbox" id="t2-avail-toggle" checked> Include unavailable</label>';
+    }
+
+    panel.innerHTML = html;
+    panel.style.display = '';
+
+    // Wire the toggle
+    var toggle = document.getElementById('t2-avail-toggle');
+    if (toggle && volMarkers) {
+      toggle.addEventListener('change', function () {
+        var show = toggle.checked;
+        volMarkers.forEach(function (entry) {
+          if (!entry.available) {
+            if (show) {
+              if (!t2map.layers.volunteer.hasLayer(entry.marker)) {
+                entry.marker.addTo(t2map.layers.volunteer);
+              }
+            } else {
+              t2map.layers.volunteer.removeLayer(entry.marker);
+            }
+          }
+        });
+      });
+    }
   }
 
   // Public entry: gather the data shape for the map and either paint now (if
@@ -3886,10 +4058,7 @@
     block.style.display = 'block';
 
     // === VOLUNTEER MARKERS START (legend visibility) ===
-    // Hide the static legend entry when volunteers are disabled, so flipping the
-    // single flag above removes EVERY trace of volunteers (markers + legend).
-    var legVol = document.getElementById('t2map-leg-vol');
-    if (legVol) legVol.style.display = SHOW_VOLUNTEER_MARKERS ? '' : 'none';
+    // Legend is now built dynamically by paintT2MapLegend() — no static toggle needed.
     // === VOLUNTEER MARKERS END (legend visibility) ===
 
     var hasAnimal = agg && typeof agg.animal_lat === 'number' &&
@@ -3988,7 +4157,10 @@
           // Carried through so the popup shows the SAME "mi driving" number as
           // the list instead of recalculating/using the straight-line metric.
           driving_miles: (typeof row.driving_miles === 'number') ? row.driving_miles : NaN,
-          duration_min: (typeof row.duration_min === 'number') ? row.duration_min : null
+          duration_min: (typeof row.duration_min === 'number') ? row.duration_min : null,
+          // Availability: carried through for dimmed-pin treatment + legend counts.
+          available: row.available !== false && !isUnavailNote(
+            row.availability_note ? String(row.availability_note).trim() : '')
         });
       });
     }
