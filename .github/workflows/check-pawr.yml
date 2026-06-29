@@ -47,9 +47,9 @@ jobs:
           else:
               diffs = json.load(open(diff_path))
               local = json.load(open(fac_path))
-              added   = sum(1 for d in diffs if d["type"] == "added")
-              removed = sum(1 for d in diffs if d["type"] == "removed")
-              phones  = sum(1 for d in diffs if d["type"] == "phone_mismatch")
+              added   = sum(1 for d in diffs if d["type"] == "possible addition")
+              removed = sum(1 for d in diffs if d["type"] == "possible removal")
+              phones  = sum(1 for d in diffs if d["type"] == "phone mismatch")
               total_diffs = len(diffs)
               icon = "✅" if total_diffs == 0 else "⚠️"
               print(f"### {icon} PAWR Facility Sync")
@@ -57,8 +57,8 @@ jobs:
               print(f"| Metric | Count |")
               print(f"| --- | ---: |")
               print(f"| Local facilities (facilities.json) | {len(local)} |")
-              print(f"| Differences — added | {added} |")
-              print(f"| Differences — removed | {removed} |")
+              print(f"| Differences — possible additions | {added} |")
+              print(f"| Differences — possible removals | {removed} |")
               print(f"| Differences — phone mismatches | {phones} |")
               if total_diffs == 0:
                   print()
@@ -84,15 +84,15 @@ jobs:
 
           diffs = json.load(open("pawr_diff.json"))
 
-          added    = [d for d in diffs if d["type"] == "added"]
-          removed  = [d for d in diffs if d["type"] == "removed"]
-          phone    = [d for d in diffs if d["type"] == "phone_mismatch"]
+          added    = [d for d in diffs if d["type"] == "possible addition"]
+          removed  = [d for d in diffs if d["type"] == "possible removal"]
+          phone    = [d for d in diffs if d["type"] == "phone mismatch"]
 
           lines = []
           lines.append("The weekly PAWR sync found differences between [pawr.com](https://pawr.com/) and `docs/data/facilities.json`.\n")
 
           if added:
-              lines.append("### New on PAWR (not in facilities.json)\n")
+              lines.append("### Possible additions (on PAWR, not in facilities.json)\n")
               lines.append("| Facility | County |")
               lines.append("| --- | --- |")
               for d in added:
@@ -102,7 +102,7 @@ jobs:
               lines.append("")
 
           if removed:
-              lines.append("### Missing from PAWR (in facilities.json but not on site)\n")
+              lines.append("### Possible removals (in facilities.json but not found on PAWR)\n")
               lines.append("| Facility | County |")
               lines.append("| --- | --- |")
               for d in removed:

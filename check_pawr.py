@@ -24,10 +24,10 @@ import sys
 import time
 import unicodedata
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import requests
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup
 
 # ---------------------------------------------------------------------------
 # Config
@@ -35,6 +35,7 @@ from bs4 import BeautifulSoup, Tag
 
 PAWR_HOME = "https://pawr.com/"
 FACILITIES_PATH = Path(__file__).resolve().parent / "docs" / "data" / "facilities.json"
+IGNORE_PATH = Path(__file__).resolve().parent / "pawr_ignore.json"
 OUTPUT_PATH = Path(__file__).resolve().parent / "pawr_diff.json"
 FETCH_DELAY = 1  # seconds between county page fetches
 REQUEST_TIMEOUT = 30
@@ -209,58 +210,17 @@ def _facility_appears_on_page(facility_name: str, page_text: str) -> bool:
     return False
 
 
-def _looks_like_person_name(text: str) -> bool:
-    """Return True if *text* looks like a person's name rather than an org."""
-    # Person names are typically 2-4 capitalised words with no org keywords.
-    words = text.split()
-    if len(words) < 2 or len(words) > 5:
-        return False
-    # If it contains org-like keywords, it's not a person name.
-    lower = text.lower()
-    org_keywords = (
-        "center", "centre", "wildlife", "rescue", "rehab", "rehabilitation",
-        "sanctuary", "foundation", "inc", "llc", "society", "hospital",
-        "conservation", "education", "environmental", "works", "recovery",
-        "friends", "acres", "ridge", "creek", "rock", "metro", "helping",
-        "hands", "good samaritan", "episode", "pocono", "tamarack",
-        "diamond", "raven", "acorn", "wildbird", "forest", "west shore",
-        "bat", "cats",
-    )
-    if any(kw in lower for kw in org_keywords):
-        return False
-    # Person names: each word is capitalised and short, no digits.
-    if re.search(r"\d", text):
-        return False
-    # Check if all words look like name parts (capitalised, no special chars).
-    for w in words:
-        # Allow "and" as a connector.
-        if w.lower() in ("and", "&"):
-            continue
-        if not re.match(r"^[A-Z][a-z]+\.?$", w):
-            return False
-    return True
+def _is_candidate_name(text: str) -> bool:
+    """Return True if *text* could plausibly be a facility or rehabber name.
 
-
-def _looks_like_facility_name(text: str) -> bool:
-    """Return True if *text* plausibly looks like a facility/org name."""
-    if len(text) < 5 or len(text) > 120:
-        return False
-    lower = text.lower()
-
-    # Reject obvious non-facility text.
-    reject_patterns = [
-        "closed to", "temporarily", "specializing", "rehabilitates",
-        "species category", "appointment only", "please speak",
-        "please call", "physical address", "mailing address",
-        "p.o. box", "po box", "website", "email", "facebook",
-        "phone", "fax", "click here", "back to", "navigation",
-        "search", "menu", "home", "county", "legend", "note",
-        "important", "ext ", "ext.",
-    ]
-    if any(kw in lower for kw in reject_patterns):
+    Intentionally permissive — it's better to flag a false positive than miss
+    a real addition.  Only rejects text that is clearly NOT a name (phone
+    numbers, bare addresses, species codes, city/state/zip lines).
+    """
+    if len(text) < 3 or len(text) > 120:
         return False
 
-    # Reject if it looks like a phone number or fragment.
+    # Reject if it looks like a phone number or digit-only fragment.
     if re.match(r"^[\d\s()\-.\+]+$", text):
         return False
     if _PHONE_RE.match(text):
@@ -269,12 +229,12 @@ def _looks_like_facility_name(text: str) -> bool:
     # Reject street address lines (e.g. "1531 Upper Stump Road").
     if re.match(
         r"^\d+\s+[\w\s.]+(?:Road|Rd|Street|St|Drive|Dr|Ave|Avenue|Way|"
-        r"Lane|Ln|Blvd|Highway|Hwy|Run|Circle|Pike|Trail)\.?$",
+        r"Lane|Ln|Blvd|Highway|Hwy|Run|Circle|Pike|Trail)\.?,?$",
         text, re.IGNORECASE,
     ):
         return False
 
-    # Reject species code lines.
+    # Reject species code lines (e.g. "M, P, R, RVS, END, RA").
     if re.match(r"^[MPRVSENDA,\s–\-]+$", text, re.IGNORECASE):
         return False
 
@@ -284,8 +244,8 @@ def _looks_like_facility_name(text: str) -> bool:
     ):
         return False
 
-    # Reject if it looks like a person name.
-    if _looks_like_person_name(text):
+    # Reject lines that are just a county name heading.
+    if re.match(r"^[A-Za-z\s]+ county$", text, re.IGNORECASE):
         return False
 
     return True
@@ -295,55 +255,60 @@ def _scan_for_new_facilities(
     page_text: str,
     county: str,
     known_names: List[str],
+    ignore_names: List[str],
 ) -> List[Dict[str, str]]:
     """Scan page text for potential new facilities not in the known list.
 
-    Looks for text blocks containing PA address patterns that don't match
-    any known facility name.  Returns a list of dicts with name, phone, county.
+    For each PA address found on the page, checks a tight window (~200 chars
+    before the address) for a known facility name.  If no known facility is
+    nearby, looks for a candidate name (person or org) in the preceding text.
+
+    Names appearing in *ignore_names* (case-insensitive) are silently skipped.
     """
     new_facilities: List[Dict[str, str]] = []
+    norm_ignore = {_normalise_text(n) for n in ignore_names}
 
-    # Find all PA address matches in the page text.
     for m in _PA_ADDRESS_RE.finditer(page_text):
         addr_start = m.start()
 
-        # Look backwards from the address for a potential facility name.
-        preceding = page_text[max(0, addr_start - 300):addr_start]
+        # Use a tight window before the address to check for known facilities.
+        # This avoids cross-contamination from adjacent facility blocks.
+        window_before = page_text[max(0, addr_start - 200):addr_start]
 
-        # Split into lines and look for the last non-empty line that looks
-        # like a facility/org name.
-        lines = [ln.strip() for ln in preceding.split("\n") if ln.strip()]
+        # Check if any known facility name appears in this window.
+        window_has_known = False
+        for known in known_names:
+            if known and _facility_appears_on_page(known, window_before):
+                window_has_known = True
+                break
+        if window_has_known:
+            continue
+
+        # No known facility near this address — look for a candidate name.
+        lines = [ln.strip() for ln in window_before.split("\n") if ln.strip()]
 
         candidate_name = None
         for line in reversed(lines):
-            if _looks_like_facility_name(line):
+            if _is_candidate_name(line):
                 candidate_name = line
                 break
 
         if not candidate_name:
             continue
 
-        # Check if this candidate matches any known facility.
-        is_known = False
-        for known in known_names:
-            if _facility_appears_on_page(known, candidate_name):
-                is_known = True
-                break
-            if _facility_appears_on_page(candidate_name, known):
-                is_known = True
-                break
-
-        if is_known:
+        # Skip names on the ignore list.
+        norm_candidate = _normalise_text(candidate_name)
+        if norm_candidate in norm_ignore:
+            logger.info("  IGNORED (in pawr_ignore.json): %s", candidate_name)
             continue
 
-        # Extract phone near the address.
+        # Extract phone after the address.
         window_end = min(len(page_text), m.end() + 200)
         phone_window = page_text[m.start():window_end]
         phone_match = _PHONE_RE.search(phone_window)
         phone = _normalise_phone(phone_match.group()) if phone_match else ""
 
         # Avoid duplicates.
-        norm_candidate = _normalise_text(candidate_name)
         if any(
             _normalise_text(nf["name"]) == norm_candidate
             for nf in new_facilities
@@ -372,9 +337,23 @@ def load_facilities_json() -> List[Dict[str, Any]]:
     return data
 
 
+def load_ignore_list() -> List[str]:
+    """Load pawr_ignore.json (names to skip when scanning for new facilities)."""
+    if not IGNORE_PATH.exists():
+        return []
+    with open(IGNORE_PATH, encoding="utf-8") as fh:
+        data = json.load(fh)
+    if not isinstance(data, list):
+        logger.warning("pawr_ignore.json is not a JSON array — ignoring")
+        return []
+    logger.info("Loaded %d entries from %s", len(data), IGNORE_PATH)
+    return [str(item) for item in data]
+
+
 def check_facilities(
     session: requests.Session,
     local_facilities: List[Dict[str, Any]],
+    ignore_names: List[str],
 ) -> List[Dict[str, Any]]:
     """Check each facility in facilities.json against its PAWR county page.
 
@@ -435,7 +414,7 @@ def check_facilities(
                     # Check if any extracted phone matches.
                     if local_phone not in phones:
                         diffs.append({
-                            "type": "phone_mismatch",
+                            "type": "phone mismatch",
                             "name": name,
                             "county": county_name,
                             "pawr_phone": phones[0],
@@ -445,17 +424,17 @@ def check_facilities(
             else:
                 # Facility not found on page.
                 diffs.append({
-                    "type": "removed",
+                    "type": "possible removal",
                     "name": name,
                     "county": county_name,
                 })
                 logger.info("  NOT FOUND: %s", name)
 
         # Scan for potential new facilities on this page.
-        new_facs = _scan_for_new_facilities(page_text, county_name, all_known_names)
+        new_facs = _scan_for_new_facilities(page_text, county_name, all_known_names, ignore_names)
         for nf in new_facs:
             diffs.append({
-                "type": "added",
+                "type": "possible addition",
                 "name": nf["name"],
                 "county": nf["county"],
             })
@@ -468,9 +447,10 @@ def check_facilities(
 def main() -> int:
     session = _get_session()
     local_facilities = load_facilities_json()
+    ignore_names = load_ignore_list()
 
     try:
-        diffs = check_facilities(session, local_facilities)
+        diffs = check_facilities(session, local_facilities, ignore_names)
     except requests.RequestException as exc:
         logger.error("Fatal error checking PAWR: %s", exc)
         return 1
@@ -492,12 +472,12 @@ def main() -> int:
         logger.info("No differences found between PAWR and facilities.json")
 
     # Print a human-readable summary to stdout.
-    added = sum(1 for d in diffs if d["type"] == "added")
-    removed = sum(1 for d in diffs if d["type"] == "removed")
-    phone_mismatches = sum(1 for d in diffs if d["type"] == "phone_mismatch")
+    additions = sum(1 for d in diffs if d["type"] == "possible addition")
+    removals = sum(1 for d in diffs if d["type"] == "possible removal")
+    phone_mismatches = sum(1 for d in diffs if d["type"] == "phone mismatch")
     print(
         f"Checked {len(local_facilities)} facilities across PAWR county pages. "
-        f"Differences: {added} added, {removed} removed, "
+        f"Differences: {additions} possible additions, {removals} possible removals, "
         f"{phone_mismatches} phone mismatches."
     )
 
