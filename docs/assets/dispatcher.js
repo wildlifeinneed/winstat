@@ -2257,6 +2257,7 @@
     var out = $('#rec-output');
     // Re-running the lookup clears any stale flag on this surface.
     clearStale(out);
+    destroyCrossPostMap();
     var county = $('#county').value;
     if (!county) {
       out.className = 'rec-output show tone-unknown';
@@ -4642,6 +4643,7 @@
     btn.disabled = true;
     // Re-running the lookup clears any stale flag on the result surface.
     clearStale($('#address-result'));
+    destroyCrossPostMap();
     $('#address-result').style.display = 'none';
     // Reset the animal's resolved county/area header + map highlight up front so
     // a prior By-County (Tier-1) selection can never leak into this address run.
@@ -5583,6 +5585,7 @@
       // the PREVIOUS "Get Recommendation" run, so flag the cards as stale (dim +
       // banner). Re-clicking "Get Recommendation" recomputes and clears them.
       markCountyChangeStale();
+      destroyCrossPostMap();
       // The Tier 1 qualified-volunteer list, by contrast, refreshes
       // AUTOMATICALLY — no "Get Recommendation" click needed. It always reflects
       // the CURRENT county + CURRENT animal inputs (RVS + Issue/Transport), so a
@@ -5616,6 +5619,7 @@
     $$('input[name="rvs"], input[name="issue"]').forEach(function (radio) {
       radio.addEventListener('change', function () {
         markResultsStale();
+        destroyCrossPostMap();
         refreshTier1Volunteers();
       });
     });
@@ -5632,6 +5636,7 @@
           if (rvsYes) rvsYes.checked = true;
         }
         markResultsStale();
+        destroyCrossPostMap();
         refreshTier1Volunteers();
       });
     }
