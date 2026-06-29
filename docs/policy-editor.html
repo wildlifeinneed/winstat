@@ -620,6 +620,25 @@
     .prev-row .prev-result .prev-detail { display: block; font-size: 12.5px; opacity: .85; margin-top: 2px; font-weight: 500; }
     .preview-foot { font-size: 12px; color: var(--text-muted); margin-top: 8px; font-style: italic; }
 
+    /* Preview policy-note banner (matches dispatcher's rec-policy-note) */
+    .preview-policy-note {
+      background: #e8f0fa;
+      border: 1px solid #b8cfe8;
+      border-left: 4px solid #5b8db8;
+      padding: 10px 12px;
+      border-radius: 8px;
+      margin-top: 4px;
+    }
+    .preview-policy-note-header {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: #5b8db8;
+      margin-bottom: 4px;
+    }
+    .preview-policy-note p { font-size: 13px; color: var(--text); margin: 0; }
+
     /* ─── Errors ─────────────────────────────────────────────── */
     .inline-error {
       background: var(--red-light);
@@ -1092,7 +1111,7 @@
     <div class="section-card rules">
       <div class="section-head">
         <span class="tag" style="background:#1a7ab5;">Preview</span>
-        <span class="section-title">What would <code>recommend()</code> say?</span>
+        <span class="section-title">What would the recommendation say?</span>
         <span class="section-note">uses live counts + your edits</span>
       </div>
       <div class="section-body">
@@ -2044,6 +2063,18 @@
       var rec = engine.recommend(cap, sc.rvs, sc.issue, null, policyForEngine);
       grid.appendChild(buildPreviewRow(sc, rec, engine));
     });
+
+    // Show county special_notes (if any) as a blue info banner, matching the
+    // dispatcher's rec-policy-note style.
+    var notes = (typeof policyForEngine.special_notes === 'string') ? policyForEngine.special_notes.trim() : '';
+    if (notes) {
+      var noteEl = el('div', { class: 'preview-policy-note' }, [
+        el('div', { class: 'preview-policy-note-header' }, ['County Note']),
+        el('p', {}, [notes])
+      ]);
+      grid.appendChild(noteEl);
+    }
+
     out.hidden = false;
   }
 
@@ -2057,7 +2088,9 @@
         ? ('Refer to: ' + refs.map(function (r) { return r.name; }).filter(Boolean).join(', '))
         : 'Outside referral (no specific target listed).';
     } else if (rec.action === 'connecteam_task') {
-      detail = 'Dispatch target: ' + (rec.target || '—') + (rec.marginal ? ' · low capacity' : '');
+      var targetLabels = (window.WildlifeMessages && window.WildlifeMessages.messages.recommendation.targetLabels) || {};
+      var targetDisplay = targetLabels[rec.target] || rec.target || '—';
+      detail = 'Dispatch target: ' + targetDisplay + (rec.marginal ? ' · low capacity' : '');
     } else if (rec.reasoning && rec.reasoning.length) {
       detail = rec.reasoning[rec.reasoning.length - 1];
     }
