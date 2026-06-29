@@ -1,0 +1,47 @@
+[
+  {
+    "address": "State College, PA, 16801",
+    "name": "Admin",
+    "reason": "Missing street or city"
+  },
+  {
+    "address": "Williamsport, PA, 17701",
+    "name": "Bower",
+    "reason": "Missing street or city"
+  },
+  {
+    "address": "P.O. Box 722, Pocono Lake, PA, 18347",
+    "name": "Devine",
+    "reason": "No Census address match"
+  },
+  {
+    "address": "352 Upper Ridge Dr, Effort, PA, 18330",
+    "name": "Horn",
+    "reason": "No Census address match"
+  },
+  {
+    "address": "609 Warren Street, Lemoyne, PA, 17043",
+    "name": "Mulhollan",
+    "reason": "No Census address match"
+  },
+  {
+    "address": "2576 State Route 381, Rector, PA, 15677",
+    "name": "Senn",
+    "reason": "No Census address match"
+  },
+  {
+    "address": "1030 Hemlock Farms, Lords Valley, PA, 18428",
+    "name": "Ullman",
+    "reason": "No Census address match"
+  },
+  {
+    "address": "7120 Route 183, Bethel, PA, 19507",
+    "name": "Witman",
+    "reason": "No Census address match"
+  },
+  {
+    "address": "Saint Marys, PA, 15857",
+    "name": "Werneth",
+    "reason": "Missing street or city"
+  }
+]
