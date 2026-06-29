@@ -1484,6 +1484,7 @@
     runValidation();
     // Hide any stale preview from a previous county.
     $('#preview-out').hidden = true;
+    $('#preview-btn').textContent = 'Preview recommendation';
   }
 
   function blankPolicy() {
@@ -2080,6 +2081,7 @@
     }
 
     out.hidden = false;
+    $('#preview-btn').textContent = 'Hide preview';
   }
 
   function buildPreviewRow(sc, rec, engine) {
@@ -2668,7 +2670,15 @@
     $('#prev-county').addEventListener('click', function () { step(-1); });
     $('#next-county').addEventListener('click', function () { step(1); });
 
-    $('#preview-btn').addEventListener('click', runPreview);
+    $('#preview-btn').addEventListener('click', function () {
+      var out = $('#preview-out');
+      if (!out.hidden) {
+        out.hidden = true;
+        $('#preview-btn').textContent = 'Preview recommendation';
+        return;
+      }
+      runPreview();
+    });
     $('#download-btn').addEventListener('click', downloadPolicy);
     $('#save-btn').addEventListener('click', savePolicy);
     $('#version-history-btn').addEventListener('click', loadVersionHistory);
@@ -2686,6 +2696,7 @@
       refreshCountyIndicators();
       runValidation();
       $('#preview-out').hidden = true;
+      $('#preview-btn').textContent = 'Preview recommendation';
       setSaveStatus('Reverted ' + name + ' to last loaded values.', true);
     });
 
