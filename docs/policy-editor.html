@@ -848,6 +848,36 @@
 
     [hidden] { display: none !important; }
 
+    /* ─── Read-only (pre-login) state ─────────────────────── */
+    .editor-locked input:not(#county-select),
+    .editor-locked select:not(#county-select),
+    .editor-locked textarea {
+      opacity: 0.55;
+      pointer-events: none;
+      cursor: not-allowed;
+      background: #eceae5;
+    }
+    .editor-locked .mode-option,
+    .editor-locked .check-pill,
+    .editor-locked .switch {
+      opacity: 0.55;
+      pointer-events: none;
+      cursor: not-allowed;
+    }
+    .editor-locked .btn-danger,
+    .editor-locked #add-referral,
+    .editor-locked #referral-source-select {
+      opacity: 0.55;
+      pointer-events: none;
+      cursor: not-allowed;
+    }
+    .editor-locked .section-card.rules .section-head .tag::after {
+      content: ' (view only)';
+      font-weight: 500;
+      text-transform: none;
+      letter-spacing: normal;
+    }
+
     /* ─── Version history panel ──────────────────────────────── */
     .version-list {
       max-height: 320px;
@@ -1484,6 +1514,8 @@
     renderRules(state.counties[name]);
     updateDirtyFlag();
     runValidation();
+    // Re-apply read-only state after rendering (new controls may have been created).
+    if (!state.adminAuthenticated) setEditorReadOnly(true);
     // Hide any stale preview from a previous county.
     $('#preview-out').hidden = true;
     $('#preview-btn').textContent = 'Preview recommendation';
@@ -2667,6 +2699,34 @@
   }
 
   // ── Admin login gate ──────────────────────────────────────────────────────
+
+  // Lock or unlock all editable form controls in the editor panel.
+  // County selector, Preview, and Print Policy remain functional regardless.
+  function setEditorReadOnly(locked) {
+    var editorRoot = $('#editor-root');
+    if (!editorRoot) return;
+    if (locked) {
+      editorRoot.classList.add('editor-locked');
+    } else {
+      editorRoot.classList.remove('editor-locked');
+    }
+    // Disable/enable all inputs, selects, textareas inside the rules section
+    // EXCEPT the county selector (which is outside editor-root anyway).
+    var controls = $all('input, select, textarea', editorRoot);
+    controls.forEach(function (ctrl) {
+      // Skip preview button (it's a <button>, not caught here)
+      ctrl.disabled = locked;
+    });
+    // Disable/enable action buttons inside editor-root (Add, Remove)
+    var actionBtns = $all('.btn-danger, #add-referral', editorRoot);
+    actionBtns.forEach(function (btn) {
+      btn.disabled = locked;
+    });
+    // The referral source dropdown is inside editor-root
+    var refSel = $('#referral-source-select');
+    if (refSel) refSel.disabled = locked;
+  }
+
   function setAdminUI(authenticated) {
     state.adminAuthenticated = authenticated;
     var loginBtn = $('#admin-login-btn');
@@ -2677,12 +2737,14 @@
       loginBtn.style.opacity = '0.6';
       loginBtn.style.cursor = 'default';
       gatedBtns.forEach(function (sel) { $(sel).hidden = false; });
+      setEditorReadOnly(false);
     } else {
       loginBtn.textContent = '\uD83D\uDD12 Admin';
       loginBtn.disabled = false;
       loginBtn.style.opacity = '';
       loginBtn.style.cursor = '';
       gatedBtns.forEach(function (sel) { $(sel).hidden = true; });
+      setEditorReadOnly(true);
     }
   }
 
@@ -2752,6 +2814,9 @@
     });
 
     wireRuleControls();
+
+    // Start with editor locked until admin login.
+    setEditorReadOnly(true);
   }
 
   function step(dir) {
