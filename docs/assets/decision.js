@@ -410,6 +410,11 @@
 
     if (!dispatchOff && !issueNotAllowed && !speciesNotAllowed) {
       // Policy permits this dispatch: pass the base action through unchanged.
+      // Still attach special_notes so the UI can show county-level info banners
+      // (e.g. closures, cautions) even when no referral/restriction is active.
+      if (typeof countyPolicy.special_notes === 'string' && countyPolicy.special_notes) {
+        rec.special_notes = countyPolicy.special_notes;
+      }
       return rec;
     }
 

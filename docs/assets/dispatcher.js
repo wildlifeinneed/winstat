@@ -1284,6 +1284,17 @@
       html += '</div>';
     }
 
+    // Standalone policy note: shown for ANY action that carries special_notes
+    // EXCEPT refer_out (which already renders them inside the referral block as
+    // "Special instructions"). This lets policy makers inject county-level notes,
+    // cautions, or closure info even when dispatch is fully enabled.
+    if (rec.special_notes && rec.action !== 'refer_out') {
+      html += '<div class="rec-policy-note">';
+      html += '<div class="rec-policy-note-header">' + escapeHtml(REC.policyNoteHeader) + '</div>';
+      html += '<p>' + escapeHtml(fmt(REC.policyNoteBody, { notes: rec.special_notes })) + '</p>';
+      html += '</div>';
+    }
+
     if (rec.marginal && rec.marginal_volunteers && rec.marginal_volunteers.length) {
       var marginalHeader = rec.marginalTier === 'county' ? REC.lowCapacityCounty
         : rec.marginalTier === 'area' ? REC.lowCapacityArea

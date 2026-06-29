@@ -184,6 +184,10 @@
       // County-wide special instructions header + body. {notes} = special_notes.
       referralSpecialHeader: 'Special instructions',
       referralSpecialNotes: '{notes}',
+      // Standalone policy note shown even when dispatch is fully enabled (no
+      // referral/restriction). Displayed as a subtle info banner. {notes}.
+      policyNoteHeader: 'County Note',
+      policyNoteBody: '{notes}',
 
       // ── Dispatch summary block (dispatcher.js recDispatchSummaryHtml) ──────
       // Scannable counts + nearby-rehabber lines shown under the action, giving
