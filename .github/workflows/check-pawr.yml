@@ -1,0 +1,100 @@
+# Weekly comparison of pawr.com facility listings against docs/data/facilities.json.
+#
+# Runs every Sunday at 06:00 UTC. Creates a GitHub Issue (label: pawr-sync)
+# when differences are detected.
+name: Check PAWR facility listings
+
+on:
+  schedule:
+    - cron: '0 6 * * 0'   # Sunday 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  check-pawr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4
+
+      - name: Run PAWR comparison
+        run: python3 check_pawr.py
+
+      - name: Create GitHub Issue if differences found
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          count="$(python3 -c "import json; d=json.load(open('pawr_diff.json')); print(len(d))")"
+          if [ "$count" = "0" ]; then
+            echo "No changes detected between PAWR and facilities.json."
+            exit 0
+          fi
+
+          today="$(date -u +'%Y-%m-%d')"
+
+          body="$(python3 - <<'PY'
+          import json
+
+          diffs = json.load(open("pawr_diff.json"))
+
+          added    = [d for d in diffs if d["type"] == "added"]
+          removed  = [d for d in diffs if d["type"] == "removed"]
+          phone    = [d for d in diffs if d["type"] == "phone_mismatch"]
+
+          lines = []
+          lines.append("The weekly PAWR sync found differences between [pawr.com](https://pawr.com/) and `docs/data/facilities.json`.\n")
+
+          if added:
+              lines.append("### New on PAWR (not in facilities.json)\n")
+              lines.append("| Facility | County |")
+              lines.append("| --- | --- |")
+              for d in added:
+                  name = d.get("name", "").replace("|", "\\|")
+                  county = d.get("county", "").replace("|", "\\|")
+                  lines.append(f"| {name} | {county} |")
+              lines.append("")
+
+          if removed:
+              lines.append("### Missing from PAWR (in facilities.json but not on site)\n")
+              lines.append("| Facility | County |")
+              lines.append("| --- | --- |")
+              for d in removed:
+                  name = d.get("name", "").replace("|", "\\|")
+                  county = d.get("county", "").replace("|", "\\|")
+                  lines.append(f"| {name} | {county} |")
+              lines.append("")
+
+          if phone:
+              lines.append("### Phone number mismatches\n")
+              lines.append("| Facility | County | PAWR phone | Local phone |")
+              lines.append("| --- | --- | --- | --- |")
+              for d in phone:
+                  name = d.get("name", "").replace("|", "\\|")
+                  county = d.get("county", "").replace("|", "\\|")
+                  pp = d.get("pawr_phone", "")
+                  lp = d.get("local_phone", "")
+                  lines.append(f"| {name} | {county} | {pp} | {lp} |")
+              lines.append("")
+
+          print("\n".join(lines))
+          PY
+          )"
+
+          gh issue create \
+            --title "PAWR facility sync — differences found (${today})" \
+            --body "${body}" \
+            --label "pawr-sync"
