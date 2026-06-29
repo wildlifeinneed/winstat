@@ -1763,6 +1763,7 @@
       maxZoom: 18,
       attribution: '© OpenStreetMap contributors'
     }).addTo(map);
+    L.control.scale({ imperial: true, metric: false }).addTo(map);
     cpMap.instance = map;
     cpMap.layers = {
       areas: L.layerGroup().addTo(map),
@@ -3834,6 +3835,7 @@
       maxZoom: 18,
       attribution: '© OpenStreetMap contributors'
     }).addTo(map);
+    L.control.scale({ imperial: true, metric: false }).addTo(map);
     t2map.instance = map;
     t2map.layers = {
       // WIN-area boundaries sit UNDER the markers so pins stay clickable.
