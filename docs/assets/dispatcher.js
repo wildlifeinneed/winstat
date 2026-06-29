@@ -1560,7 +1560,7 @@
       resultDiv.style.display = '';
       resultDiv.className = 'cross-post-result cross-post-neutral';
       resultDiv.textContent = 'Geocoding\u2026';
-      crossPostGeocode(addr, dispatchArea, resultDiv, selectedCoord);
+      crossPostGeocode(addr, dispatchArea, resultDiv, selectedCoord, county);
     });
 
     // Enter key on the input triggers the Check button (when no autocomplete
@@ -1578,14 +1578,14 @@
   // On success, runs the cross-post distance check. When the autocomplete
   // already resolved a coordinate (selectedCoord), skip the geocode and use
   // those coords directly.
-  function crossPostGeocode(address, dispatchArea, resultDiv, selectedCoord) {
+  function crossPostGeocode(address, dispatchArea, resultDiv, selectedCoord, county) {
     try {
       // If the autocomplete already resolved coordinates, use them directly
       // (same pattern as the Animal Address submit path).
       if (selectedCoord && typeof selectedCoord.lat === 'number' &&
           typeof selectedCoord.lon === 'number' &&
           isFinite(selectedCoord.lat) && isFinite(selectedCoord.lon)) {
-        crossPostDistanceCheck(selectedCoord.lat, selectedCoord.lon, dispatchArea, resultDiv);
+        crossPostDistanceCheck(selectedCoord.lat, selectedCoord.lon, dispatchArea, resultDiv, county);
         return;
       }
       var url = WORKER_URL + '?address=' + encodeURIComponent(address) + '&radius_mi=1';
@@ -1596,7 +1596,7 @@
         var lat = data && data.animal_lat;
         var lon = data && data.animal_lon;
         if (lat == null || lon == null) throw new Error('no_coords');
-        crossPostDistanceCheck(lat, lon, dispatchArea, resultDiv);
+        crossPostDistanceCheck(lat, lon, dispatchArea, resultDiv, county);
       }).catch(function () {
         resultDiv.className = 'cross-post-result cross-post-neutral';
         resultDiv.textContent = 'Could not geocode that address. Try a full street + city + state + ZIP.';
@@ -1613,7 +1613,7 @@
   // boundary segment) of each county in OTHER WIN areas. Group by area — if
   // the nearest county edge in another area is within cross_post_radius_mi,
   // that area is a cross-post candidate.
-  function crossPostDistanceCheck(lat, lon, dispatchArea, resultDiv) {
+  function crossPostDistanceCheck(lat, lon, dispatchArea, resultDiv, county) {
     try {
       var geo = state.geojson;
       if (!geo || !geo.features) {
@@ -1662,7 +1662,7 @@
         resultDiv.textContent = 'Consider cross posting to Area' +
           (nearby.length > 1 ? 's ' : ' ') + labels.join(', ');
         // Render the cross-post map below the result text.
-        renderCrossPostMap(lat, lon, dispatchArea, nearby, resultDiv);
+        renderCrossPostMap(lat, lon, dispatchArea, nearby, resultDiv, county);
       } else {
         resultDiv.className = 'cross-post-result cross-post-neutral';
         resultDiv.textContent = 'No other area within ' + radiusMi + ' mi \u2014 single area post';
@@ -1707,7 +1707,7 @@
   // `lat`, `lon` = geocoded animal address. `dispatchArea` = the county's own
   // WIN area (shown at medium opacity). `nearby` = array of { area, dist }
   // objects for the suggested cross-post areas (highlighted).
-  function renderCrossPostMap(lat, lon, dispatchArea, nearby, resultDiv) {
+  function renderCrossPostMap(lat, lon, dispatchArea, nearby, resultDiv, county) {
     if (typeof L === 'undefined' || !L.map) return; // Leaflet not loaded
 
     // Ensure GeoJSON is available (needed for area polygons).
@@ -1715,7 +1715,7 @@
     if (!geo || !geo.features) {
       // Try loading it; re-render when ready.
       loadMap().then(function () {
-        if (state.geojson) renderCrossPostMap(lat, lon, dispatchArea, nearby, resultDiv);
+        if (state.geojson) renderCrossPostMap(lat, lon, dispatchArea, nearby, resultDiv, county);
       });
       return;
     }
@@ -1856,156 +1856,108 @@
       ? window.WildlifeDecision.qualifiesForAnimal : null;
     var hasBase = typeof issue === 'string' && issue !== '';
 
-    // ── Qualified volunteers in suggested cross-post areas ──
-    // state.t1VolRows is scoped to the DISPATCH area by the Worker, so it does
-    // NOT contain volunteers from the SUGGESTED (different) areas. We fetch
-    // vols for each suggested area asynchronously via the Worker, then add pins
-    // as they arrive. Dispatch-area vols from state.t1VolRows are still shown.
+    // ── Qualified volunteers in dispatch + suggested cross-post areas ──
+    // Use the SAME data pipeline as the Tier 2 map: fetch from the Worker using
+    // the animal's ACTUAL coordinates (not county centroids or state.t1VolRows).
+    // This ensures the cross-post map shows the SAME volunteers as the Tier 2
+    // map for the dispatch area, and uses proper coordinate-based + win_area
+    // filtering for suggested areas.
     var volAreaSet = {};
     Object.keys(suggestedSet).forEach(function (k) { volAreaSet[k] = true; });
     var normDispatch = String(dispatchArea).replace(/^0+/, '').trim();
     if (normDispatch) volAreaSet[normDispatch] = true;
 
-    // Show dispatch-area vols from the existing cache (state.t1VolRows).
-    var volRows = Array.isArray(state.t1VolRows) ? state.t1VolRows : [];
     var perCounty = {};
     var cpVolMarkers = []; // {marker, available, roles} for legend counts + toggle
-    volRows.forEach(function (row) {
-      if (!row) return;
-      var rowArea = row.win_area != null ? String(row.win_area).replace(/^0+/, '').trim() : '';
-      if (!rowArea || rowArea !== normDispatch) return;
-      if (qualifyFn && hasBase) {
-        var roleList = Array.isArray(row.roles) ? row.roles : [];
-        if (!qualifyFn(roleList, rvs, issue)) return;
-      }
-      var vLat = NaN, vLon = NaN, placed = false;
-      if (typeof row.approx_lat === 'number' && isFinite(row.approx_lat) &&
-          typeof row.approx_lon === 'number' && isFinite(row.approx_lon)) {
-        vLat = row.approx_lat;
-        vLon = row.approx_lon;
-        placed = true;
-      } else if (row.county) {
-        var c = state.countyCentroids && state.countyCentroids[row.county];
-        if (c && isFinite(c.lat) && isFinite(c.lon)) {
-          vLat = c.lat;
-          vLon = c.lon;
-          placed = true;
-        }
-      }
-      if (!placed) return;
-      var pinLat = vLat, pinLon = vLon;
-      if (!(typeof row.approx_lat === 'number' && isFinite(row.approx_lat))) {
-        var key = row.county || (vLat + ',' + vLon);
-        var n = perCounty[key] || 0;
-        perCounty[key] = n + 1;
-        var ang = n * 2.399;
-        var rad = n === 0 ? 0 : 0.012 + 0.006 * n;
-        pinLat = vLat + rad * Math.cos(ang);
-        pinLon = vLon + rad * Math.sin(ang);
-      }
-      var vNote = row.availability_note ? String(row.availability_note).trim() : '';
-      var rowAvail = row.available !== false && !isUnavailNote(vNote);
-      var lines = [];
-      if (row.roles && row.roles.length) lines.push(escapeHtml(row.roles.join(', ')));
-      if (row.county) lines.push('County: ' + escapeHtml(row.county));
-      if (!rowAvail) lines.push('<em style="color:#999;">Unavailable</em>');
-      var pinCls = t2VolPinClass(row.roles) + (rowAvail ? '' : ' t2-pin-unavail');
-      var marker = L.marker([pinLat, pinLon], {
-        icon: t2DivIcon(pinCls, 14),
-        title: 'Volunteer' + (rowAvail ? '' : ' (unavailable)')
-      }).bindPopup(lines.length ? lines.join('<br>') : '');
-      marker.addTo(cpMap.layers.vols);
-      cpVolMarkers.push({ marker: marker, available: rowAvail, roles: Array.isArray(row.roles) ? row.roles : [] });
-      bounds.push([pinLat, pinLon]);
-    });
 
-    // Fetch vols for each SUGGESTED cross-post area from the Worker.
-    // Each area needs a separate fetch because the Worker scopes by win_area.
-    var suggestedAreas = Object.keys(suggestedSet);
+    // Helper: add volunteer rows from a Worker response to the map.
+    function addVolRows(rows, filterAreaKey) {
+      (rows || []).forEach(function (row) {
+        if (!row) return;
+        // When filterAreaKey is set, only show vols from that area.
+        if (filterAreaKey) {
+          var rowArea = row.win_area != null ? String(row.win_area).replace(/^0+/, '').trim() : '';
+          if (rowArea !== filterAreaKey) return;
+        }
+        if (qualifyFn && hasBase) {
+          var roleList = Array.isArray(row.roles) ? row.roles : [];
+          if (!qualifyFn(roleList, rvs, issue)) return;
+        }
+        var vLat = NaN, vLon = NaN, placed = false;
+        if (typeof row.approx_lat === 'number' && isFinite(row.approx_lat) &&
+            typeof row.approx_lon === 'number' && isFinite(row.approx_lon)) {
+          vLat = row.approx_lat;
+          vLon = row.approx_lon;
+          placed = true;
+        } else if (row.county) {
+          var c = state.countyCentroids && state.countyCentroids[row.county];
+          if (c && isFinite(c.lat) && isFinite(c.lon)) {
+            vLat = c.lat;
+            vLon = c.lon;
+            placed = true;
+          }
+        }
+        if (!placed) return;
+        var pinLat = vLat, pinLon = vLon;
+        if (!(typeof row.approx_lat === 'number' && isFinite(row.approx_lat))) {
+          var key = row.county || (vLat + ',' + vLon);
+          var n = perCounty[key] || 0;
+          perCounty[key] = n + 1;
+          var ang = n * 2.399;
+          var rad = n === 0 ? 0 : 0.012 + 0.006 * n;
+          pinLat = vLat + rad * Math.cos(ang);
+          pinLon = vLon + rad * Math.sin(ang);
+        }
+        var vNote = row.availability_note ? String(row.availability_note).trim() : '';
+        var rowAvail = row.available !== false && !isUnavailNote(vNote);
+        var lines = [];
+        if (row.roles && row.roles.length) lines.push(escapeHtml(row.roles.join(', ')));
+        if (row.county) lines.push('County: ' + escapeHtml(row.county));
+        if (!rowAvail) lines.push('<em style="color:#999;">Unavailable</em>');
+        var pinCls = t2VolPinClass(row.roles) + (rowAvail ? '' : ' t2-pin-unavail');
+        var marker = L.marker([pinLat, pinLon], {
+          icon: t2DivIcon(pinCls, 14),
+          title: 'Volunteer' + (rowAvail ? '' : ' (unavailable)')
+        }).bindPopup(lines.length ? lines.join('<br>') : '');
+        marker.addTo(cpMapRef.layers.vols);
+        cpVolMarkers.push({ marker: marker, available: rowAvail, roles: Array.isArray(row.roles) ? row.roles : [] });
+        bounds.push([pinLat, pinLon]);
+      });
+    }
+
+    // Fetch vols for each area (dispatch + suggested) from the Worker using the
+    // animal's ACTUAL coordinates. The Worker's win_area param scopes results to
+    // the target area; tier1County (animal_county) enables filterWinArea so the
+    // Worker correctly filters by WIN area membership.
+    var allAreaKeys = Object.keys(volAreaSet);
     var base = readAnimalBaseInfo();
     var cpMapRef = cpMap; // capture reference for async callbacks
-    suggestedAreas.forEach(function (areaKey) {
-      // Find a county centroid in this area to use as the fetch origin.
-      var areaCentroid = null;
-      var cw = state.countyWin || {};
-      Object.keys(cw).forEach(function (cty) {
-        if (areaCentroid) return; // take the first match
-        var a = String(cw[cty]).replace(/^0+/, '').trim();
-        if (a === areaKey) {
-          var ct = state.countyCentroids && state.countyCentroids[cty];
-          if (ct && isFinite(ct.lat) && isFinite(ct.lon)) areaCentroid = ct;
-        }
-      });
-      if (!areaCentroid) return;
-
-      // Pad the area key for the Worker's win_area param (e.g. '5' -> '5').
+    var cw = state.countyWin || {};
+    allAreaKeys.forEach(function (areaKey) {
+      // Resolve the raw WIN-area value for the Worker (preserve '15N', '15S' etc.).
       var workerArea = areaKey;
-      // Check for 15N/15S special areas in countyWin values.
       Object.keys(cw).forEach(function (cty) {
         var raw = String(cw[cty]).trim();
         if (raw.replace(/^0+/, '').trim() === areaKey && /[A-Za-z]/.test(raw)) {
-          workerArea = raw; // preserve '15N', '15S' etc.
+          workerArea = raw;
         }
       });
 
-      fetchAggregateByCoord(areaCentroid.lat, areaCentroid.lon, RADIUS_DEFAULT,
-        { context: true, base: base, tier1Area: workerArea })
+      fetchAggregateByCoord(lat, lon, RADIUS_DEFAULT,
+        { context: true, base: base, tier1Area: workerArea, tier1County: county || null })
         .then(function (agg) {
           // Guard: if the map was destroyed while the fetch was in flight, bail.
           if (!cpMapRef.instance || !cpMapRef.layers) return;
-          var rows = (agg && Array.isArray(agg.out_of_county)) ? agg.out_of_county : [];
-          rows.forEach(function (row) {
-            if (!row) return;
-            // Only show vols from this suggested area.
-            var rowArea = row.win_area != null ? String(row.win_area).replace(/^0+/, '').trim() : '';
-            if (rowArea !== areaKey) return;
-            if (qualifyFn && hasBase) {
-              var roleList = Array.isArray(row.roles) ? row.roles : [];
-              if (!qualifyFn(roleList, rvs, issue)) return;
-            }
-            var vLat = NaN, vLon = NaN, placed = false;
-            if (typeof row.approx_lat === 'number' && isFinite(row.approx_lat) &&
-                typeof row.approx_lon === 'number' && isFinite(row.approx_lon)) {
-              vLat = row.approx_lat;
-              vLon = row.approx_lon;
-              placed = true;
-            } else if (row.county) {
-              var ct = state.countyCentroids && state.countyCentroids[row.county];
-              if (ct && isFinite(ct.lat) && isFinite(ct.lon)) {
-                vLat = ct.lat;
-                vLon = ct.lon;
-                placed = true;
-              }
-            }
-            if (!placed) return;
-            var pinLat = vLat, pinLon = vLon;
-            if (!(typeof row.approx_lat === 'number' && isFinite(row.approx_lat))) {
-              var key2 = row.county || (vLat + ',' + vLon);
-              var n2 = perCounty[key2] || 0;
-              perCounty[key2] = n2 + 1;
-              var ang2 = n2 * 2.399;
-              var rad2 = n2 === 0 ? 0 : 0.012 + 0.006 * n2;
-              pinLat = vLat + rad2 * Math.cos(ang2);
-              pinLon = vLon + rad2 * Math.sin(ang2);
-            }
-            var lines2 = [];
-            if (row.roles && row.roles.length) lines2.push(escapeHtml(row.roles.join(', ')));
-            if (row.county) lines2.push('County: ' + escapeHtml(row.county));
-            var vNote2 = row.availability_note ? String(row.availability_note).trim() : '';
-            var rowAvail2 = row.available !== false && !isUnavailNote(vNote2);
-            if (!rowAvail2) lines2.push('<em style="color:#999;">Unavailable</em>');
-            var pinCls2 = t2VolPinClass(row.roles) + (rowAvail2 ? '' : ' t2-pin-unavail');
-            var mk = L.marker([pinLat, pinLon], {
-              icon: t2DivIcon(pinCls2, 14),
-              title: 'Volunteer' + (rowAvail2 ? '' : ' (unavailable)')
-            }).bindPopup(lines2.length ? lines2.join('<br>') : '');
-            mk.addTo(cpMapRef.layers.vols);
-            cpVolMarkers.push({ marker: mk, available: rowAvail2, roles: Array.isArray(row.roles) ? row.roles : [] });
-          });
+          // Use out_of_county_all (the full, never-truncated set) — same source
+          // the Tier 2 map uses — so volunteer counts are identical.
+          var rows = (agg && Array.isArray(agg.out_of_county_all))
+            ? agg.out_of_county_all
+            : (agg && Array.isArray(agg.out_of_county) ? agg.out_of_county : []);
+          addVolRows(rows, areaKey);
           // Re-render the cross-post legend with updated counts after async vols arrive.
           paintCpMapLegend(cpMapRef, wrap, cpVolMarkers, allRehabbers, suggestedSet, dispatchArea);
         })
-        .catch(function () { /* best-effort: suggested-area vol fetch failed */ });
+        .catch(function () { /* best-effort: area vol fetch failed */ });
     });
 
     // ── Qualified rehabbers from dispatch + suggested cross-post areas ──
@@ -2026,6 +1978,7 @@
     });
 
     // Suggested cross-post area rehabbers.
+    var suggestedAreas = Object.keys(suggestedSet);
     suggestedAreas.forEach(function (areaKey) {
       rehabbersInArea(areaKey, animalType2).forEach(function (r) {
         var rKey = (r.rehab_name || '') + '|' + (r.county || '');
