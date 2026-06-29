@@ -2,9 +2,15 @@
 """
 Compare pawr.com rehab facility listings against docs/data/facilities.json.
 
-Scrapes the PAWR homepage to discover county pages, then extracts facility
-names and phone numbers from each county page.  Produces pawr_diff.json with
-any additions, removals, or phone-number mismatches.
+Uses a *reference-based* approach: instead of scraping facility names from
+bold tags (which also contain person names, species codes, and junk text),
+we check whether each known facility from facilities.json still appears on
+its county page.  We also scan each county page for potential NEW facilities
+by looking for text blocks that contain address + phone patterns but don't
+match any known facility.
+
+Produces pawr_diff.json with any additions, removals, or phone-number
+mismatches.
 
 Dependencies: requests, beautifulsoup4 (both in requirements.txt).
 """
@@ -44,33 +50,27 @@ logger = logging.getLogger("check_pawr")
 # Text normalisation helpers
 # ---------------------------------------------------------------------------
 
-# Pattern to strip common suffixes that vary between sources.
-_STRIP_SUFFIXES = re.compile(
-    r",?\s*(inc\.?|llc\.?|corp\.?|incorporated|limited)$",
+_MULTI_WS = re.compile(r"\s+")
+
+# PA address pattern: number + street text + comma/newline + city + PA + zip
+_PA_ADDRESS_RE = re.compile(
+    r"\b(P\.?O\.?\s*Box\s+\d+|\d+\s+[\w\s.]+(?:Road|Rd|Street|St|Drive|Dr|"
+    r"Ave|Avenue|Way|Lane|Ln|Blvd|Highway|Hwy|Run|Circle|Pike|Trail)\.?)"
+    r"[,\s]+([A-Za-z\s.]+),?\s*PA\s+(\d{5})",
     re.IGNORECASE,
 )
 
-# Collapse multiple whitespace / non-breaking spaces.
-_MULTI_WS = re.compile(r"\s+")
+# Phone pattern: (xxx) xxx-xxxx or xxx-xxx-xxxx or xxx.xxx.xxxx
+_PHONE_RE = re.compile(
+    r"\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}"
+)
 
 
-def _normalise_name(raw: str) -> str:
-    """Return a canonical, comparison-ready facility name.
-
-    * Unicode NFKD normalisation (curly quotes -> straight, etc.)
-    * Case-fold
-    * Strip leading/trailing whitespace
-    * Collapse internal whitespace
-    * Remove trailing Inc./LLC/Corp.
-    * Remove all punctuation except hyphens (keep "T&D" -> "td")
-    """
+def _normalise_text(raw: str) -> str:
+    """Normalise text for comparison: NFKD, casefold, collapse whitespace."""
     s = unicodedata.normalize("NFKD", raw)
     s = s.casefold().strip()
     s = _MULTI_WS.sub(" ", s)
-    s = _STRIP_SUFFIXES.sub("", s).strip()
-    # Remove punctuation except hyphens and spaces.
-    s = re.sub(r"[^\w\s-]", "", s)
-    s = _MULTI_WS.sub(" ", s).strip()
     return s
 
 
@@ -80,7 +80,7 @@ def _normalise_phone(raw: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Scraping
+# Scraping helpers
 # ---------------------------------------------------------------------------
 
 
@@ -100,7 +100,6 @@ def discover_county_urls(session: requests.Session) -> List[str]:
     urls: List[str] = []
     for a in soup.find_all("a", href=True):
         href: str = a["href"]
-        # County links look like https://pawr.com/allegheny-county/
         if re.match(r"https?://pawr\.com/[\w-]+-county/?$", href, re.IGNORECASE):
             if href not in urls:
                 urls.append(href)
@@ -114,158 +113,254 @@ def _county_from_url(url: str) -> str:
 
     e.g. https://pawr.com/allegheny-county/ -> Allegheny
     """
-    slug = url.rstrip("/").rsplit("/", 1)[-1]  # allegheny-county
+    slug = url.rstrip("/").rsplit("/", 1)[-1]
     slug = re.sub(r"-county$", "", slug, flags=re.IGNORECASE)
     return slug.replace("-", " ").title()
 
 
-def _extract_phone(text: str) -> Optional[str]:
-    """Find the first US phone number in *text* and return digits-only."""
-    m = re.search(
-        r"(\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4})", text
-    )
-    if m:
-        return _normalise_phone(m.group(1))
-    return None
-
-
-def scrape_county_page(
+def _fetch_county_page_text(
     url: str, session: requests.Session
-) -> List[Dict[str, str]]:
-    """Scrape a single PAWR county page for facility entries.
-
-    Returns a list of dicts with keys ``name``, ``phone``, ``county``.
-    """
-    county = _county_from_url(url)
-    logger.info("Scraping county page: %s (%s)", county, url)
-
+) -> Optional[str]:
+    """Fetch a county page and return the main content area as plain text."""
     try:
         resp = session.get(url, timeout=REQUEST_TIMEOUT)
         resp.raise_for_status()
     except requests.RequestException as exc:
         logger.warning("Failed to fetch %s: %s", url, exc)
-        return []
+        return None
 
     soup = BeautifulSoup(resp.text, "html.parser")
 
-    # The PAWR county pages embed facility info inside the WordPress post
-    # body.  Facility names are typically wrapped in <strong> or <b> tags.
-    # We look for bold elements and treat each as a potential facility header,
-    # then scan the surrounding text for a phone number.
-
-    content = soup.find("div", class_=re.compile(r"entry-content|post-content|page-content"))
+    content = soup.find(
+        "div", class_=re.compile(r"entry-content|post-content|page-content")
+    )
     if content is None:
-        # Fallback: try the main article or body.
         content = soup.find("article") or soup.find("main") or soup.body
     if content is None:
         logger.warning("No content container found on %s", url)
+        return None
+
+    return content.get_text(" ", strip=False)
+
+
+def _extract_phones_near(text: str, anchor: str) -> List[str]:
+    """Find phone numbers near *anchor* text within *text*.
+
+    Looks in a window of ~300 chars after the anchor position.
+    Returns digits-only phone strings.
+    """
+    norm_text = _normalise_text(text)
+    norm_anchor = _normalise_text(anchor)
+    idx = norm_text.find(norm_anchor)
+    if idx < 0:
         return []
 
-    facilities: List[Dict[str, str]] = []
-    seen_names: set = set()
+    # Search in a window around the anchor (mostly after, some before).
+    start = max(0, idx - 50)
+    end = min(len(text), idx + len(anchor) + 400)
+    window = text[start:end]
 
-    # Strategy: find all <strong> and <b> tags inside the content area.
-    bold_tags = content.find_all(["strong", "b"])
-
-    for bold in bold_tags:
-        raw_name = bold.get_text(strip=True)
-        if not raw_name or len(raw_name) < 3:
-            continue
-
-        # Skip headings that are clearly not facility names.
-        lower = raw_name.lower()
-        if any(
-            kw in lower
-            for kw in [
-                "county",
-                "species",
-                "code",
-                "legend",
-                "note",
-                "important",
-                "click here",
-                "back to",
-                "home",
-                "menu",
-                "search",
-                "navigation",
-            ]
-        ):
-            continue
-
-        norm = _normalise_name(raw_name)
-        if norm in seen_names or len(norm) < 3:
-            continue
-        seen_names.add(norm)
-
-        # Gather surrounding text to find a phone number.
-        # Walk siblings and parent text after this bold tag.
-        phone = None
-        context_text = _gather_context_after(bold)
-        if context_text:
-            phone = _extract_phone(context_text)
-
-        facilities.append(
-            {
-                "name": raw_name.strip(),
-                "phone": phone or "",
-                "county": county,
-            }
-        )
-
-    logger.info("  Found %d facilities in %s county", len(facilities), county)
-    return facilities
-
-
-def _gather_context_after(tag: Tag, max_chars: int = 500) -> str:
-    """Collect text from siblings after *tag* until the next bold tag or max_chars."""
-    parts: List[str] = []
-    total = 0
-    node = tag.next_sibling
-    while node and total < max_chars:
-        if isinstance(node, Tag):
-            if node.name in ("strong", "b"):
-                break
-            text = node.get_text(" ", strip=True)
-        else:
-            text = str(node).strip()
-        if text:
-            parts.append(text)
-            total += len(text)
-        node = node.next_sibling
-
-    # Also check the parent element's remaining text after the bold tag.
-    if not parts and tag.parent:
-        parent_text = tag.parent.get_text(" ", strip=True)
-        # Take text after the bold tag's own text.
-        bold_text = tag.get_text(strip=True)
-        idx = parent_text.find(bold_text)
-        if idx >= 0:
-            after = parent_text[idx + len(bold_text) :]
-            parts.append(after)
-
-    return " ".join(parts)
-
-
-def scrape_all_counties(
-    session: requests.Session,
-) -> List[Dict[str, str]]:
-    """Scrape all county pages and return combined facility list."""
-    urls = discover_county_urls(session)
-    all_facilities: List[Dict[str, str]] = []
-
-    for i, url in enumerate(urls):
-        if i > 0:
-            time.sleep(FETCH_DELAY)
-        facilities = scrape_county_page(url, session)
-        all_facilities.extend(facilities)
-
-    logger.info("Total facilities scraped from PAWR: %d", len(all_facilities))
-    return all_facilities
+    phones = []
+    for m in _PHONE_RE.finditer(window):
+        digits = _normalise_phone(m.group())
+        if len(digits) == 10:
+            phones.append(digits)
+    return phones
 
 
 # ---------------------------------------------------------------------------
-# Comparison
+# Reference-based checking
+# ---------------------------------------------------------------------------
+
+
+def _build_county_url_map(county_urls: List[str]) -> Dict[str, str]:
+    """Map normalised county name -> URL."""
+    result: Dict[str, str] = {}
+    for url in county_urls:
+        county = _county_from_url(url)
+        result[county.lower()] = url
+    return result
+
+
+def _facility_appears_on_page(facility_name: str, page_text: str) -> bool:
+    """Check if a facility name appears on the page (case-insensitive substring)."""
+    norm_page = _normalise_text(page_text)
+    norm_name = _normalise_text(facility_name)
+
+    # Direct substring match.
+    if norm_name in norm_page:
+        return True
+
+    # Try without common suffixes (Inc., LLC, etc.) for looser matching.
+    stripped = re.sub(
+        r",?\s*(inc\.?|llc\.?|corp\.?)$", "", norm_name, flags=re.IGNORECASE
+    ).strip()
+    if stripped and stripped != norm_name and stripped in norm_page:
+        return True
+
+    # Try matching with punctuation removed from both sides.
+    clean_name = re.sub(r"[^\w\s]", "", norm_name)
+    clean_name = _MULTI_WS.sub(" ", clean_name).strip()
+    clean_page = re.sub(r"[^\w\s]", "", norm_page)
+    clean_page = _MULTI_WS.sub(" ", clean_page).strip()
+    if clean_name and clean_name in clean_page:
+        return True
+
+    return False
+
+
+def _looks_like_person_name(text: str) -> bool:
+    """Return True if *text* looks like a person's name rather than an org."""
+    # Person names are typically 2-4 capitalised words with no org keywords.
+    words = text.split()
+    if len(words) < 2 or len(words) > 5:
+        return False
+    # If it contains org-like keywords, it's not a person name.
+    lower = text.lower()
+    org_keywords = (
+        "center", "centre", "wildlife", "rescue", "rehab", "rehabilitation",
+        "sanctuary", "foundation", "inc", "llc", "society", "hospital",
+        "conservation", "education", "environmental", "works", "recovery",
+        "friends", "acres", "ridge", "creek", "rock", "metro", "helping",
+        "hands", "good samaritan", "episode", "pocono", "tamarack",
+        "diamond", "raven", "acorn", "wildbird", "forest", "west shore",
+        "bat", "cats",
+    )
+    if any(kw in lower for kw in org_keywords):
+        return False
+    # Person names: each word is capitalised and short, no digits.
+    if re.search(r"\d", text):
+        return False
+    # Check if all words look like name parts (capitalised, no special chars).
+    for w in words:
+        # Allow "and" as a connector.
+        if w.lower() in ("and", "&"):
+            continue
+        if not re.match(r"^[A-Z][a-z]+\.?$", w):
+            return False
+    return True
+
+
+def _looks_like_facility_name(text: str) -> bool:
+    """Return True if *text* plausibly looks like a facility/org name."""
+    if len(text) < 5 or len(text) > 120:
+        return False
+    lower = text.lower()
+
+    # Reject obvious non-facility text.
+    reject_patterns = [
+        "closed to", "temporarily", "specializing", "rehabilitates",
+        "species category", "appointment only", "please speak",
+        "please call", "physical address", "mailing address",
+        "p.o. box", "po box", "website", "email", "facebook",
+        "phone", "fax", "click here", "back to", "navigation",
+        "search", "menu", "home", "county", "legend", "note",
+        "important", "ext ", "ext.",
+    ]
+    if any(kw in lower for kw in reject_patterns):
+        return False
+
+    # Reject if it looks like a phone number or fragment.
+    if re.match(r"^[\d\s()\-.\+]+$", text):
+        return False
+    if _PHONE_RE.match(text):
+        return False
+
+    # Reject street address lines (e.g. "1531 Upper Stump Road").
+    if re.match(
+        r"^\d+\s+[\w\s.]+(?:Road|Rd|Street|St|Drive|Dr|Ave|Avenue|Way|"
+        r"Lane|Ln|Blvd|Highway|Hwy|Run|Circle|Pike|Trail)\.?$",
+        text, re.IGNORECASE,
+    ):
+        return False
+
+    # Reject species code lines.
+    if re.match(r"^[MPRVSENDA,\s–\-]+$", text, re.IGNORECASE):
+        return False
+
+    # Reject city/state/zip lines (e.g. "Chalfont, PA 18914-1715").
+    if re.match(
+        r"^[A-Za-z\s.]+,?\s*PA\s+\d{5}(-\d{4})?$", text, re.IGNORECASE
+    ):
+        return False
+
+    # Reject if it looks like a person name.
+    if _looks_like_person_name(text):
+        return False
+
+    return True
+
+
+def _scan_for_new_facilities(
+    page_text: str,
+    county: str,
+    known_names: List[str],
+) -> List[Dict[str, str]]:
+    """Scan page text for potential new facilities not in the known list.
+
+    Looks for text blocks containing PA address patterns that don't match
+    any known facility name.  Returns a list of dicts with name, phone, county.
+    """
+    new_facilities: List[Dict[str, str]] = []
+
+    # Find all PA address matches in the page text.
+    for m in _PA_ADDRESS_RE.finditer(page_text):
+        addr_start = m.start()
+
+        # Look backwards from the address for a potential facility name.
+        preceding = page_text[max(0, addr_start - 300):addr_start]
+
+        # Split into lines and look for the last non-empty line that looks
+        # like a facility/org name.
+        lines = [ln.strip() for ln in preceding.split("\n") if ln.strip()]
+
+        candidate_name = None
+        for line in reversed(lines):
+            if _looks_like_facility_name(line):
+                candidate_name = line
+                break
+
+        if not candidate_name:
+            continue
+
+        # Check if this candidate matches any known facility.
+        is_known = False
+        for known in known_names:
+            if _facility_appears_on_page(known, candidate_name):
+                is_known = True
+                break
+            if _facility_appears_on_page(candidate_name, known):
+                is_known = True
+                break
+
+        if is_known:
+            continue
+
+        # Extract phone near the address.
+        window_end = min(len(page_text), m.end() + 200)
+        phone_window = page_text[m.start():window_end]
+        phone_match = _PHONE_RE.search(phone_window)
+        phone = _normalise_phone(phone_match.group()) if phone_match else ""
+
+        # Avoid duplicates.
+        norm_candidate = _normalise_text(candidate_name)
+        if any(
+            _normalise_text(nf["name"]) == norm_candidate
+            for nf in new_facilities
+        ):
+            continue
+
+        new_facilities.append({
+            "name": candidate_name,
+            "phone": phone,
+            "county": county,
+        })
+
+    return new_facilities
+
+
+# ---------------------------------------------------------------------------
+# Main logic
 # ---------------------------------------------------------------------------
 
 
@@ -277,143 +372,108 @@ def load_facilities_json() -> List[Dict[str, Any]]:
     return data
 
 
-def _fuzzy_match(name_a: str, name_b: str) -> bool:
-    """Return True if two normalised names are close enough to be the same facility."""
-    if name_a == name_b:
-        return True
-    # Check if one is a substring of the other (handles abbreviation differences).
-    if name_a in name_b or name_b in name_a:
-        return True
-    # Simple Jaccard on word sets for short names.
-    words_a = set(name_a.split())
-    words_b = set(name_b.split())
-    if not words_a or not words_b:
-        return False
-    intersection = words_a & words_b
-    union = words_a | words_b
-    jaccard = len(intersection) / len(union)
-    return jaccard >= 0.6
-
-
-def compare(
-    pawr_facilities: List[Dict[str, str]],
+def check_facilities(
+    session: requests.Session,
     local_facilities: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """Compare scraped PAWR data against local facilities.json.
+    """Check each facility in facilities.json against its PAWR county page.
 
-    Returns a list of diff entries (empty list = no changes).
-    Each entry has keys: type (added|removed|phone_mismatch), name, county,
-    and optionally pawr_phone / local_phone.
+    Returns a list of diff entries.
     """
-    # Build lookup by normalised name for local facilities.
-    local_by_norm: Dict[str, Dict[str, Any]] = {}
-    for f in local_facilities:
-        norm = _normalise_name(f.get("name", ""))
-        if norm:
-            local_by_norm[norm] = f
+    county_urls = discover_county_urls(session)
+    county_url_map = _build_county_url_map(county_urls)
 
-    # Build lookup for PAWR facilities.
-    pawr_by_norm: Dict[str, Dict[str, str]] = {}
-    for f in pawr_facilities:
-        norm = _normalise_name(f.get("name", ""))
-        if norm:
-            pawr_by_norm[norm] = f
+    # Group local facilities by county.
+    by_county: Dict[str, List[Dict[str, Any]]] = {}
+    for fac in local_facilities:
+        county = fac.get("county", "").strip()
+        by_county.setdefault(county, []).append(fac)
 
     diffs: List[Dict[str, Any]] = []
-    matched_local: set = set()
+    counties_checked = 0
+    all_known_names = [f.get("name", "") for f in local_facilities]
 
-    # Check each PAWR facility against local.
-    for p_norm, p_fac in pawr_by_norm.items():
-        # Try exact normalised match first.
-        match_key = None
-        if p_norm in local_by_norm:
-            match_key = p_norm
-        else:
-            # Try fuzzy match.
-            for l_norm in local_by_norm:
-                if l_norm not in matched_local and _fuzzy_match(p_norm, l_norm):
-                    match_key = l_norm
-                    break
+    # Collect all county keys we need to visit (from local facilities + discovered URLs).
+    all_counties = set(c.lower() for c in by_county.keys()) | set(county_url_map.keys())
 
-        if match_key is None:
-            # New facility on PAWR not in local.
-            diffs.append(
-                {
-                    "type": "added",
-                    "name": p_fac["name"],
-                    "county": p_fac.get("county", ""),
-                }
+    fetched = 0
+    for county_key in sorted(all_counties):
+        url = county_url_map.get(county_key)
+        if not url:
+            # County in facilities.json but no PAWR page found.
+            logger.warning(
+                "No PAWR county page found for: %s", county_key.title()
             )
-        else:
-            matched_local.add(match_key)
-            # Check phone mismatch.
-            local_fac = local_by_norm[match_key]
-            pawr_phone = _normalise_phone(p_fac.get("phone", ""))
-            local_phone = _normalise_phone(local_fac.get("phone", ""))
-            if pawr_phone and local_phone and pawr_phone != local_phone:
-                diffs.append(
-                    {
-                        "type": "phone_mismatch",
-                        "name": p_fac["name"],
-                        "county": p_fac.get("county", ""),
-                        "pawr_phone": pawr_phone,
-                        "local_phone": local_phone,
-                    }
-                )
+            continue
 
-    # Check for local facilities not found on PAWR.
-    for l_norm, l_fac in local_by_norm.items():
-        if l_norm not in matched_local:
-            # Check fuzzy against all PAWR names (may have been matched above).
-            found = False
-            for p_norm in pawr_by_norm:
-                if _fuzzy_match(l_norm, p_norm):
-                    found = True
-                    break
-            if not found:
-                diffs.append(
-                    {
-                        "type": "removed",
-                        "name": l_fac.get("name", ""),
-                        "county": l_fac.get("county", ""),
-                    }
-                )
+        if fetched > 0:
+            time.sleep(FETCH_DELAY)
+        fetched += 1
 
+        county_name = county_key.title()
+        logger.info("Checking county: %s (%s)", county_name, url)
+
+        page_text = _fetch_county_page_text(url, session)
+        if page_text is None:
+            logger.warning("Could not fetch page for %s — skipping", county_name)
+            continue
+
+        counties_checked += 1
+
+        # Check each known facility in this county.
+        county_facilities = by_county.get(county_name, [])
+        for fac in county_facilities:
+            name = fac.get("name", "")
+            if not name:
+                continue
+
+            if _facility_appears_on_page(name, page_text):
+                # Facility found — check phone number.
+                phones = _extract_phones_near(page_text, name)
+                local_phone = _normalise_phone(fac.get("phone", ""))
+                if phones and local_phone:
+                    # Check if any extracted phone matches.
+                    if local_phone not in phones:
+                        diffs.append({
+                            "type": "phone_mismatch",
+                            "name": name,
+                            "county": county_name,
+                            "pawr_phone": phones[0],
+                            "local_phone": local_phone,
+                        })
+                logger.info("  FOUND: %s", name)
+            else:
+                # Facility not found on page.
+                diffs.append({
+                    "type": "removed",
+                    "name": name,
+                    "county": county_name,
+                })
+                logger.info("  NOT FOUND: %s", name)
+
+        # Scan for potential new facilities on this page.
+        new_facs = _scan_for_new_facilities(page_text, county_name, all_known_names)
+        for nf in new_facs:
+            diffs.append({
+                "type": "added",
+                "name": nf["name"],
+                "county": nf["county"],
+            })
+            logger.info("  NEW: %s", nf["name"])
+
+    logger.info("Checked %d counties", counties_checked)
     return diffs
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 
 def main() -> int:
     session = _get_session()
+    local_facilities = load_facilities_json()
 
     try:
-        pawr_facilities = scrape_all_counties(session)
+        diffs = check_facilities(session, local_facilities)
     except requests.RequestException as exc:
-        logger.error("Fatal error scraping PAWR: %s", exc)
+        logger.error("Fatal error checking PAWR: %s", exc)
         return 1
-
-    # Count distinct counties scraped.
-    counties_scraped = len({f.get("county", "") for f in pawr_facilities})
-
-    if not pawr_facilities:
-        logger.warning(
-            "No facilities scraped from PAWR — site may be down or structure changed. "
-            "Skipping comparison to avoid false removals."
-        )
-        # Write empty diff so the workflow doesn't fail.
-        OUTPUT_PATH.write_text("[]", encoding="utf-8")
-        print(
-            f"Scraped {counties_scraped} counties, found 0 facilities on PAWR. "
-            "Skipped comparison."
-        )
-        return 0
-
-    local_facilities = load_facilities_json()
-    diffs = compare(pawr_facilities, local_facilities)
 
     OUTPUT_PATH.write_text(
         json.dumps(diffs, indent=2, ensure_ascii=False) + "\n",
@@ -421,9 +481,13 @@ def main() -> int:
     )
 
     if diffs:
-        logger.info("Found %d difference(s) — written to %s", len(diffs), OUTPUT_PATH)
+        logger.info(
+            "Found %d difference(s) — written to %s", len(diffs), OUTPUT_PATH
+        )
         for d in diffs:
-            logger.info("  %s: %s (%s)", d["type"].upper(), d["name"], d.get("county", ""))
+            logger.info(
+                "  %s: %s (%s)", d["type"].upper(), d["name"], d.get("county", "")
+            )
     else:
         logger.info("No differences found between PAWR and facilities.json")
 
@@ -432,8 +496,7 @@ def main() -> int:
     removed = sum(1 for d in diffs if d["type"] == "removed")
     phone_mismatches = sum(1 for d in diffs if d["type"] == "phone_mismatch")
     print(
-        f"Scraped {counties_scraped} counties, found {len(pawr_facilities)} facilities "
-        f"on PAWR. Local facilities.json has {len(local_facilities)}. "
+        f"Checked {len(local_facilities)} facilities across PAWR county pages. "
         f"Differences: {added} added, {removed} removed, "
         f"{phone_mismatches} phone mismatches."
     )
