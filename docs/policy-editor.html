@@ -1634,7 +1634,11 @@
         // Update heading with zero-padded area number.
         var areaNum = state.countyWin[name];
         var areaLabel = areaNum ? String(areaNum).padStart(2, '0') : '—';
-        $('#vol-unavail-title').textContent = 'Flagging Area ' + areaLabel + ' unavailable volunteers';
+        var titleEl = $('#vol-unavail-title');
+        titleEl.textContent = '';
+        titleEl.appendChild(document.createTextNode('Flagging '));
+        titleEl.appendChild(el('span', { style: 'color: #2563eb' }, ['Area ' + areaLabel]));
+        titleEl.appendChild(document.createTextNode(' unavailable volunteers'));
 
         var rows = (agg && Array.isArray(agg.out_of_county)) ? agg.out_of_county : [];
         // Also check out_of_county_all if present (full set before overflow trim).
