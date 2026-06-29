@@ -349,38 +349,6 @@
       gap: 12px;
     }
     @media (max-width: 560px) { .cards-grid { gap: 8px; } }
-    .cap-card {
-      background: #fbfaf8;
-      border: 1px dashed #cfc9c0;
-      border-radius: var(--radius);
-      padding: 14px 14px 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-      min-width: 0;
-    }
-    .cap-card .role {
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: .08em;
-      text-transform: uppercase;
-      color: #7a746c;
-    }
-    .cap-card .num {
-      font-family: 'Bitter', Georgia, serif;
-      font-size: 15px;
-      font-weight: 700;
-      color: #5c574f;
-      line-height: 1.15;
-    }
-    .cap-card .num .total { color: #948e85; font-weight: 600; }
-    .cap-card .sub { font-size: 12px; color: #948e85; }
-    @media (max-width: 560px) {
-      .cap-card { padding: 9px 8px; }
-      .cap-card .role { font-size: 9.5px; }
-      .cap-card .num { font-size: 13px; }
-      .cap-card .sub { font-size: 10.5px; }
-    }
     .live-foot {
       margin-top: 10px;
       font-size: 12px;
@@ -390,6 +358,83 @@
       gap: 6px;
     }
     .live-foot .lock { font-size: 13px; }
+
+    /* ─── Volunteer Info panel (policy-editor) ────────────────── */
+    .vol-role-box {
+      background: #fbfaf8;
+      border: 1px dashed #cfc9c0;
+      border-radius: var(--radius);
+      padding: 14px 14px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 0;
+    }
+    .vol-role-box .role-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: #7a746c;
+      margin-bottom: 2px;
+    }
+    .vol-role-box .vol-stat {
+      font-size: 13px;
+      color: #5c574f;
+      line-height: 1.4;
+    }
+    .vol-role-box .vol-stat strong {
+      font-family: 'Bitter', Georgia, serif;
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .vol-role-box .vol-breakdown {
+      font-size: 11.5px;
+      color: #948e85;
+      line-height: 1.4;
+      margin-top: 1px;
+    }
+    .vol-unavail-section {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px dashed #cfc9c0;
+    }
+    .vol-unavail-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: #7a746c;
+      margin-bottom: 8px;
+    }
+    .vol-unavail-row {
+      display: flex;
+      gap: 8px;
+      align-items: baseline;
+      padding: 4px 0;
+      font-size: 13px;
+      color: #5c574f;
+      border-bottom: 1px solid #eceae5;
+    }
+    .vol-unavail-row:last-child { border-bottom: none; }
+    .vol-unavail-name {
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+    .vol-unavail-reason {
+      color: #948e85;
+      font-size: 12px;
+    }
+    .vol-unavail-none {
+      font-size: 12.5px;
+      color: #948e85;
+      font-style: italic;
+    }
+    .vol-loading {
+      font-size: 12.5px;
+      color: #948e85;
+      font-style: italic;
+    }
 
     /* ─── Rules fields ───────────────────────────────────────── */
     .rule-field { margin-bottom: 18px; }
@@ -914,34 +959,45 @@
       <ul id="warn-list"></ul>
     </div>
 
-    <!-- LIVE DATA (auto) -->
+    <!-- VOLUNTEER INFO (read-only) -->
     <div class="section-card live">
       <div class="section-head">
-        <span class="tag">Live data · auto</span>
-        <span class="section-title">Volunteer counts</span>
-        <span class="section-note">from last refresh snapshot — read only</span>
+        <span class="tag">Volunteer Info</span>
+        <span class="section-title">Volunteer data for policy decisions</span>
+        <span class="section-note">read only</span>
       </div>
       <div class="section-body">
-        <div class="cards-grid">
-          <div class="cap-card" data-role="ct_no_rvs">
-            <div class="role">C&amp;T</div>
-            <div class="num"><span class="avail">—</span> of <span class="total">—</span> avail</div>
-            <div class="sub"></div>
+        <div class="cards-grid" id="vol-info-grid">
+          <div class="vol-role-box" data-vrole="ct_no_rvs">
+            <div class="role-title">C&amp;T</div>
+            <div class="vol-stat">In county: <strong class="vi-county">—</strong></div>
+            <div class="vol-stat">In area: <strong class="vi-area">—</strong></div>
+            <div class="vol-breakdown vi-area-detail"></div>
+            <div class="vol-stat">Monitoring: <strong class="vi-monitor">—</strong></div>
           </div>
-          <div class="cap-card" data-role="ct_rvs">
-            <div class="role">RVS C&amp;T</div>
-            <div class="num"><span class="avail">—</span> of <span class="total">—</span> avail</div>
-            <div class="sub"></div>
+          <div class="vol-role-box" data-vrole="ct_rvs">
+            <div class="role-title">RVS C&amp;T</div>
+            <div class="vol-stat">In county: <strong class="vi-county">—</strong></div>
+            <div class="vol-stat">In area: <strong class="vi-area">—</strong></div>
+            <div class="vol-breakdown vi-area-detail"></div>
+            <div class="vol-stat">Monitoring: <strong class="vi-monitor">—</strong></div>
           </div>
-          <div class="cap-card" data-role="courier">
-            <div class="role">Courier</div>
-            <div class="num"><span class="avail">—</span> of <span class="total">—</span> avail</div>
-            <div class="sub"></div>
+          <div class="vol-role-box" data-vrole="courier">
+            <div class="role-title">Courier</div>
+            <div class="vol-stat">In county: <strong class="vi-county">—</strong></div>
+            <div class="vol-stat">In area: <strong class="vi-area">—</strong></div>
+            <div class="vol-breakdown vi-area-detail"></div>
+            <div class="vol-stat">Monitoring: <strong class="vi-monitor">—</strong></div>
           </div>
         </div>
+        <div id="vol-unavail-section" class="vol-unavail-section" hidden>
+          <div class="vol-unavail-title">Unavailable in WIN area</div>
+          <div id="vol-unavail-list"></div>
+        </div>
+        <div id="vol-info-loading" class="vol-loading" hidden>Loading volunteer details from server…</div>
         <div class="live-foot">
           <span class="lock">🔒</span>
-          <span id="live-foot-text">These numbers update themselves from the Monday volunteer snapshot. You never count volunteers here — you set the rules below.</span>
+          <span id="live-foot-text">Counts from the volunteer snapshot. Monitoring and unavailability data loaded from the server when a county is selected.</span>
         </div>
       </div>
     </div>
@@ -1115,6 +1171,7 @@
     capacity: {},       // county_capacity.json -> counties
     countyWin: {},      // county -> WIN area (optional)
     rehabbers: [],      // parsed rehabbers.json (for referral target info display)
+    countyCentroids: {},// county name -> { lat, lon } centroid (from pa_counties.json)
     order: [],          // sorted county names
     current: null,      // selected county name
     dirty: {},          // county -> true once edited
@@ -1124,6 +1181,55 @@
 
   function $(sel, ctx) { return (ctx || document).querySelector(sel); }
   function $all(sel, ctx) { return Array.prototype.slice.call((ctx || document).querySelectorAll(sel)); }
+
+  // Stale-guard token for volunteer info Worker fetches (same pattern as
+  // dispatcher's t1VolToken). Bumped on every county change so slow responses
+  // from a previous county are silently discarded.
+  var volInfoToken = 0;
+
+  // Deny-words for unavailability detection (mirrors dispatcher.js DENY_WORDS).
+  var DENY_WORDS = ['unavail', 'vacation', 'out', 'inactive', 'leave', 'away', 'on hold', 'extended', 'hiatus'];
+
+  // Compute the area-weighted centroid of a GeoJSON geometry (Polygon or
+  // MultiPolygon). Returns { lat, lon } or null. Ported from dispatcher.js
+  // geoCentroidLatLon — uses the signed-area formula on each ring and picks
+  // the largest-area ring's centroid.
+  function geoCentroidLatLon(geom) {
+    if (!geom) return null;
+    var best = null;
+    function processRing(ring) {
+      var n = ring.length;
+      if (n < 3) return;
+      var a = 0, cx = 0, cy = 0;
+      for (var i = 0, j = n - 1; i < n; j = i++) {
+        var xi = ring[i][0], yi = ring[i][1];
+        var xj = ring[j][0], yj = ring[j][1];
+        var cross = xj * yi - xi * yj;
+        a += cross;
+        cx += (xj + xi) * cross;
+        cy += (yj + yi) * cross;
+      }
+      a *= 0.5;
+      var absA = Math.abs(a);
+      if (absA < 1e-10) return;
+      cx /= (6 * a);
+      cy /= (6 * a);
+      if (!best || absA > best.area) {
+        best = { area: absA, lat: cy, lon: cx };
+      }
+    }
+    function eachRing(g) {
+      if (g.type === 'Polygon' && Array.isArray(g.coordinates)) {
+        g.coordinates.forEach(function (r, i) { if (i === 0) processRing(r); });
+      } else if (g.type === 'MultiPolygon' && Array.isArray(g.coordinates)) {
+        g.coordinates.forEach(function (poly) {
+          if (Array.isArray(poly) && poly.length) processRing(poly[0]);
+        });
+      }
+    }
+    eachRing(geom);
+    return best ? { lat: best.lat, lon: best.lon } : null;
+  }
 
   function el(tag, attrs, children) {
     var node = document.createElement(tag);
@@ -1216,12 +1322,14 @@
       loadPolicyFromWorkerOrStatic(),
       fetchJson('data/county_capacity.json'),
       fetchJson('data/county_win.json').catch(function () { return {}; }),
-      fetchJson('data/rehabbers.json').catch(function () { return []; })
+      fetchJson('data/rehabbers.json').catch(function () { return []; }),
+      fetchJson('data/pa_counties.json').catch(function () { return null; })
     ]).then(function (res) {
       var policyDoc = res[0] || {};
       var cap = res[1] || {};
       var win = res[2] || {};
       var rehab = res[3] || [];
+      var geojson = res[4];
 
       state.policyDoc = policyDoc;
       state.counties = (policyDoc && policyDoc.counties && typeof policyDoc.counties === 'object')
@@ -1229,6 +1337,19 @@
       state.capacity = (cap && cap.counties && typeof cap.counties === 'object') ? cap.counties : {};
       state.countyWin = (win && typeof win === 'object' && !Array.isArray(win)) ? win : {};
       state.rehabbers = Array.isArray(rehab) ? rehab : [];
+
+      // Compute county centroids from GeoJSON (same approach as dispatcher.js).
+      state.countyCentroids = {};
+      if (geojson && geojson.features && Array.isArray(geojson.features)) {
+        geojson.features.forEach(function (f) {
+          var props = f.properties || {};
+          var county = String(props.county || '');
+          if (county) {
+            var ctr = geoCentroidLatLon(f.geometry);
+            if (ctr) state.countyCentroids[county] = ctr;
+          }
+        });
+      }
 
       // Union of counties present in policy OR capacity, sorted.
       var names = {};
@@ -1345,7 +1466,7 @@
     badge.textContent = area ? ('WIN Area ' + area) : 'WIN Area —';
     $('#rules-county-name').textContent = name;
 
-    renderLiveCounts(name);
+    renderVolunteerInfo(name);
     renderRules(state.counties[name]);
     updateDirtyFlag();
     runValidation();
@@ -1364,25 +1485,161 @@
     };
   }
 
-  // ── LIVE counts (read-only) ──────────────────────────────────────────────
-  function renderLiveCounts(name) {
+  // ── Volunteer Info (read-only) ────────────────────────────────────────────
+  // Role key -> Worker role string mapping for monitoring_area_vols.
+  var ROLE_MAP = { ct_no_rvs: 'C&T', ct_rvs: 'RVS C&T', courier: 'COURIER' };
+
+  function isUnavailableText(text) {
+    if (!text) return false;
+    var lower = text.toLowerCase();
+    for (var i = 0; i < DENY_WORDS.length; i++) {
+      if (lower.indexOf(DENY_WORDS[i]) !== -1) return true;
+    }
+    return false;
+  }
+
+  function renderVolunteerInfo(name) {
     var cap = state.capacity[name];
     var foot = $('#live-foot-text');
-    $all('.cap-card').forEach(function (card) {
-      var role = card.getAttribute('data-role');
+    var loadingEl = $('#vol-info-loading');
+    var unavailSection = $('#vol-unavail-section');
+    var unavailList = $('#vol-unavail-list');
+
+    // ── 1. In-county counts (from county_capacity.json) ──────────────────
+    var roleKeys = ['ct_no_rvs', 'ct_rvs', 'courier'];
+    $all('.vol-role-box').forEach(function (box) {
+      var role = box.getAttribute('data-vrole');
       var bucket = cap && cap[role];
-      var avail = (bucket && typeof bucket.available === 'number') ? bucket.available : 0;
       var total = (bucket && typeof bucket.total === 'number') ? bucket.total : 0;
-      $('.avail', card).textContent = String(avail);
-      $('.total', card).textContent = String(total);
-      var marg = (bucket && Array.isArray(bucket.marginal_volunteers)) ? bucket.marginal_volunteers.length : 0;
-      $('.sub', card).textContent = marg ? (marg + ' marginal') : '';
+      $('.vi-county', box).textContent = String(total);
     });
-    if (!cap) {
-      foot.textContent = 'No live snapshot entry for ' + name + ' (0 volunteers on file). Counts shown as 0 — set referral rules below.';
+
+    // ── 2. In-area counts with per-county breakdown ──────────────────────
+    var area = state.countyWin[name];
+    var areaNorm = area ? String(area).trim() : null;
+    // Find all counties in the same WIN area.
+    var areaCounties = [];
+    if (areaNorm) {
+      Object.keys(state.countyWin).sort().forEach(function (c) {
+        if (String(state.countyWin[c]).trim() === areaNorm) {
+          areaCounties.push(c);
+        }
+      });
     } else {
-      foot.textContent = 'These numbers update themselves from the Monday volunteer snapshot. You never count volunteers here — you set the rules below.';
+      // No WIN area — area = just this county.
+      areaCounties = [name];
     }
+
+    $all('.vol-role-box').forEach(function (box) {
+      var role = box.getAttribute('data-vrole');
+      var areaTotal = 0;
+      var parts = [];
+      areaCounties.forEach(function (c) {
+        var b = state.capacity[c] && state.capacity[c][role];
+        var t = (b && typeof b.total === 'number') ? b.total : 0;
+        areaTotal += t;
+        if (t > 0) parts.push(c + ': ' + t);
+      });
+      $('.vi-area', box).textContent = String(areaTotal);
+      var detail = $('.vi-area-detail', box);
+      detail.textContent = parts.length > 1 ? parts.join(', ') : '';
+    });
+
+    // ── 3. Reset monitoring + unavailability (pending Worker fetch) ───────
+    $all('.vol-role-box').forEach(function (box) {
+      $('.vi-monitor', box).textContent = '—';
+    });
+    unavailSection.hidden = true;
+    unavailList.innerHTML = '';
+
+    if (!cap) {
+      foot.textContent = 'No volunteer snapshot entry for ' + name + '. Counts shown as 0.';
+    } else {
+      foot.textContent = 'Counts from the volunteer snapshot. Monitoring and unavailability data loaded from the server.';
+    }
+
+    // ── 4. Fetch monitoring + unavailability from Worker ─────────────────
+    var centroid = state.countyCentroids[name];
+    if (!centroid || typeof centroid.lat !== 'number' || typeof centroid.lon !== 'number') {
+      // No centroid — can't query Worker. Leave monitoring as "—".
+      return;
+    }
+
+    var token = ++volInfoToken;
+    loadingEl.hidden = false;
+
+    var url = WORKER_URL +
+      '?animal_lat=' + encodeURIComponent(centroid.lat) +
+      '&animal_lon=' + encodeURIComponent(centroid.lon) +
+      '&radius_mi=20' +
+      '&context=1' +
+      '&animal_county=' + encodeURIComponent(name);
+    if (areaNorm) {
+      url += '&win_area=' + encodeURIComponent(areaNorm);
+    }
+    // No qualify_roles param → Worker returns ALL volunteers regardless of role.
+
+    fetch(url, { cache: 'no-store' })
+      .then(function (resp) {
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        return resp.json();
+      })
+      .then(function (agg) {
+        if (token !== volInfoToken) return; // stale response — discard
+        loadingEl.hidden = true;
+
+        // ── Monitoring counts ────────────────────────────────────────
+        var monVols = (agg && Array.isArray(agg.monitoring_area_vols)) ? agg.monitoring_area_vols : [];
+        var monCounts = { ct_no_rvs: 0, ct_rvs: 0, courier: 0 };
+        monVols.forEach(function (mv) {
+          var roles = Array.isArray(mv.roles) ? mv.roles : [];
+          roles.forEach(function (r) {
+            if (r === 'C&T') monCounts.ct_no_rvs++;
+            else if (r === 'RVS C&T') monCounts.ct_rvs++;
+            else if (r === 'COURIER') monCounts.courier++;
+          });
+        });
+        $all('.vol-role-box').forEach(function (box) {
+          var role = box.getAttribute('data-vrole');
+          $('.vi-monitor', box).textContent = String(monCounts[role] || 0);
+        });
+
+        // ── Unavailability section ───────────────────────────────────
+        var rows = (agg && Array.isArray(agg.out_of_county)) ? agg.out_of_county : [];
+        // Also check out_of_county_all if present (full set before overflow trim).
+        if (agg && Array.isArray(agg.out_of_county_all) && agg.out_of_county_all.length > rows.length) {
+          rows = agg.out_of_county_all;
+        }
+        var unavail = [];
+        rows.forEach(function (row) {
+          var note = row.availability_note || '';
+          if (row.available === false || isUnavailableText(note)) {
+            var volName = row.name || '(unnamed)';
+            unavail.push({ name: volName, reason: note || '(unavailable)' });
+          }
+        });
+
+        if (unavail.length) {
+          unavailList.innerHTML = '';
+          unavail.forEach(function (u) {
+            var rowEl = el('div', { class: 'vol-unavail-row' }, [
+              el('span', { class: 'vol-unavail-name' }, [u.name]),
+              el('span', { class: 'vol-unavail-reason' }, [u.reason])
+            ]);
+            unavailList.appendChild(rowEl);
+          });
+          unavailSection.hidden = false;
+        } else {
+          unavailList.innerHTML = '';
+          unavailList.appendChild(el('div', { class: 'vol-unavail-none' }, ['All WIN-area volunteers are currently available.']));
+          unavailSection.hidden = false;
+        }
+      })
+      .catch(function () {
+        if (token !== volInfoToken) return;
+        loadingEl.hidden = true;
+        // Leave monitoring as "—" and hide unavailability on error.
+      });
   }
 
   // ── RULES (editable) ─────────────────────────────────────────────────────
