@@ -1518,6 +1518,67 @@
       font-style: italic;
       margin-top: 2px;
     }
+    /* ─── Fullscreen map overlay ──────────────────────────────────── */
+    .map-fullscreen {
+      position: fixed !important;
+      top: 0 !important;
+      left: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      z-index: 9999 !important;
+      border-radius: 0 !important;
+      border: none !important;
+      margin: 0 !important;
+    }
+    /* When the map wrapper (.cp-map-wrap / #t2map-body) is fullscreen,
+       make the map element fill the entire viewport and keep the legend
+       visible as an overlay at the bottom. */
+    .map-fullscreen .t2map,
+    .map-fullscreen .cp-map {
+      width: 100% !important;
+      height: 100% !important;
+      border-radius: 0 !important;
+      border: none !important;
+    }
+    .map-fullscreen .map-legend-panel {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      right: 12px;
+      z-index: 10000;
+      margin-top: 0;
+      max-height: 30vh;
+      overflow-y: auto;
+      box-shadow: var(--shadow-lg);
+    }
+    .map-fullscreen .t2map-note {
+      display: none;
+    }
+    /* Fullscreen enter button (sits inside the Leaflet map container) */
+    .map-fs-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 1000;
+      width: 34px;
+      height: 34px;
+      background: var(--surface);
+      border: 2px solid rgba(0,0,0,.2);
+      border-radius: 4px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      line-height: 1;
+      color: var(--text);
+      box-shadow: 0 1px 4px rgba(0,0,0,.15);
+      transition: background var(--transition);
+    }
+    .map-fs-btn:hover {
+      background: var(--bg);
+    }
+
     /* Dimmed pin for unavailable volunteers */
     .t2-pin-unavail {
       opacity: 0.35;
@@ -2108,6 +2169,6 @@
      change to these files to force clients to fetch the new copy. -->
 <script src="assets/messages.js?v=20260628a"></script>
 <script src="assets/decision.js?v=20260628a"></script>
-<script src="assets/dispatcher.js?v=20260629a"></script>
+<script src="assets/dispatcher.js?v=20260629b"></script>
 </body>
 </html>

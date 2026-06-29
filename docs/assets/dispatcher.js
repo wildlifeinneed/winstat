@@ -1692,6 +1692,9 @@
   };
 
   function destroyCrossPostMap() {
+    if (cpMap.wrap && cpMap.wrap.classList.contains('map-fullscreen')) {
+      document.body.style.overflow = '';
+    }
     if (cpMap.instance) {
       cpMap.instance.remove();
       cpMap.instance = null;
@@ -1767,6 +1770,9 @@
       rehabbers: L.layerGroup().addTo(map),
       vols: L.layerGroup().addTo(map)
     };
+
+    // Fullscreen toggle button (top-right of the cross-post map).
+    addFullscreenBtn(mapDiv, wrap, map);
 
     var bounds = [[lat, lon]];
 
@@ -3758,6 +3764,62 @@
     return pts;
   }
 
+  // ── Fullscreen toggle helper (shared by Tier-2 + cross-post maps) ──
+  // `mapInstance` = Leaflet map, `wrapEl` = the container that gets the
+  // .map-fullscreen class, `btnEl` = the toggle button element.
+  // Returns a cleanup function that removes the ESC listener.
+  function toggleMapFullscreen(mapInstance, wrapEl, btnEl) {
+    if (!wrapEl || !mapInstance) return function () {};
+    var entering = !wrapEl.classList.contains('map-fullscreen');
+    wrapEl.classList.toggle('map-fullscreen', entering);
+    if (btnEl) {
+      btnEl.textContent = entering ? '\u2716' : '\u26F6';
+      btnEl.title = entering ? 'Exit fullscreen' : 'Fullscreen';
+      btnEl.setAttribute('aria-label', entering ? 'Exit fullscreen' : 'Fullscreen');
+    }
+    // Prevent body scroll while fullscreen.
+    document.body.style.overflow = entering ? 'hidden' : '';
+    // Let the browser reflow, then tell Leaflet to recalculate.
+    setTimeout(function () { mapInstance.invalidateSize(); }, 60);
+    return function () {}; // placeholder; ESC wired once below
+  }
+
+  // One-time global ESC listener (handles whichever map is currently fullscreen).
+  var _fsEscBound = false;
+  function ensureFullscreenEsc() {
+    if (_fsEscBound) return;
+    _fsEscBound = true;
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      var active = document.querySelector('.map-fullscreen');
+      if (!active) return;
+      var btn = active.querySelector('.map-fs-btn');
+      if (btn) btn.click();
+    });
+  }
+
+  // Add a fullscreen button to a Leaflet map container. `mapEl` is the
+  // Leaflet container div, `wrapEl` is the parent that receives .map-fullscreen,
+  // `mapInstance` is the Leaflet map object.
+  function addFullscreenBtn(mapEl, wrapEl, mapInstance) {
+    if (!mapEl || !wrapEl || !mapInstance) return;
+    // Avoid duplicates.
+    if (mapEl.querySelector('.map-fs-btn')) return;
+    var btn = document.createElement('button');
+    btn.className = 'map-fs-btn';
+    btn.type = 'button';
+    btn.textContent = '\u26F6';
+    btn.title = 'Fullscreen';
+    btn.setAttribute('aria-label', 'Fullscreen');
+    mapEl.style.position = 'relative'; // ensure the button is positioned inside
+    mapEl.appendChild(btn);
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      toggleMapFullscreen(mapInstance, wrapEl, btn);
+    });
+    ensureFullscreenEsc();
+  }
+
   // Create the Leaflet map once, on the first reveal (Leaflet needs a sized,
   // visible container). Returns true if a usable map instance exists.
   function ensureT2Map() {
@@ -3781,6 +3843,9 @@
       volunteer: L.layerGroup().addTo(map)
       // === VOLUNTEER MARKERS END (layer) ===
     };
+    // Fullscreen toggle button (top-right of the map).
+    var t2body = document.getElementById('t2map-body');
+    addFullscreenBtn(el, t2body, map);
     return true;
   }
 
