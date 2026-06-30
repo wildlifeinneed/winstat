@@ -28,6 +28,7 @@ warning and skips that volunteer (no coords emitted); it never aborts the batch.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -42,6 +43,12 @@ CENSUS_GEOCODER_URL = (
 )
 CENSUS_BENCHMARK = "Public_AR_Current"
 GEOCODE_TIMEOUT = 30
+
+# Nominatim (OpenStreetMap) — free fallback geocoder when Census returns no match.
+# ToS requires a descriptive User-Agent and max 1 request/second.
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+NOMINATIM_USER_AGENT = "PA-Wildlife-Rehab-Geocoder/1.0"
+_nominatim_last_call: float = 0.0
 
 
 def _address_signature(
@@ -146,6 +153,87 @@ def geocode_address(
         return None
 
 
+def _nominatim_rate_limit() -> None:
+    """Enforce Nominatim's 1-request-per-second rate limit."""
+    global _nominatim_last_call
+    now = time.monotonic()
+    elapsed = now - _nominatim_last_call
+    if _nominatim_last_call > 0 and elapsed < 1.0:
+        time.sleep(1.0 - elapsed)
+    _nominatim_last_call = time.monotonic()
+
+
+def geocode_address_nominatim(
+    street: str,
+    city: str,
+    state: str,
+    zip_code: str,
+    session: Optional[requests.Session] = None,
+) -> Optional[Tuple[float, float]]:
+    """Fallback geocoder using Nominatim (OpenStreetMap).
+
+    Called only when the Census geocoder returns no match. Returns ``(lat, lon)``
+    or ``None``. Respects Nominatim ToS: descriptive User-Agent, max 1 req/s.
+    """
+    parts = [
+        str(street or "").strip(),
+        str(city or "").strip(),
+        str(state or "").strip(),
+        str(zip_code or "").strip(),
+    ]
+    query = ", ".join(p for p in parts if p)
+    if not query:
+        return None
+
+    session = session or requests.Session()
+    _nominatim_rate_limit()
+
+    try:
+        resp = session.get(
+            NOMINATIM_URL,
+            params={
+                "q": query,
+                "format": "json",
+                "countrycodes": "us",
+                "limit": "1",
+            },
+            headers={"User-Agent": NOMINATIM_USER_AGENT},
+            timeout=GEOCODE_TIMEOUT,
+        )
+    except requests.RequestException as exc:
+        logger.warning("Nominatim geocode request failed: %s", exc)
+        return None
+
+    if resp.status_code >= 400:
+        logger.warning("Nominatim geocode HTTP %s", resp.status_code)
+        return None
+
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        logger.warning("Nominatim geocode returned non-JSON: %s", exc)
+        return None
+
+    if not isinstance(data, list) or not data:
+        logger.warning(
+            "No Nominatim match for query=%r", query,
+        )
+        return None
+
+    hit = data[0]
+    lat = hit.get("lat")
+    lon = hit.get("lon")
+    if lat is None or lon is None:
+        logger.warning("Nominatim match missing lat/lon for query=%r", query)
+        return None
+
+    try:
+        return float(lat), float(lon)
+    except (TypeError, ValueError) as exc:
+        logger.warning("Nominatim coordinates not numeric (%r, %r): %s", lat, lon, exc)
+        return None
+
+
 def _coords_by_signature(
     existing: Optional[List[Dict[str, Any]]],
 ) -> Dict[str, Tuple[float, float]]:
@@ -219,32 +307,49 @@ def batch_geocode_volunteers(
         sig = _address_signature(street, city, state, zip_code)
 
         coord = cache.get(sig)
+        source = "cache"
         if coord is not None:
             logger.debug("Reusing cached coord for signature %s", sig)
         else:
             coord = geocode_address(
                 street, city, state, zip_code, session=session
             )
-            if coord is None:
-                # geocode_address already logged the reason; skip this one.
-                # Record the failure with the volunteer name for reporting.
-                vol_name = v.get("name", "")
-                addr_parts = [
-                    str(street or "").strip(),
-                    str(city or "").strip(),
-                    str(state or "").strip(),
-                    str(zip_code or "").strip(),
-                ]
-                addr_display = ", ".join(p for p in addr_parts if p)
-                reason = "No Census address match"
-                if not str(street or "").strip() or not str(city or "").strip():
-                    reason = "Missing street or city"
-                failures.append({
-                    "name": vol_name,
-                    "address": addr_display,
-                    "reason": reason,
-                })
-                continue
+            if coord is not None:
+                source = "Census"
+                logger.info(
+                    "Geocoded via Census: city=%r zip=%r", city, zip_code,
+                )
+            else:
+                # Census failed — try Nominatim as fallback.
+                coord = geocode_address_nominatim(
+                    street, city, state, zip_code, session=session
+                )
+                if coord is not None:
+                    source = "Nominatim"
+                    logger.info(
+                        "Geocoded via Nominatim fallback: city=%r zip=%r",
+                        city,
+                        zip_code,
+                    )
+                else:
+                    # Both Census and Nominatim failed; record failure.
+                    vol_name = v.get("name", "")
+                    addr_parts = [
+                        str(street or "").strip(),
+                        str(city or "").strip(),
+                        str(state or "").strip(),
+                        str(zip_code or "").strip(),
+                    ]
+                    addr_display = ", ".join(p for p in addr_parts if p)
+                    reason = "No Census or Nominatim match"
+                    if not str(street or "").strip() or not str(city or "").strip():
+                        reason = "Missing street or city"
+                    failures.append({
+                        "name": vol_name,
+                        "address": addr_display,
+                        "reason": reason,
+                    })
+                    continue
 
         lat, lon = coord
         home_county = (v.get("county") or "").strip()

@@ -48,7 +48,7 @@ class _FakeSession:
         self._exc = exc
         self.calls = 0
 
-    def get(self, url, params=None, timeout=None):
+    def get(self, url, params=None, timeout=None, **kwargs):
         self.calls += 1
         if self._exc is not None:
             raise self._exc
@@ -213,15 +213,16 @@ def test_batch_skips_failed_geocode_without_aborting(caplog):
     def fake_geocode(street, city, state, zip_code, session=None):
         return None if street == "bad" else (40.0, -76.3)
 
-    with mock.patch.object(geocoder, "geocode_address", side_effect=fake_geocode):
+    with mock.patch.object(geocoder, "geocode_address", side_effect=fake_geocode), \
+         mock.patch.object(geocoder, "geocode_address_nominatim", return_value=None):
         out, failures = geocoder.batch_geocode_volunteers(volunteers)
 
     # The bad one is skipped; the batch still produces the good record.
     assert len(out) == 1
     assert out[0]["home_county"] == "Lancaster"
-    # The bad one is recorded as a failure.
+    # The bad one is recorded as a failure (both geocoders failed).
     assert len(failures) == 1
-    assert failures[0]["reason"] == "No Census address match"
+    assert failures[0]["reason"] == "No Census or Nominatim match"
 
 
 # ---------------------------------------------------------------------------
@@ -291,6 +292,89 @@ def test_address_signature_is_case_and_whitespace_insensitive():
     a = geocoder._address_signature("100 Main St", "Lancaster", "PA", "17601")
     b = geocoder._address_signature("  100 MAIN st ", "lancaster ", " pa", "17601 ")
     assert a == b
+
+
+# ---------------------------------------------------------------------------
+# 5. Nominatim fallback geocoder
+# ---------------------------------------------------------------------------
+
+
+def test_nominatim_success_returns_lat_lon():
+    body = [{"lat": "40.7934", "lon": "-77.8600"}]
+    session = _FakeSession(_FakeResponse(body))
+    result = geocoder.geocode_address_nominatim(
+        "100 Main St", "State College", "PA", "16801", session=session
+    )
+    assert result == (40.7934, -77.86)
+
+
+def test_nominatim_no_match_returns_none(caplog):
+    session = _FakeSession(_FakeResponse([]))
+    with caplog.at_level("WARNING", logger="geocoder"):
+        result = geocoder.geocode_address_nominatim(
+            "999 Nowhere", "Faketown", "PA", "00000", session=session
+        )
+    assert result is None
+    assert any("No Nominatim match" in r.message for r in caplog.records)
+
+
+def test_nominatim_http_error_returns_none(caplog):
+    session = _FakeSession(_FakeResponse({}, status_code=500))
+    with caplog.at_level("WARNING", logger="geocoder"):
+        result = geocoder.geocode_address_nominatim(
+            "1 Main", "Erie", "PA", "16501", session=session
+        )
+    assert result is None
+    assert any("Nominatim geocode HTTP" in r.message for r in caplog.records)
+
+
+def test_nominatim_network_error_returns_none(caplog):
+    session = _FakeSession(exc=requests.ConnectionError("boom"))
+    with caplog.at_level("WARNING", logger="geocoder"):
+        result = geocoder.geocode_address_nominatim(
+            "1 Main", "Erie", "PA", "16501", session=session
+        )
+    assert result is None
+    assert any("Nominatim geocode request failed" in r.message for r in caplog.records)
+
+
+def test_nominatim_empty_query_returns_none():
+    session = _FakeSession(_FakeResponse([]))
+    result = geocoder.geocode_address_nominatim("", "", "", "", session=session)
+    assert result is None
+    assert session.calls == 0
+
+
+# ---------------------------------------------------------------------------
+# 6. Batch fallback: Census fail → Nominatim success
+# ---------------------------------------------------------------------------
+
+
+def test_batch_uses_nominatim_when_census_fails(caplog):
+    """When Census returns no match but Nominatim succeeds, the volunteer
+    is geocoded and no failure is recorded."""
+    volunteers = [
+        {
+            "street": "352 Upper Ridge Dr",
+            "city": "Effort",
+            "state": "PA",
+            "zip": "18330",
+            "county": "Monroe",
+            "roles": ["C&T"],
+        }
+    ]
+    with mock.patch.object(geocoder, "geocode_address", return_value=None), \
+         mock.patch.object(
+             geocoder, "geocode_address_nominatim", return_value=(41.0, -75.4)
+         ):
+        with caplog.at_level("INFO", logger="geocoder"):
+            out, failures = geocoder.batch_geocode_volunteers(volunteers)
+
+    assert len(out) == 1
+    assert failures == []
+    assert out[0]["lat"] == 41.0
+    assert out[0]["lon"] == -75.4
+    assert any("Nominatim fallback" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
