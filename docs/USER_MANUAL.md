@@ -76,9 +76,18 @@ After choosing a county, the page shows:
   - **Courier**
 - each card shows **available out of total**
 - a coordinator line for that WIN area, when one is on file
+- each WIN area is shown in a **distinct color** (ColorBrewer palette) for easy
+  visual identification
 
 The county cards are based on the **WIN area pool** tied to that county, so the
 subtext may show an area breakdown across more than one county.
+
+### County Note banner
+
+If the county has **special notes** set by an admin, they appear as a blue
+**"County Note:"** banner at the top of the recommendation section — even when
+dispatch is fully enabled. These notes contain important county-specific
+instructions (e.g., who to refer to, blackout dates, coordinator info).
 
 ### Getting a recommendation
 
@@ -89,11 +98,23 @@ The recommendation may tell you to:
 - **dispatch through Connecteam**
 - use a **courier**
 - use an available **C&T / RVS C&T** volunteer
+- **Outside Referral** — county policy says do not dispatch; the recommendation
+  shows referral targets with name, phone, and any notes
 - or tell the finder to call **PA Game Commission**
 
 If capacity is very low, the result may show a **Marginal** badge and list the
 stored availability notes for those volunteers. Those notes are meant to help you
-judge whether someone is likely usable, but they may be out of date.
+judge whether someone is likely usable, but they may be out of date. The low
+capacity warning also suggests to **consider calling PGC or cross posting**.
+
+The recommendation section does not have its own scroll bar — it flows naturally
+with the page to avoid nested scrolling.
+
+### Rehabber list
+
+Below the recommendation, the page shows an **"Area XX Rehabbers"** section
+(dynamically labeled with the county's WIN area number) listing nearby rehabbers
+with name, phone, county, and availability notes.
 
 ### Thin county handoff
 
@@ -103,11 +124,45 @@ If the county looks thin, the page may show:
 
 That button switches you into address mode so you can search by a real location.
 
+### Cross-post check
+
+When the recommendation is to dispatch (or dispatch with a warning), a
+**"Check for Cross Post"** button appears below the recommendation.
+
+Use this when the animal is near a WIN area boundary and you want to see if
+volunteers in neighboring areas could also help.
+
+1. **Enter the animal address** — an autocomplete field with type-ahead suggestions
+   helps you find the location quickly.
+2. The tool calculates the **distance from the animal to each neighboring WIN area**
+   and lists suggested areas sorted **closest first**.
+3. It fetches **qualified volunteers and rehabbers** from both the dispatch area and
+   the suggested areas.
+4. A **cross-post map** appears showing:
+   - the animal location (red diamond)
+   - volunteers from the dispatch area and suggested areas (color-coded by WIN area)
+   - rehabbers (blue markers)
+   - suggested WIN areas highlighted on the map with filled legend dots
+
+### Cross-post map features
+
+The cross-post map includes:
+
+- a **dynamic legend** showing pin types with per-role counts (C&T, RVS C&T,
+  Courier) and availability breakdown (e.g., "RVS C&T 5 (3 avail)")
+- an **"Include unavailable"** toggle — uncheck to hide unavailable volunteers;
+  when shown, unavailable volunteers appear as **dimmed pins**
+- a **fullscreen button** (press Escape to exit)
+- a **distance scale bar** (miles)
+
+The cross-post map is **destroyed and rebuilt** whenever you change inputs or run a
+new recommendation, so you always see fresh data.
+
 ---
 
 ## 4. Dispatch Helper — By Animal Address
 
-Use **By Animal Address** when you have the animal’s location and want a more exact
+Use **By Animal Address** when you have the animal's location and want a more exact
 search.
 
 ### How it works
@@ -129,11 +184,17 @@ Address results can show:
   - **RVS C&T**
   - **Courier**
 - **WIN areas covered**
-- a resolved location line showing the animal’s county and WIN area, when available
+- a resolved location line showing the animal's county and WIN area, when available
 - **Recommended Actions**
 - a list of **qualified volunteers within the selected radius**
 - an on-demand **nearest rehabbers** section
 - an optional **map**
+
+### Non-Connecteam volunteers
+
+Some volunteers may not be on Connecteam. These volunteers are **included in the
+results** (not filtered out) and labeled with a notice:
+**"X volunteer(s) not on Connecteam — contact by text/phone."**
 
 ### Qualified volunteer list
 
@@ -146,7 +207,7 @@ you described. Each line may show:
 - county
 - an availability note, if one exists
 
-Some volunteer rows may appear dimmed when the person’s availability note suggests
+Some volunteer rows may appear dimmed when the person's availability note suggests
 they are not currently available.
 
 If the search radius is very broad, the page may show only the nearest results and
@@ -176,10 +237,17 @@ The inline map shows three marker types:
 - **rehabbers** — blue markers
 - **volunteers** — amber markers
 
-Volunteer markers are shown at the **center of the volunteer’s home county**, not
+Volunteer markers are shown at the **center of the volunteer's home county**, not
 at an exact address. This is intentional for privacy.
 
-The map includes a legend and is meant for quick orientation, not for exact routing.
+The map includes:
+
+- a **dynamic legend** with per-role counts and availability breakdown
+  (e.g., "C&T 8 (5 avail)")
+- an **"Include unavailable"** toggle — uncheck to hide unavailable volunteers;
+  when shown, unavailable volunteers appear as **dimmed pins**
+- a **fullscreen button** (press Escape to exit)
+- a **distance scale bar** (miles)
 
 ### Nearest rehabbers
 
@@ -344,7 +412,7 @@ The Dispatch Helper keeps the PA Game Commission fallback in view:
 **(833) 742-4868 or (833) 742-9453**
 
 Use that number when the tool tells you there is no qualified WIN help available,
-or when you need to escalate beyond WIN’s volunteer response.
+or when you need to escalate beyond WIN's volunteer response.
 
 ---
 
@@ -356,6 +424,10 @@ or when you need to escalate beyond WIN’s volunteer response.
 - In **Facility Status**, always call ahead even if a facility appears open.
 - In **Equipment Transfers**, click a row for the full details instead of relying on
   the shortened table view.
+- The **cross-post check** in county mode helps when the animal is near a WIN area
+  boundary — use it to find help in neighboring areas.
+- Non-Connecteam volunteers appear in address results but must be contacted directly
+  by text or phone.
 
 If something looks wrong or incomplete, treat the app as a guide and confirm by
 phone or through the usual WIN communication channels.

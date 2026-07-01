@@ -3,7 +3,8 @@
 This guide is for the person who keeps the dispatcher running — not a developer.
 It assumes you already know what the app does for the user. It covers where the
 wording lives, how to tune behavior, how the data gets refreshed from Monday.com,
-how the Cloudflare Worker works, and how to deploy the site.
+how the Cloudflare Worker works, how the Policy Editor works, and how to deploy
+the site.
 
 Everything below describes the **actual live files** in this repository. File
 paths are relative to the project root (`PA-Wildlife-Rehab/`).
@@ -205,7 +206,7 @@ REHAB_COL_IDS = {
 - lat/lon are **already on the board** (`text_mkqqj30w` / `text_mkqqrt6e`), so no
   geocoding is done for rehabbers; rows missing lat/lon are skipped.
 - The board's **open/closed status column (`color_mkv6xbc`) is intentionally NOT
-  pulled** — it is not the live availability surface (see §6 Beta Caveats), so
+  pulled** — it is not the live availability surface (see §7 Beta Caveats), so
   surfacing it would mislead.
 
 **Volunteer board — `9092079933` (Connecteam_Users).**
@@ -260,7 +261,36 @@ existing snapshot), `--if-stale` (sentinel pre-check; what CI uses),
 The Monday API token is read from a gitignored `.monday_token` file in the project
 root, or the `MONDAY_API_TOKEN` environment variable.
 
-### 2d. PII rule
+### 2d. Geocoding: Census → Nominatim fallback
+
+Volunteer addresses are geocoded by `geocoder.py`, which uses a **two-tier
+fallback** strategy:
+
+1. **Primary — US Census Geocoding API** (`geocoding.geo.census.gov`): free, no API
+   key, structured address input.
+2. **Fallback — Nominatim / OpenStreetMap** (`nominatim.openstreetmap.org`): called
+   only when the Census geocoder returns no match. Respects Nominatim ToS with a
+   descriptive User-Agent (`PA-Wildlife-Rehab-Geocoder/1.0`) and a 1 request/second
+   rate limit.
+
+The geocoder uses address-signature caching so re-runs skip already-geocoded
+addresses. It returns a `(coords, failures)` tuple — failures include name,
+address, and reason.
+
+### 2e. Geocode failure notifications
+
+Every refresh writes `geocode_failures.json` (an array of failures, or empty `[]`
+if all addresses geocoded successfully). When failures exist:
+
+- The file is committed as a public aggregate.
+- The CI workflow **automatically creates a GitHub Issue** titled
+  "⚠️ Geocoding failures — {date}" with a Markdown table of Name | Address |
+  Reason, labeled `geocoding`.
+
+This ensures geocoding problems are visible and tracked without blocking the
+refresh.
+
+### 2f. PII rule
 
 The volunteer coords dataset is the only private dataset. It lives under
 `data/` (not `docs/`) so the static site never publishes it, and it is gitignored:
@@ -277,7 +307,7 @@ for PII-shaped keys (phone/email/address/etc.). Any violation aborts the push.
 **Rule of thumb: never commit `data/volunteer_coords.json`, and never put volunteer
 phone/address into a `docs/data/*` file.**
 
-### 2e. Volunteer data validation (two checks)
+### 2g. Volunteer data validation (two checks)
 
 After the volunteer coords dataset is built but **before** it is written or
 uploaded to KV, `refresh_monday.py` runs two safety checks
@@ -298,7 +328,7 @@ it can be published. It confirms each record:
 If **any** record fails, the script logs every problem and **exits non-zero** —
 bad / scrambled data is **never written to `docs/data/` or uploaded to KV**. This
 check always runs (you cannot turn it off). A failure fails the CI job, and GitHub
-Actions emails the repo owner about the failed workflow run (see §2g).
+Actions emails the repo owner about the failed workflow run (see §2i).
 
 **Check 2 — geocode accuracy (NON-BLOCKING).** A reverse sanity check that the
 stored coordinates actually make sense for the volunteer's stated address:
@@ -316,7 +346,7 @@ This check only **logs warnings** — it never blocks a refresh. In CI it runs
 automatically after each refresh as a separate, `continue-on-error` step, so a
 flagged volunteer surfaces as a warning without stopping the data pipeline.
 
-### 2f. Running the accuracy check manually
+### 2h. Running the accuracy check manually
 
 Run the full accuracy check (both county containment and re-geocode drift) without
 touching any files or KV:
@@ -335,7 +365,7 @@ python3 refresh_monday.py --validate --revalidate-geocode --dry-run
 - Check 1 (record integrity) always runs regardless of flags, so this command will
   also fail loudly if any record is malformed.
 
-### 2g. How you get notified
+### 2i. How you get notified
 
 - **Blocking failures (Check 1, or any pipeline error):** GitHub Actions sends an
   email to the **repository owner** whenever a scheduled or manual workflow run
@@ -346,6 +376,9 @@ python3 refresh_monday.py --validate --revalidate-geocode --dry-run
   click the latest "Refresh wildlife capacity snapshot" run, and look at the
   **"Validate geocode accuracy (non-blocking)"** step — flagged records are listed
   in its log (the step is marked with a warning when it flags something).
+- **Geocode failures:** when any volunteer address fails to geocode (both Census
+  and Nominatim), a GitHub Issue is automatically created with the failure details
+  (see §2e).
 
 **What to do if something flags:**
 
@@ -357,6 +390,9 @@ python3 refresh_monday.py --validate --revalidate-geocode --dry-run
   volunteer's address on Monday; a genuine bad coordinate usually means the address
   was mistyped or geocoded to the wrong place. Re-run the manual command above to
   re-check after fixing.
+- A **geocode failure issue** → the volunteer's address could not be resolved by
+  either Census or Nominatim. Check the address on Monday for typos or
+  incomplete information.
 
 ---
 
@@ -364,10 +400,17 @@ python3 refresh_monday.py --validate --revalidate-geocode --dry-run
 
 ### 3a. What it does
 
-The Worker answers the "find help nearby" address/radius lookups. The browser sends
-an animal location (lat/lon, or an address the Worker geocodes server-side) plus a
-radius; the Worker reads the **private** volunteer coords from KV and returns only a
-**PII-free aggregate**:
+The Worker serves multiple roles:
+
+1. **Volunteer radius search** — the browser sends an animal location (lat/lon, or
+   an address the Worker geocodes server-side) plus a radius; the Worker reads the
+   **private** volunteer coords from KV and returns only a **PII-free aggregate**.
+2. **Address autocomplete** — proxies Photon (OSM) typeahead for the address input
+   fields.
+3. **Rehabber driving distances** — computes driving distances via the ORS Matrix
+   API (with haversine fallback).
+4. **Policy management** — password-protected endpoints for saving, loading, and
+   versioning county dispatch policies.
 
 ```13:16:worker/src/index.mjs
  * The Worker returns ONLY the PII-free aggregate:
@@ -384,7 +427,20 @@ All real logic lives in `worker/src/handler.js` (a pure, unit-tested module);
 runtime `fetch`. Supporting modules: `aggregate.js`, `census.js` (geocoding),
 `autocomplete.js`.
 
-### 3b. Deploying the Worker
+### 3b. Worker endpoints
+
+| Endpoint | Method | Auth | Description |
+| --- | --- | --- | --- |
+| Default (lat/lon or address) | GET/POST | No | Volunteer radius search; returns PII-free aggregate. `context=1` for Tier 2 detailed response |
+| `?autocomplete=<partial>` | GET | No | Proxies Photon (OSM) typeahead; Census fallback for full addresses |
+| `?mode=rehabber_distances` | POST | No | Driving distances via ORS Matrix API; haversine fallback |
+| `?mode=policy` | GET | No | Returns current `policy_json` from KV |
+| `?mode=policy_versions` | GET | No | Lists all `policy_snapshot_*` keys, sorted newest-first |
+| `?mode=policy_version&key=...` | GET | No | Returns a specific snapshot's full policy JSON |
+| `?mode=check_password` | POST | Yes | Validates password against `POLICY_PASSWORD` secret |
+| `?mode=save_policy` | POST | Yes | Snapshots current policy, writes new policy to KV |
+
+### 3c. Deploying the Worker
 
 Deploy with `wrangler` from the `worker/` directory:
 
@@ -398,9 +454,10 @@ Config lives in `worker/wrangler.toml`:
 - Worker name: `pa-wildlife-dispatcher`, entry `src/index.mjs`.
 - KV namespace binding `VOLUNTEER_COORDS`, id
   `43bdd5e237544683b20cdbc61d42dd49`. The CI refresh job writes the coords array to
-  this namespace under the key `volunteer_coords`.
+  this namespace under the key `volunteer_coords`. The same namespace also stores
+  `policy_json` (current policy) and `policy_snapshot_*` keys (version history).
 
-```31:33:worker/wrangler.toml
+```48:50:worker/wrangler.toml
 [[kv_namespaces]]
 binding = "VOLUNTEER_COORDS"
 id = "43bdd5e237544683b20cdbc61d42dd49"
@@ -409,11 +466,13 @@ id = "43bdd5e237544683b20cdbc61d42dd49"
 - **Live URL:** `https://pa-wildlife-dispatcher.winstat.workers.dev` (this is the
   endpoint the front-end calls; see `WORKER_URL` in `docs/assets/dispatcher.js`).
 - **Cloudflare account:** *Wildlife In Need*, login `wildlifeinneed111@gmail.com`.
+- **Secrets** (set via `wrangler secret put`, never in `wrangler.toml`):
+  - `ORS_API_KEY` — OpenRouteService Matrix API key for driving distances.
+  - `POLICY_PASSWORD` — shared password for the policy editor save endpoint.
+  - `CLOUDFLARE_API_TOKEN` — deploy token (supplied via environment).
 
 **Redeploy after any change under `worker/src/`.** The deployed Worker is a built
 bundle; editing the source files does nothing until you re-run `wrangler deploy`.
-Secrets (the Cloudflare API token) are supplied to `wrangler` via the environment at
-deploy time and are never committed.
 
 > Note: the committed `wrangler.toml` header still carries old "scaffold / not
 > deployed yet" comments and a `[vars] ALLOWED_ORIGIN` placeholder
@@ -423,7 +482,109 @@ deploy time and are never committed.
 
 ---
 
-## 4. Deploying the Front-End
+## 4. Policy Editor
+
+The Policy Editor (`docs/policy-editor.html`) lets admins configure per-county
+dispatch policies without editing code or JSON files.
+
+### 4a. Admin login gate
+
+The editor starts in **read-only mode**. All editing controls, action buttons
+(Save, Reset, Download), and version history are locked until the admin
+authenticates.
+
+To unlock: click the **Admin Login** button and enter the shared password. The
+editor validates the password against the Worker's `check_password` endpoint. On
+success, all editing controls are enabled.
+
+**What remains accessible without login:** county selector, preview toggle, and
+print policy.
+
+### 4b. Editing a county policy
+
+After selecting a county and logging in, the editor shows:
+
+- **Volunteer Info panel** — three read-only role boxes (**C&T**, **RVS C&T**,
+  **Courier**) showing:
+  - In-county count
+  - In-area count (with per-county breakdown)
+  - Monitoring count (with detail)
+  - An **unavailability section** listing unavailable volunteers in the area
+- **Flagging heading** — "Flagging potential Area XX availability issues" (dynamic
+  area number)
+- **Dispatch mode** — three radio buttons:
+  - **Dispatch all calls** — normal dispatch for all scenarios
+  - **Dispatch with exceptions** — dispatch by default, but refer out specific
+    scenarios (Capture, Transport, RVS Capture checkboxes)
+  - **Refer all calls** — do not dispatch; refer everything to specified targets
+- **Referral targets** — a rehabber dropdown populated from `rehabbers.json` plus a
+  "custom" option for manual entry. Each target shows name, phone, and notes.
+- **Special Notes** — free-text field with helper text:
+  *"(notes always show when {county} selected)"*
+
+### 4c. Preview
+
+The **Preview recommendation** toggle (collapsible) runs the production decision
+engine against current live counts and in-progress edits. It shows three scenarios:
+
+- Capture (non-RVS)
+- Transport
+- RVS Capture
+
+Each scenario displays the action label with tone coloring. Referral actions show
+human-readable target labels (e.g., "Refer to: Facility Name"). County special
+notes appear as a blue **"County Note"** banner in the preview.
+
+### 4d. Saving
+
+Click **Save** to persist the policy to the Worker's KV store. The editor prompts
+for the admin password (if not already authenticated), then POSTs the serialized
+policy to the Worker's `save_policy` endpoint. The Worker automatically snapshots
+the current version before overwriting.
+
+### 4e. Version history
+
+Click **Version History** to see all saved snapshots, sorted newest-first. For each
+version you can:
+
+- **Preview** — side-by-side diff table (Snapshot vs Current) for all counties,
+  with changed rows highlighted and a diff count
+- **Restore** — loads the snapshot into the editor; you must click Save to make it
+  live
+- **Print** — opens a formatted, print-ready view of that snapshot
+
+There is also a **Print Current Policy** button for the working state.
+
+---
+
+## 5. PAWR Facility Sync
+
+The `check_pawr.py` script automatically checks the PA Wildlife Rehabilitator
+(pawr.com) website against the local `facilities.json` to detect discrepancies.
+
+### 5a. What it checks
+
+- **Possible additions** — facilities on pawr.com not in `facilities.json`
+- **Possible removals** — facilities in `facilities.json` not found on pawr.com
+- **Phone mismatches** — phone numbers that differ between the two sources
+
+### 5b. How it runs
+
+- **Schedule:** weekly (Sundays at 06:00 UTC) via the `check-pawr.yml` GitHub
+  Actions workflow.
+- **Output:** `pawr_diff.json` with typed diffs.
+- **Notification:** when differences are found, a **GitHub Issue** is automatically
+  created with Markdown tables for additions, removals, and phone mismatches,
+  labeled `pawr-sync`.
+
+### 5c. False positive handling
+
+Known false positives can be added to `pawr_ignore.json`. Entries in this file are
+excluded from future diff reports.
+
+---
+
+## 6. Deploying the Front-End
 
 The front-end is the static `docs/` folder served by **GitHub Pages** from the repo
 root of `docs/`. To deploy a change:
@@ -451,7 +612,7 @@ auto-generated and will be overwritten.
 
 ---
 
-## 5. Adding / Removing a Coordinator
+## 7. Adding / Removing a Coordinator
 
 This is a **data-only** change — no code edit needed.
 
@@ -468,7 +629,21 @@ edit.
 
 ---
 
-## 6. Beta Caveats
+## 8. GitHub Actions Workflows
+
+Two automated workflows run in CI:
+
+| Workflow | File | Schedule | Purpose |
+| --- | --- | --- | --- |
+| Refresh dispatcher data | `refresh.yml` | Daily + manual | Pulls Monday.com data, geocodes, writes public JSON, pushes coords to KV |
+| Check PAWR facilities | `check-pawr.yml` | Weekly (Sun 06:00 UTC) + manual | Compares pawr.com against `facilities.json`, creates issue on diff |
+
+Both workflows can also be triggered manually via the GitHub Actions "Run workflow"
+button.
+
+---
+
+## 9. Beta Caveats
 
 - **Open/closed status is NOT from Monday.** The dispatcher does not surface a
   rehabber's open/closed state. The RehabDB open/closed column (`color_mkv6xbc`) is
@@ -478,8 +653,8 @@ edit.
   add the open/closed column back into the pipeline expecting it to be accurate.
 
 - **Rehabber data traces to pawr.com.** The rehabber facility records originate
-  from pawr.com. If a facility's details look wrong, that is the upstream source to
-  reconcile against.
+  from pawr.com. The `check_pawr.py` script (§5) automatically monitors for
+  discrepancies between pawr.com and the local dataset.
 
 ---
 
@@ -498,10 +673,16 @@ edit.
 | Coordinator board | `18416913502` (Area Coordinators) — item=area, name only |
 | Worker live URL | `https://pa-wildlife-dispatcher.winstat.workers.dev` |
 | Worker KV namespace | `VOLUNTEER_COORDS` = `43bdd5e237544683b20cdbc61d42dd49` |
+| Worker secrets | `ORS_API_KEY`, `POLICY_PASSWORD`, `CLOUDFLARE_API_TOKEN` |
 | Cloudflare account | Wildlife In Need (wildlifeinneed111@gmail.com) |
 | Deploy Worker | `cd worker && wrangler deploy` (after any `worker/src/` change) |
 | Deploy front-end | `git push origin main` (GitHub Pages from `docs/`) |
 | After editing USER_MANUAL.md | `node tools/build_manual.js`, then commit + push both files |
+| Policy Editor | `docs/policy-editor.html` — admin login required for editing |
+| Policy save/load | Worker KV via `?mode=save_policy` / `?mode=policy` |
+| Policy version history | Worker KV `policy_snapshot_*` keys via `?mode=policy_versions` |
+| PAWR facility sync | `check_pawr.py` — weekly via `check-pawr.yml`, issues on diff |
+| Geocode failures | `geocode_failures.json` — auto-created issue on failure |
 
 ---
 
