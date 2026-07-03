@@ -318,10 +318,10 @@
     },
     "Clinton": {
       "courier": {
-        "available": 1,
+        "available": 0,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail after 5pm: Mon, Tues, Thurs, Fri; After 1pm Wed; Weekends. Varies",
+            "availability_note": "Avail after 5pm: Mon, Tues, Thurs, Fri; After 1pm Wed; Weekends. Varies, Unavail 7/7-7/12, 7/29-7/30, 8/10-8/24, 9/21-10/5, 11/2-11/16, 12/14-1/1/27, but contact if emergency",
             "connecteam_user": true
           }
         ],
@@ -1159,7 +1159,7 @@
       }
     }
   },
-  "generated_at": "2026-07-02T16:29:19Z",
+  "generated_at": "2026-07-03T16:07:03Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
