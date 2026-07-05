@@ -119,11 +119,11 @@
         "available": 0,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail Weekdays 8AM-5PM, Sat 8AM-5PM, Sun 2PM-5PM. Covers Bedford, Cambria Co, counties near Bedford",
+            "availability_note": "Avail Weekdays 8AM-5PM, Sat 8AM-5PM, Sun 2PM-5PM. Covers Bedford, Cambria Co, counties near Bedford, Unavail 4/5/26",
             "connecteam_user": true
           },
           {
-            "availability_note": "Avail Weekdays 8AM-5PM, Sat 8AM-5PM, Sun 2PM-5PM. Covers Bedford, Cambria Co, counties near Bedford,",
+            "availability_note": "Avail Weekdays 8AM-5PM, Sat 8AM-5PM, Sun 2PM-5PM. Covers Bedford, Cambria Co, counties near Bedford, Unavail 4/5/26",
             "connecteam_user": true
           }
         ],
@@ -152,7 +152,7 @@
         "total": 1
       },
       "ct_rvs": {
-        "available": 3,
+        "available": 2,
         "marginal_volunteers": [],
         "total": 3
       }
@@ -402,10 +402,10 @@
     },
     "Cumberland": {
       "courier": {
-        "available": 0,
+        "available": 1,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail Mon after 4PM, Fri after 4PM, Weekends, Unavail until 7/3",
+            "availability_note": "Avail Mon after 4PM, Fri after 4PM, Weekends",
             "connecteam_user": true
           }
         ],
@@ -1123,7 +1123,7 @@
         "available": 0,
         "marginal_volunteers": [
           {
-            "availability_note": "Unavail Tues; Avail 11am-8pm all other days, Unavail 6/26-7/3",
+            "availability_note": "Unavail Tues; Avail 11am-8pm all other days",
             "connecteam_user": true
           }
         ],
@@ -1163,7 +1163,7 @@
       }
     }
   },
-  "generated_at": "2026-07-04T14:50:54Z",
+  "generated_at": "2026-07-05T15:01:22Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
