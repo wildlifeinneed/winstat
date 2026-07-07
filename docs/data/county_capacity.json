@@ -35,9 +35,9 @@
     },
     "Allegheny": {
       "courier": {
-        "available": 10,
+        "available": 9,
         "marginal_volunteers": [],
-        "total": 11
+        "total": 10
       },
       "ct_no_rvs": {
         "available": 1,
@@ -50,9 +50,9 @@
         "total": 1
       },
       "ct_rvs": {
-        "available": 2,
+        "available": 3,
         "marginal_volunteers": [],
-        "total": 4
+        "total": 5
       }
     },
     "Armstrong": {
@@ -392,7 +392,7 @@
         "available": 1,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail Mon after 4PM, Fri after 4PM, Weekends",
+            "availability_note": "Avail Mon after 4PM, Fri after 4PM, Weekends,",
             "connecteam_user": true
           }
         ],
@@ -1169,7 +1169,7 @@
       }
     }
   },
-  "generated_at": "2026-07-06T18:19:40Z",
+  "generated_at": "2026-07-07T17:34:47Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
