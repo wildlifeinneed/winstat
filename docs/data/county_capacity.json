@@ -35,7 +35,7 @@
     },
     "Allegheny": {
       "courier": {
-        "available": 10,
+        "available": 9,
         "marginal_volunteers": [],
         "total": 10
       },
@@ -116,17 +116,8 @@
         "total": 0
       },
       "ct_rvs": {
-        "available": 0,
-        "marginal_volunteers": [
-          {
-            "availability_note": "Avail Weekdays 8AM-5PM, Sat 8AM-5PM, Sun 2PM-5PM. Covers Bedford, Cambria Co, counties near Bedford",
-            "connecteam_user": true
-          },
-          {
-            "availability_note": "Avail Weekdays 8AM-5PM, Sat 8AM-5PM, Sun 2PM-5PM. Covers Bedford, Cambria Co, counties near Bedford,",
-            "connecteam_user": true
-          }
-        ],
+        "available": 2,
+        "marginal_volunteers": [],
         "total": 2
       }
     },
@@ -159,7 +150,7 @@
     },
     "Blair": {
       "courier": {
-        "available": 4,
+        "available": 3,
         "marginal_volunteers": [],
         "total": 4
       },
@@ -213,7 +204,7 @@
         "total": 3
       },
       "ct_no_rvs": {
-        "available": 1,
+        "available": 0,
         "marginal_volunteers": [
           {
             "availability_note": "Avail Weekends only, Limit calls to Butler/Moraine area, Raptors & opossums only. Out of area often.",
@@ -257,8 +248,17 @@
     },
     "Carbon": {
       "courier": {
-        "available": 2,
-        "marginal_volunteers": [],
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Weekends; Possibly Weekdays after 6PM",
+            "connecteam_user": true
+          },
+          {
+            "availability_note": "Avail Weekdays & Weekends",
+            "connecteam_user": true
+          }
+        ],
         "total": 2
       },
       "ct_no_rvs": {
@@ -289,21 +289,8 @@
         "total": 0
       },
       "ct_rvs": {
-        "available": 1,
-        "marginal_volunteers": [
-          {
-            "availability_note": "Avail Weekdays, Sat, Afternoon Sun, Can vary",
-            "connecteam_user": true
-          },
-          {
-            "availability_note": "Avail All Week except Unavail Mon 7AM-3PM, Wed 7AM-3PM",
-            "connecteam_user": true
-          },
-          {
-            "availability_note": "Prefer Weekdays & before 4:30PM,",
-            "connecteam_user": true
-          }
-        ],
+        "available": 2,
+        "marginal_volunteers": [],
         "total": 3
       }
     },
@@ -434,7 +421,7 @@
     },
     "Dauphin": {
       "courier": {
-        "available": 1,
+        "available": 0,
         "marginal_volunteers": [
           {
             "availability_note": "Avail Weekends, can vary",
@@ -712,8 +699,17 @@
     },
     "Luzerne": {
       "courier": {
-        "available": 2,
-        "marginal_volunteers": [],
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Weekdays after 5PM, Weekends",
+            "connecteam_user": true
+          },
+          {
+            "availability_note": "Avail Weekends",
+            "connecteam_user": true
+          }
+        ],
         "total": 2
       },
       "ct_no_rvs": {
@@ -739,7 +735,7 @@
     },
     "Lycoming": {
       "courier": {
-        "available": 4,
+        "available": 3,
         "marginal_volunteers": [],
         "total": 5
       },
@@ -805,8 +801,17 @@
     },
     "Monroe": {
       "courier": {
-        "available": 2,
-        "marginal_volunteers": [],
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Weekends, Work sched Flex, Unavail 10/3/26-10/18/26",
+            "connecteam_user": true
+          },
+          {
+            "availability_note": "Avail Weekends, varies",
+            "connecteam_user": true
+          }
+        ],
         "total": 2
       },
       "ct_no_rvs": {
@@ -820,17 +825,8 @@
         "total": 1
       },
       "ct_rvs": {
-        "available": 1,
-        "marginal_volunteers": [
-          {
-            "availability_note": "Avail before 6PM Mon, Thur, Fri, Sat & Sun ; 1PM-6PM Tue & Wed; Will drive up to 1 hour from Effort",
-            "connecteam_user": true
-          },
-          {
-            "availability_note": "Avail Mon, Tues, Thur, Weekends. Avail varies Wed & Fri , 5/1-9/30 Unavail Weekends",
-            "connecteam_user": true
-          }
-        ],
+        "available": 2,
+        "marginal_volunteers": [],
         "total": 2
       }
     },
@@ -853,7 +849,7 @@
     },
     "Northampton": {
       "courier": {
-        "available": 1,
+        "available": 0,
         "marginal_volunteers": [
           {
             "availability_note": "Avail Weekends, schedule varies but flexible",
@@ -885,17 +881,8 @@
     },
     "Northumberland": {
       "courier": {
-        "available": 1,
-        "marginal_volunteers": [
-          {
-            "availability_note": "Avail Weekdays & Weekends",
-            "connecteam_user": true
-          },
-          {
-            "availability_note": "Avail all day Weekdays & Weekends, Not on ConnecTeam, Unavail 7/10-7/12",
-            "connecteam_user": false
-          }
-        ],
+        "available": 2,
+        "marginal_volunteers": [],
         "total": 2
       },
       "ct_no_rvs": {
@@ -1024,7 +1011,7 @@
         "total": 0
       },
       "ct_rvs": {
-        "available": 0,
+        "available": 1,
         "marginal_volunteers": [
           {
             "availability_note": "Avail Weekdays, Sun",
@@ -1102,7 +1089,7 @@
         "total": 0
       },
       "ct_no_rvs": {
-        "available": 0,
+        "available": 1,
         "marginal_volunteers": [
           {
             "availability_note": "Avail Weekdays after 6PM, Sat after 1P & Sun",
@@ -1182,7 +1169,7 @@
       }
     }
   },
-  "generated_at": "2026-07-12T14:38:45Z",
+  "generated_at": "2026-07-13T17:33:10Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
