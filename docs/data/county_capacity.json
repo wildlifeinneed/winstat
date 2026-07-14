@@ -1111,9 +1111,14 @@
     },
     "Westmoreland": {
       "courier": {
-        "available": 2,
-        "marginal_volunteers": [],
-        "total": 2
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Avail Sun; After 7PM other days",
+            "connecteam_user": true
+          }
+        ],
+        "total": 1
       },
       "ct_no_rvs": {
         "available": 1,
@@ -1169,7 +1174,7 @@
       }
     }
   },
-  "generated_at": "2026-07-13T17:33:10Z",
+  "generated_at": "2026-07-14T15:12:47Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
