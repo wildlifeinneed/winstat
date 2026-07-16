@@ -35,9 +35,9 @@
     },
     "Allegheny": {
       "courier": {
-        "available": 9,
+        "available": 10,
         "marginal_volunteers": [],
-        "total": 10
+        "total": 11
       },
       "ct_no_rvs": {
         "available": 1,
@@ -279,7 +279,7 @@
     },
     "Centre": {
       "courier": {
-        "available": 6,
+        "available": 5,
         "marginal_volunteers": [],
         "total": 7
       },
@@ -321,7 +321,7 @@
         "available": 0,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail after 5pm: Mon, Tues, Thurs, Fri; After 1pm Wed; Weekends. Varies, Unavail 7/7-7/12, 7/29-7/30, 8/10-8/24, 9/21-10/5, 11/2-11/16, 12/14-1/1/27, but contact if emergency",
+            "availability_note": "Avail after 5pm: Mon, Tues, Thurs, Fri; After 1pm Wed; Weekends. Varies, Unavail 7/29-7/30, 8/10-8/24, 9/21-10/5, 11/2-11/16, 12/14-1/1/27, but contact if emergency",
             "connecteam_user": true
           }
         ],
@@ -345,9 +345,9 @@
     },
     "Columbia": {
       "courier": {
-        "available": 2,
+        "available": 3,
         "marginal_volunteers": [],
-        "total": 2
+        "total": 3
       },
       "ct_no_rvs": {
         "available": 0,
@@ -748,7 +748,7 @@
         "available": 1,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail 11AM-6PM Daily; Starting 7/13: Avail Weekdays after 4PM, Weekends",
+            "availability_note": "Avail Weekdays after 4PM, Weekends",
             "connecteam_user": true
           }
         ],
@@ -913,10 +913,10 @@
         "total": 0
       },
       "ct_rvs": {
-        "available": 1,
+        "available": 0,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail Varies, Covers Cumberland, Dauphin, Juniata, Perry Co,",
+            "availability_note": "Avail Varies, Covers Cumberland, Dauphin, Juniata, Perry Co, Unavail 7/16-7/19",
             "connecteam_user": true
           }
         ],
@@ -1174,7 +1174,7 @@
       }
     }
   },
-  "generated_at": "2026-07-15T15:12:59Z",
+  "generated_at": "2026-07-16T11:45:31Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
