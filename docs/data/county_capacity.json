@@ -50,7 +50,7 @@
         "total": 1
       },
       "ct_rvs": {
-        "available": 4,
+        "available": 3,
         "marginal_volunteers": [],
         "total": 5
       }
@@ -279,7 +279,7 @@
     },
     "Centre": {
       "courier": {
-        "available": 5,
+        "available": 6,
         "marginal_volunteers": [],
         "total": 7
       },
@@ -1111,24 +1111,14 @@
     },
     "Westmoreland": {
       "courier": {
-        "available": 1,
-        "marginal_volunteers": [
-          {
-            "availability_note": "Avail Sun; After 7PM other days",
-            "connecteam_user": true
-          }
-        ],
-        "total": 1
+        "available": 2,
+        "marginal_volunteers": [],
+        "total": 2
       },
       "ct_no_rvs": {
-        "available": 1,
-        "marginal_volunteers": [
-          {
-            "availability_note": "Avail after 5PM Mon-Thurs; Sat, before 6PM Sun",
-            "connecteam_user": true
-          }
-        ],
-        "total": 1
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
       },
       "ct_rvs": {
         "available": 0,
@@ -1174,7 +1164,7 @@
       }
     }
   },
-  "generated_at": "2026-07-16T11:45:31Z",
+  "generated_at": "2026-07-17T11:25:16Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
