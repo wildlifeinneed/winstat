@@ -434,17 +434,8 @@
     },
     "Dauphin": {
       "courier": {
-        "available": 1,
-        "marginal_volunteers": [
-          {
-            "availability_note": "Avail Weekends, can vary",
-            "connecteam_user": true
-          },
-          {
-            "availability_note": "Contact for avail, Not on ConnecTeam, Unavail 7/10-7/18",
-            "connecteam_user": false
-          }
-        ],
+        "available": 2,
+        "marginal_volunteers": [],
         "total": 2
       },
       "ct_no_rvs": {
@@ -1168,7 +1159,7 @@
       }
     }
   },
-  "generated_at": "2026-07-18T11:09:57Z",
+  "generated_at": "2026-07-19T11:13:45Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
