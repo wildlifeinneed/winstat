@@ -50,7 +50,7 @@
         "total": 1
       },
       "ct_rvs": {
-        "available": 2,
+        "available": 3,
         "marginal_volunteers": [],
         "total": 5
       }
@@ -163,7 +163,7 @@
     },
     "Blair": {
       "courier": {
-        "available": 3,
+        "available": 2,
         "marginal_volunteers": [],
         "total": 4
       },
@@ -292,7 +292,7 @@
     },
     "Centre": {
       "courier": {
-        "available": 6,
+        "available": 7,
         "marginal_volunteers": [],
         "total": 7
       },
@@ -929,7 +929,7 @@
         "available": 1,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail Varies, Covers Cumberland, Dauphin, Juniata, Perry Co, Unavail 7/16-7/19",
+            "availability_note": "Avail Varies, Covers Cumberland, Dauphin, Juniata, Perry Co",
             "connecteam_user": true
           }
         ],
@@ -1177,7 +1177,7 @@
       }
     }
   },
-  "generated_at": "2026-07-21T11:51:45Z",
+  "generated_at": "2026-07-22T11:53:05Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
