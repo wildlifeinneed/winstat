@@ -804,7 +804,11 @@ def build_geocode_input(
     (role_counts, findContextRows qualify-only gate) at query time.
 
     The address fields are PII and are consumed only in-memory by the
-    geocoder; they are NEVER written to the output dataset.
+    geocoder; they are NEVER written to the output dataset. The FULL name is
+    likewise consumed only in-memory: the geocoder reduces it to a single
+    first-name token (first_name_token) before writing, so the LAST NAME never
+    reaches data/volunteer_coords.json, KV, the Worker response, or any
+    published artifact.
     """
     county = _column_text(item, column_ids[COL_TITLE_COUNTY])
     roles_text = _column_text(item, column_ids[COL_TITLE_ROLES])

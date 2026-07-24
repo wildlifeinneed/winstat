@@ -1337,11 +1337,11 @@ async function runTier2LowCapacityWarning() {
     animal_county: 'Beaver',
     out_of_county: [
       { roles: ['RVS C&T'], distance_mi: 6.0, win_area: '11', county: 'Beaver',
-        name: 'Jane Smith', availability_note: 'Weekends only' },
+        first_name: 'Jane', availability_note: 'Weekends only' },
       { roles: ['COURIER'], distance_mi: 9.0, win_area: '11', county: 'Beaver',
-        name: 'Tom Jones', availability_note: '' },
+        first_name: 'Tom', availability_note: '' },
       { roles: ['COURIER'], distance_mi: 12.0, win_area: '5', county: 'Westmoreland',
-        name: 'Carol Kim', availability_note: 'Call first' },
+        first_name: 'Carol', availability_note: 'Call first' },
     ],
     out_of_county_truncated: false,
     radius_too_broad: false,
@@ -1386,15 +1386,19 @@ async function runTier2LowCapacityWarning() {
   var rosterEl = warningEls1Full[0].querySelector('.rec-marginal');
   assert.ok(rosterEl, 'roster .rec-marginal div is present inside the low-cap banner');
   var rosterHtml = rosterEl.innerHTML || '';
-  assert.ok(/Jane Smith/i.test(rosterHtml),
-    'roster shows qualified volunteer name "Jane Smith" (got: "' + rosterHtml + '")');
+  // FIRST NAME ONLY: the roster shows the single first-name token "Jane" and
+  // MUST NOT render the last name "Smith" (last names never leave the pipeline).
+  assert.ok(/Jane/i.test(rosterHtml),
+    'roster shows qualified volunteer FIRST name "Jane" (got: "' + rosterHtml + '")');
+  assert.ok(!/Smith/i.test(rosterHtml),
+    'roster must NOT render last name "Smith" (first-name-only; got: "' + rosterHtml + '")');
   assert.ok(/Weekends only/i.test(rosterHtml),
     'roster shows availability note "Weekends only" (got: "' + rosterHtml + '")');
-  // COURIER rows do NOT qualify for RVS capture, so Tom Jones and Carol Kim must NOT appear.
-  assert.ok(!/Tom Jones/i.test(rosterHtml),
-    'non-qualifying COURIER (Tom Jones) must NOT appear in roster (got: "' + rosterHtml + '")');
-  assert.ok(!/Carol Kim/i.test(rosterHtml),
-    'non-qualifying COURIER (Carol Kim) must NOT appear in roster (got: "' + rosterHtml + '")');
+  // COURIER rows do NOT qualify for RVS capture, so Tom and Carol must NOT appear.
+  assert.ok(!/Tom/i.test(rosterHtml),
+    'non-qualifying COURIER (Tom) must NOT appear in roster (got: "' + rosterHtml + '")');
+  assert.ok(!/Carol/i.test(rosterHtml),
+    'non-qualifying COURIER (Carol) must NOT appear in roster (got: "' + rosterHtml + '")');
 
   // ── Case 2: qualifiedCount = 2 (above threshold of 1) -> warning must NOT appear.
   const aggTwo = {

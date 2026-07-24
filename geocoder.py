@@ -8,7 +8,9 @@ produces a PRIVATE coords dataset that is NEVER committed to the public repo.
 
 PII rules (hard):
   * The emitted records contain ONLY {lat, lon, roles, home_county, win_area,
-    available}. NO name, NO address string, NO phone, NO email.
+    first_name, available, connecteam_user, monitored_areas}. The ``first_name``
+    is a SINGLE whitespace-delimited token (first name ONLY). NO last name, NO
+    full name, NO address string, NO phone, NO email.
   * The caller (refresh_monday.py) is responsible for writing the result to a
     gitignored path (e.g. data/volunteer_coords.json) — this module never
     writes any file itself.
@@ -65,6 +67,23 @@ def _address_signature(
         str(zip_code or "").strip().casefold(),
     ]
     return "|".join(parts)
+
+
+def first_name_token(name: Any) -> str:
+    """Return the FIRST whitespace-delimited token of a name, trimmed.
+
+    PRIVACY-CRITICAL. Last names MUST NEVER leave the pipeline, so the coords
+    dataset (and thus KV / the Worker / the public site) may carry ONLY this
+    single first-name token. Handles empty / single-token / multiple-spaces
+    gracefully: returns ``""`` when there is no usable token, and never returns
+    anything past the first run of whitespace (so a surname can't survive).
+    """
+    if name is None:
+        return ""
+    text = str(name).strip()
+    if not text:
+        return ""
+    return text.split()[0]
 
 
 def geocode_address(
@@ -268,16 +287,19 @@ def batch_geocode_volunteers(
     Each input volunteer dict is expected to carry the address fields
     ``street`` / ``city`` / ``state`` / ``zip`` plus ``roles`` and
     ``county`` (home county).  An optional ``name`` field (the volunteer's
-    display name from Monday.com) is used only for failure reporting — it is
-    NEVER propagated to the output coords records.
+    display name from Monday.com) is consumed ONLY in-memory: it is reduced to
+    a single FIRST-NAME token before anything is written, so a LAST NAME is
+    NEVER propagated to the output coords records or the failures list.
 
     Output records contain ONLY::
 
-        {lat, lon, roles, home_county, win_area, available, _addr_sig}
+        {lat, lon, roles, home_county, win_area, first_name, available,
+         connecteam_user, monitored_areas, _addr_sig}
 
-    NO name, NO address string, NO phone, NO email is propagated. ``_addr_sig``
-    is an internal, non-PII hash of the address used purely for idempotent
-    re-runs; it is not the address itself.
+    ``first_name`` is a SINGLE whitespace-delimited token (or ""). NO last name,
+    NO address string, NO phone, NO email is propagated. ``_addr_sig`` is an
+    internal, non-PII hash of the address used purely for idempotent re-runs; it
+    is not the address itself.
 
     Idempotency: when ``existing`` (the prior output records) is supplied and a
     volunteer's address signature matches a previously geocoded record, the
@@ -288,8 +310,8 @@ def batch_geocode_volunteers(
 
     Returns a ``(coords, failures)`` tuple where ``failures`` is a list of
     ``{"name": ..., "address": ..., "reason": ...}`` dicts for every
-    volunteer whose geocode failed (no cached coord and Census returned no
-    match / errored).
+    volunteer whose geocode failed. ``name`` there is the FIRST-NAME token only
+    (this list is published as geocode_failures.json / a GitHub Issue).
     """
     session = session or requests.Session()
     cache = _coords_by_signature(existing)
@@ -333,7 +355,10 @@ def batch_geocode_volunteers(
                     )
                 else:
                     # Both Census and Nominatim failed; record failure.
-                    vol_name = v.get("name", "")
+                    # The failures list is a PUBLISHED artifact (committed as
+                    # geocode_failures.json and surfaced in a GitHub Issue), so
+                    # it must carry FIRST NAME ONLY — never a last name.
+                    vol_name = first_name_token(v.get("name", ""))
                     addr_parts = [
                         str(street or "").strip(),
                         str(city or "").strip(),
@@ -363,6 +388,15 @@ def batch_geocode_volunteers(
                 "roles": list(v.get("roles") or []),
                 "home_county": home_county,
                 "win_area": win_area,
+                # FIRST NAME ONLY (single whitespace-delimited token). The full
+                # Monday name is consumed ONLY in-memory here (and in transient
+                # error logs); the LAST NAME is NEVER written to this dataset,
+                # so it can never reach data/volunteer_coords.json, KV, the
+                # Worker response, or any published artifact. first_name_token()
+                # trims to the first token and yields "" for empty/blank names.
+                # The Worker's SHOW_VOLUNTEER_FIRST_NAME kill-switch decides
+                # whether even this first name is surfaced to clients.
+                "first_name": first_name_token(v.get("name")),
                 # PII-free availability flag (boolean) so the Worker can tally
                 # Tier 2 availability the SAME way Tier 1 does. Computed upstream
                 # by build_geocode_input via the shared is_available() rule;

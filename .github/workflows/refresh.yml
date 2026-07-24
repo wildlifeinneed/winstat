@@ -245,6 +245,35 @@ jobs:
             exit 1
           fi
 
+          # (c) First-name-only guard on published volunteer names.
+          # geocode_failures.json is a PUBLIC artifact (committed + surfaced as a
+          # GitHub Issue). Its per-entry "name" MUST be a single-token FIRST NAME
+          # only — the pipeline reduces it via first_name_token(). A last name /
+          # multi-token value (any internal whitespace) OR a PII-shaped key would
+          # mean a last name or contact detail leaked into a published file, so
+          # abort. This keeps the publish path from ever carrying a last name.
+          FIRSTNAME_SCAN_PATHS="geocode_failures.json"
+          fn_added="$(git diff --cached -- $FIRSTNAME_SCAN_PATHS | grep -E '^\+' || true)"
+          # Block PII-shaped keys outright in the failures file.
+          if printf '%s\n' "$fn_added" | grep -Eiq '"(phone|phone_number|cell|mobile|email|e_mail|street|address|address1|address_line|home_address|zip|postal|last_name|full_name)"[[:space:]]*:'; then
+            echo "ABORT: geocode_failures.json contains a PII-shaped key (phone/email/address/last_name/etc.)." >&2
+            git reset -q
+            exit 1
+          fi
+          # Any "name": "<value with internal whitespace>" => multi-token =>
+          # a last name slipped through. Extract added "name" values and reject
+          # any that contain a space (after trimming surrounding quotes/space).
+          multi_tok="$(printf '%s\n' "$fn_added" \
+            | grep -Eo '"name"[[:space:]]*:[[:space:]]*"[^"]*"' \
+            | sed -E 's/^"name"[[:space:]]*:[[:space:]]*"([^"]*)"$/\1/' \
+            | grep -E '[[:space:]]' || true)"
+          if [ -n "$multi_tok" ]; then
+            echo "ABORT: geocode_failures.json 'name' is not a single-token first name (last name / multi-token leaked):" >&2
+            printf '%s\n' "$multi_tok" >&2
+            git reset -q
+            exit 1
+          fi
+
           ts="$(date -u +'%Y-%m-%d %H:%M UTC')"
           git commit -m "Auto-refresh dispatcher data (${ts})"
           for i in 1 2 3 4 5; do

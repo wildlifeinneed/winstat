@@ -2,7 +2,7 @@
   "name": "pa-wildlife-dispatcher-worker",
   "version": "0.1.0",
   "private": true,
-  "description": "Cloudflare Worker: PII-free volunteer aggregate endpoint for the PA Wildlife Rehab Dispatcher (SCAFFOLD, not deployed).",
+  "description": "Cloudflare Worker: volunteer role/WIN-area aggregate endpoint for the PA Wildlife Rehab Dispatcher. Detailed roster may include volunteer first name only (single token), gated by SHOW_VOLUNTEER_FIRST_NAME (default ON; OFF = names-free). Last names never leave the pipeline. (SCAFFOLD, not deployed.)",
   "type": "commonjs",
   "scripts": {
     "test": "node test/run.test.js"

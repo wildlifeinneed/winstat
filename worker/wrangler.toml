@@ -29,6 +29,18 @@ account_id = "290463cfd0bc273076e8c62678f7c845"
 # TODO(deploy): if a custom Pages project domain is used, add it here too.
 [vars]
 ALLOWED_ORIGIN = "https://wildlifeinneed.github.io,https://*.pages.dev"
+# PRIVACY KILL-SWITCH (single source of truth). When "1"/"true" (DEFAULT ON) the
+# Worker includes each volunteer's FIRST NAME ONLY (single whitespace-delimited
+# token; last names never leave the pipeline) on the Tier 2 detailed roster, the
+# Tier 1 by-county list, map popups, and the policy-editor unavailable list. Set
+# to "0"/"false" and redeploy to INSTANTLY revert to the PII-free shape (the
+# Worker emits NO first_name key anywhere and responses are byte-identical to the
+# pre-change output) — no data refresh required. This is the ONLY control: the
+# frontend is presence-driven and renders the first name only when the payload
+# carries a non-empty value, so flag OFF => nothing to render. Because the name
+# reaches a PUBLICLY reachable Worker endpoint + public GitHub Pages site, this
+# flag is the authoritative kill-switch for that public exposure.
+SHOW_VOLUNTEER_FIRST_NAME = "1"
 # OpenRouteService Matrix API key for DRIVING distances on the PUBLIC rehabber
 # top-3 panel. Provided ONLY as a Worker SECRET, never in [vars]:
 #     wrangler secret put ORS_API_KEY

@@ -517,7 +517,12 @@ async function findContextRowsDriving(
       county: county,
       approx_lat: approx ? approx.lat : null,
       approx_lon: approx ? approx.lon : null,
-      name: (rec.name !== null && rec.name !== undefined) ? String(rec.name) : null,
+      // FIRST NAME ONLY (single token). recordFirstName() prefers the pipeline
+      // `first_name` and defensively reduces any legacy `name` to its first
+      // token so a last name can never survive. '' when absent. The
+      // SHOW_VOLUNTEER_FIRST_NAME kill-switch is applied later in
+      // buildTier2Response (the single serialization seam).
+      first_name: recordFirstName(rec),
       availability_note: (rec.availability_note !== null && rec.availability_note !== undefined)
         ? String(rec.availability_note) : '',
       available: isAvailableRecord(rec),
@@ -571,6 +576,68 @@ const OVERFLOW_NEAREST = 5;
 /** Round to 1 decimal place (mirror the response schema's distance_mi). */
 function round1(n) {
   return Math.round(n * 10) / 10;
+}
+
+// --- FIRST-NAME-ONLY privacy helpers ---------------------------------------
+//
+// Last names MUST NEVER leave the pipeline. The upstream geocoder already emits
+// ONLY a `first_name` (single token) onto each KV record, but the Worker also
+// defends in depth: it derives the first whitespace-delimited token from
+// whatever name-ish field a record carries and NEVER lets a multi-token value
+// through. Combined with the SHOW_VOLUNTEER_FIRST_NAME kill-switch (see
+// isFirstNameFlagOn), this guarantees flag OFF => no name key at all, and flag
+// ON => at most a single first-name token.
+
+/**
+ * Extract the FIRST whitespace-delimited token of a name-ish value, trimmed.
+ * Handles null/undefined/empty/single-token/multi-space gracefully. Returns ''
+ * when there is no usable token. A last name can NEVER survive this because it
+ * only ever keeps text up to the first run of whitespace.
+ */
+function firstNameToken(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  const s = String(value).trim();
+  if (s === '') {
+    return '';
+  }
+  const parts = s.split(/\s+/);
+  return parts.length ? parts[0] : '';
+}
+
+/**
+ * Pick the record's first-name token, preferring the pipeline's `first_name`
+ * field and falling back to the FIRST TOKEN of a legacy `name` field (defensive
+ * — the current pipeline never writes `name`, but this ensures no last name can
+ * leak even from an older KV blob). Returns '' when absent.
+ */
+function recordFirstName(rec) {
+  if (!rec || typeof rec !== 'object') {
+    return '';
+  }
+  const fromFirst = firstNameToken(rec.first_name);
+  if (fromFirst !== '') {
+    return fromFirst;
+  }
+  return firstNameToken(rec.name);
+}
+
+/**
+ * Parse the SHOW_VOLUNTEER_FIRST_NAME kill-switch into a boolean. DEFAULT ON:
+ * an unset/undefined/null value => true (names shown) so existing deployments
+ * keep working; only an EXPLICIT off value ("0"/"false"/"no"/"off"/"" ) or
+ * boolean false disables it. This is the SINGLE control for name exposure.
+ */
+function isFirstNameFlagOn(flag) {
+  if (flag === undefined || flag === null) {
+    return true; // default ON
+  }
+  if (flag === true) return true;
+  if (flag === false) return false;
+  const s = String(flag).trim().toLowerCase();
+  if (s === '') return false;
+  return !(s === '0' || s === 'false' || s === 'no' || s === 'off');
 }
 
 // --- DETERMINISTIC ~1-MILE JITTER for PII-safe map pins --------------------
@@ -821,7 +888,12 @@ function findContextRows(animalLat, animalLon, radiusMi, coordsDataset, excludeC
       county: county,
       approx_lat: approx ? approx.lat : null,
       approx_lon: approx ? approx.lon : null,
-      name: (rec.name !== null && rec.name !== undefined) ? String(rec.name) : null,
+      // FIRST NAME ONLY (single token). recordFirstName() prefers the pipeline
+      // `first_name` and defensively reduces any legacy `name` to its first
+      // token so a last name can never survive. '' when absent. The
+      // SHOW_VOLUNTEER_FIRST_NAME kill-switch is applied later in
+      // buildTier2Response (the single serialization seam).
+      first_name: recordFirstName(rec),
       availability_note: (rec.availability_note !== null && rec.availability_note !== undefined)
         ? String(rec.availability_note) : '',
       available: isAvailableRecord(rec),
@@ -904,10 +976,15 @@ function buildAggregateResponse(aggregate, distanceMode) {
  * @param {string} [distanceMode]  'driving' | 'straight_line' -- which metric
  *        gated this result. A single string (NO PII). Defaults to
  *        'straight_line' (current behavior) when omitted/invalid.
+ * @param {*} [showFirstNameFlag]  the SHOW_VOLUNTEER_FIRST_NAME kill-switch
+ *        (raw env var / boolean). DEFAULT ON when unset. When OFF, NO first_name
+ *        key is emitted on any row (byte-identical to the pre-change PII-free
+ *        shape). When ON, each row carries at most a SINGLE first-name token.
  * @returns {Object} PII-safe Tier 2 response object
  */
-function buildTier2Response(aggregate, contextRows, distanceMode) {
+function buildTier2Response(aggregate, contextRows, distanceMode, showFirstNameFlag) {
   const agg = aggregate || {};
+  const showFirstName = isFirstNameFlagOn(showFirstNameFlag);
 
   // Re-whitelist the aggregate block (never spread unknown keys through).
   const roleCounts = {};
@@ -952,13 +1029,21 @@ function buildTier2Response(aggregate, contextRows, distanceMode) {
       distance_mi: r.distance_mi,
       win_area: r.win_area === undefined ? null : r.win_area,
       county: r.county === undefined ? null : r.county,
-      name: (r.name !== null && r.name !== undefined) ? r.name : null,
       availability_note: (r.availability_note !== null && r.availability_note !== undefined)
         ? r.availability_note : '',
       available: r.available !== false,
       connecteam_user: normalizeConnecteamUser(r.connecteam_user),
       monitored_areas: Array.isArray(r.monitored_areas) ? r.monitored_areas : [],
     };
+    // FIRST NAME ONLY, kill-switch gated. When SHOW_VOLUNTEER_FIRST_NAME is ON
+    // (default) emit `first_name` as a SINGLE token (recordFirstName already
+    // reduced it upstream; firstNameToken here is belt-and-suspenders so a last
+    // name can NEVER be serialized). When the flag is OFF, the `first_name` key
+    // is NOT added at all, keeping the response byte-identical to the previous
+    // PII-free shape. Presence-driven frontend renders it only when non-empty.
+    if (showFirstName) {
+      o.first_name = firstNameToken(r.first_name !== undefined ? r.first_name : r.name);
+    }
     // ~1-mile JITTERED coord for the map pin (PII-safe: the exact home is nudged
     // a fixed ~1 mi in a deterministic per-volunteer direction, NEVER the exact
     // coord). Emitted only when finite; the frontend falls back to the county
@@ -1039,6 +1124,9 @@ module.exports = {
   jitterCoord,
   jitterSeed,
   hashString,
+  firstNameToken,
+  recordFirstName,
+  isFirstNameFlagOn,
   JITTER_MILES,
   rolesOf,
   isAvailableRecord,

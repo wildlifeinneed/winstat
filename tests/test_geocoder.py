@@ -15,6 +15,8 @@ import sys
 from pathlib import Path
 from unittest import mock
 
+import json
+
 import pytest
 import requests
 
@@ -164,15 +166,22 @@ def test_batch_strips_all_pii_fields():
     assert len(out) == 1
     assert failures == []
     rec = out[0]
-    # ONLY these keys allowed (plus the internal, non-PII _addr_sig and the
-    # PII-free `available` boolean used for Tier 2 availability tallying).
+    # ONLY these keys allowed (plus the internal, non-PII _addr_sig, the
+    # PII-free `available` boolean, and the FIRST-NAME-ONLY `first_name` token).
     assert set(rec.keys()) == {
         "lat", "lon", "roles", "home_county", "win_area", "available",
-        "availability_note", "connecteam_user", "monitored_areas", "_addr_sig",
+        "availability_note", "connecteam_user", "monitored_areas",
+        "first_name", "_addr_sig",
     }
-    # No PII leaked.
+    # No full name / last name / other PII leaked. `first_name` is the ONLY
+    # name-ish field and it must be a SINGLE token (first name only).
     for forbidden in ("name", "phone", "email", "street", "city", "address"):
         assert forbidden not in rec
+    # First name = first whitespace-delimited token of "Jane Volunteer".
+    assert rec["first_name"] == "Jane"
+    # The LAST NAME must never appear anywhere in the emitted record.
+    assert "Volunteer" not in json.dumps(rec)
+    assert " " not in rec["first_name"]
     assert rec["lat"] == 40.0
     assert rec["lon"] == -76.3
     assert rec["roles"] == ["C&T", "RVS"]
@@ -184,6 +193,95 @@ def test_batch_strips_all_pii_fields():
     assert isinstance(rec["win_area"], str) and rec["win_area"]
     # _addr_sig must not contain the raw, human-readable street value.
     assert "100 Main St" not in rec["_addr_sig"]
+
+
+# ---------------------------------------------------------------------------
+# 3b. FIRST-NAME-ONLY enforcement (last names must never leave the pipeline)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("Jane Smith", "Jane"),
+        ("Jane", "Jane"),
+        ("  Jane   Marie   Smith  ", "Jane"),  # multiple spaces + multi-token
+        ("Mary-Jane Watson", "Mary-Jane"),      # hyphen stays inside one token
+        ("", ""),
+        ("   ", ""),
+        (None, ""),
+        (123, "123"),
+    ],
+)
+def test_first_name_token(raw, expected):
+    assert geocoder.first_name_token(raw) == expected
+
+
+def test_batch_multitoken_name_yields_only_first_token():
+    """A full multi-token Monday name yields ONLY its first token downstream."""
+    volunteers = [
+        {
+            "name": "Robert James Paulson",
+            "street": "100 Main St",
+            "city": "Lancaster",
+            "state": "PA",
+            "zip": "17601",
+            "county": "Lancaster",
+            "roles": ["C&T"],
+        }
+    ]
+    with mock.patch.object(
+        geocoder, "geocode_address", return_value=(40.0, -76.3)
+    ):
+        out, _failures = geocoder.batch_geocode_volunteers(volunteers)
+
+    rec = out[0]
+    assert rec["first_name"] == "Robert"
+    # Neither middle nor last name may appear ANYWHERE in the serialized record.
+    blob = json.dumps(rec)
+    assert "James" not in blob
+    assert "Paulson" not in blob
+
+
+def test_batch_coords_records_carry_first_name_only_never_last_name():
+    """The coords dataset (-> KV -> Worker) must carry first names only."""
+    volunteers = [
+        {"name": "Alice Anderson", "street": "1 A St", "city": "Lancaster",
+         "state": "PA", "zip": "17601", "county": "Lancaster", "roles": ["C&T"]},
+        {"name": "Bob Brown", "street": "2 B St", "city": "Lancaster",
+         "state": "PA", "zip": "17601", "county": "Lancaster", "roles": ["RVS"]},
+    ]
+    with mock.patch.object(
+        geocoder, "geocode_address", return_value=(40.0, -76.3)
+    ):
+        out, _failures = geocoder.batch_geocode_volunteers(volunteers)
+
+    first_names = sorted(r["first_name"] for r in out)
+    assert first_names == ["Alice", "Bob"]
+    blob = json.dumps(out)
+    # Last names must NEVER appear in the coords dataset.
+    for last in ("Anderson", "Brown"):
+        assert last not in blob
+    # Every record's first_name is a single token.
+    for r in out:
+        assert " " not in r["first_name"]
+        assert "name" not in r  # no full-name key
+
+
+def test_batch_failures_carry_first_name_only():
+    """geocode_failures.json is published — it must carry first names only."""
+    volunteers = [
+        {"name": "Zoe Zimmerman", "street": "999 Nowhere", "city": "Nowhere",
+         "state": "PA", "zip": "00000", "county": "Lancaster", "roles": ["C&T"]},
+    ]
+    with mock.patch.object(geocoder, "geocode_address", return_value=None), \
+         mock.patch.object(geocoder, "geocode_address_nominatim", return_value=None):
+        out, failures = geocoder.batch_geocode_volunteers(volunteers)
+
+    assert out == []
+    assert len(failures) == 1
+    assert failures[0]["name"] == "Zoe"
+    assert "Zimmerman" not in json.dumps(failures)
 
 
 def test_batch_unknown_county_yields_null_win_area():

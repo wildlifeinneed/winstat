@@ -17,6 +17,8 @@
  *
  * The Worker returns ONLY the PII-free aggregate:
  *   { total_in_range, role_counts, win_areas }
+ * plus, on the Tier 2 detailed path, an optional per-volunteer FIRST NAME
+ * (single token) gated by the SHOW_VOLUNTEER_FIRST_NAME kill-switch var.
  */
 
 import { handleRequest } from './handler.js';
@@ -36,6 +38,11 @@ export default {
       // Shared password for policy editor save. Set as a Worker secret:
       //   wrangler secret put POLICY_PASSWORD
       policyPassword: env.POLICY_PASSWORD,
+      // PRIVACY KILL-SWITCH: include volunteer FIRST NAME (single token) on the
+      // Tier 2 roster / by-county list / map / admin list when truthy. Default
+      // ON when the var is unset. Set SHOW_VOLUNTEER_FIRST_NAME="0" and redeploy
+      // to instantly strip the name from every response (no data refresh).
+      showVolunteerFirstName: env.SHOW_VOLUNTEER_FIRST_NAME,
     });
   },
 };

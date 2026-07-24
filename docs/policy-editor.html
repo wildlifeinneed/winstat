@@ -1684,7 +1684,11 @@
         rows.forEach(function (row) {
           var note = row.availability_note || '';
           if (row.available === false || isUnavailableText(note)) {
-            var volName = (row.name || '').trim();
+            // FIRST NAME ONLY — PRESENCE-DRIVEN. Reads the Worker's first_name
+            // (single control: SHOW_VOLUNTEER_FIRST_NAME); first token only so
+            // a last name can never render. Falls back to the county label when
+            // the name is empty (flag OFF or blank name).
+            var volName = (row.first_name || '').trim().split(/\s+/)[0];
             if (!volName) volName = row.county ? row.county + ' volunteer' : 'Unknown volunteer';
             unavail.push({ name: volName, reason: note || '(unavailable)' });
           }

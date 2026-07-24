@@ -133,10 +133,15 @@ self-contained card with a Dismiss button. Action tone drives the top banner:
 | `unknown`  | `.rec-action.unknown`  | `#ececec`       | `--text-light`   |
 
 The marginal subsection (`.rec-marginal`) reuses the amber tokens. Each
-entry is a single `<li>` rendering only the volunteer's `availability_note`
-italicized in `--text-muted` — **volunteer names are never rendered** (and
-are no longer in `data/county_capacity.json` as of Phase 4a). Missing notes
-fall back to `<em>(no availability info)</em>`.
+entry is a single `<li>` rendering the volunteer's **first name only** (a
+single whitespace-delimited token) plus their `availability_note` italicized
+in `--text-muted`. The first name is **presence-driven**: it renders only when
+the live Worker payload carries a non-empty `first_name`, which is controlled
+by the single Worker kill-switch `SHOW_VOLUNTEER_FIRST_NAME` (default ON; set
+OFF + redeploy to strip names instantly). **Last names are never rendered and
+never leave the pipeline.** Note this roster reads the *live Worker* Tier 2
+rows — the static `data/county_capacity.json` still carries **no names at all**
+(Phase 4a). Missing notes fall back to `<em>(no availability info)</em>`.
 
 The reasoning subsection (`.rec-reasoning`) is an `<ol>` of short bullets
 in **user-language only** (e.g. "Recommended: dispatch a C&T+RVS volunteer

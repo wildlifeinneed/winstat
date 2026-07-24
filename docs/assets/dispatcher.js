@@ -1917,14 +1917,22 @@
         }
         var vNote = row.availability_note ? String(row.availability_note).trim() : '';
         var rowAvail = row.available !== false && !isUnavailNote(vNote);
+        // FIRST NAME ONLY — PRESENCE-DRIVEN. Populated only when the Worker's
+        // SHOW_VOLUNTEER_FIRST_NAME kill-switch is ON (payload carries a
+        // non-empty first_name); first token only so no last name can surface.
+        // The pin stays on the ~1mi jittered coord — the exact home is never
+        // exposed regardless of the name.
+        var fn = row.first_name ? String(row.first_name).trim().split(/\s+/)[0] : '';
         var lines = [];
+        if (fn) lines.push('<strong>' + escapeHtml(fn) + '</strong>');
         if (row.roles && row.roles.length) lines.push(escapeHtml(row.roles.join(', ')));
         if (row.county) lines.push('County: ' + escapeHtml(row.county));
         if (!rowAvail) lines.push('<em style="color:#999;">Unavailable</em>');
         var pinCls = t2VolPinClass(row.roles) + (rowAvail ? '' : ' t2-pin-unavail');
+        var titleBase = fn ? fn : 'Volunteer';
         var marker = L.marker([pinLat, pinLon], {
           icon: t2DivIcon(pinCls, 14),
-          title: 'Volunteer' + (rowAvail ? '' : ' (unavailable)')
+          title: titleBase + (rowAvail ? '' : ' (unavailable)')
         }).bindPopup(lines.length ? lines.join('<br>') : '');
         marker.addTo(cpMapRef.layers.vols);
         cpVolMarkers.push({ marker: marker, available: rowAvail, roles: Array.isArray(row.roles) ? row.roles : [] });
@@ -2931,8 +2939,19 @@
         ? '<div class="ctx-avail-note">' + escapeHtml(vNote) + '</div>'
         : '';
 
+      // FIRST NAME ONLY — PRESENCE-DRIVEN. The Worker's SHOW_VOLUNTEER_FIRST_NAME
+      // kill-switch is the single control: when it is OFF the payload carries no
+      // first_name, so `fn` is empty and NOTHING renders here. We defensively
+      // take only the first token so a last name could never surface even if the
+      // payload somehow carried more.
+      var fn = row.first_name ? String(row.first_name).trim().split(/\s+/)[0] : '';
+      var nameHtml = fn
+        ? '<span class="ctx-name">' + escapeHtml(fn) + '</span>'
+        : '';
+
       return '<li class="' + rowClass + '">' +
              '<div class="ctx-row-top">' +
+             nameHtml +
              '<span class="role-badges">' + badges + '</span>' +
              '<span class="ctx-dist">' + distTxt + '</span>' +
              ctxTxt + edge +
@@ -3137,8 +3156,19 @@
         ? '<div class="ctx-avail-note">' + escapeHtml(vNote) + '</div>'
         : '';
 
+      // FIRST NAME ONLY — PRESENCE-DRIVEN (same single control as Tier 2). The
+      // Tier 1 by-county list previously rendered NO per-row identifier; when
+      // SHOW_VOLUNTEER_FIRST_NAME is ON the Worker supplies first_name and we
+      // render it, when OFF the field is absent and nothing shows. First token
+      // only, so a last name can never surface.
+      var fn = row.first_name ? String(row.first_name).trim().split(/\s+/)[0] : '';
+      var nameHtml = fn
+        ? '<span class="ctx-name">' + escapeHtml(fn) + '</span>'
+        : '';
+
       return '<li class="' + rowClass + '">' +
              '<div class="ctx-row-top">' +
+             nameHtml +
              '<span class="role-badges">' + badges + '</span>' +
              ctxTxt +
              '</div>' +
@@ -4522,7 +4552,11 @@
             lowCapHtml += '<div class="rec-marginal-header">' + MSG.recommendation.lowCapacityHeader + '</div>';
             lowCapHtml += '<ul>';
             qualifiedRows.forEach(function (qRow) {
-              var vName = (qRow && qRow.name) ? escapeHtml(String(qRow.name)) : '';
+              // FIRST NAME ONLY — PRESENCE-DRIVEN. Reads the Worker's first_name
+              // (single control: SHOW_VOLUNTEER_FIRST_NAME). First token only so
+              // a last name can never render. Empty => name is simply omitted.
+              var vName = (qRow && qRow.first_name)
+                ? escapeHtml(String(qRow.first_name).trim().split(/\s+/)[0]) : '';
               var vNote = (qRow && qRow.availability_note) ? escapeHtml(String(qRow.availability_note)) : '';
               var entry = vName ? '<strong>' + vName + '</strong>' : '';
               if (vNote) { entry += (entry ? ' \u2014 ' : '') + '<em>' + vNote + '</em>'; }

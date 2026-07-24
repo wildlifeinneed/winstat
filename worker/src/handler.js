@@ -742,7 +742,10 @@ async function handleRequest(request, deps) {
     // Single serialization seam: only buildTier2Response constructs the JSON,
     // whitelisting keys so no raw KV datum can leak. distance_mode (a single
     // non-PII string) is surfaced so the UI/diagnostics know which metric ran.
-    const tier2 = buildTier2Response(aggregate, ctx.rows, ctx.distance_mode);
+    // The SHOW_VOLUNTEER_FIRST_NAME kill-switch is enforced HERE: OFF => no
+    // first_name key on any row (byte-identical PII-free shape); ON => a single
+    // first-name token per row.
+    const tier2 = buildTier2Response(aggregate, ctx.rows, ctx.distance_mode, deps.showVolunteerFirstName);
     // The animal coordinate is the dispatcher-entered ANIMAL location (NOT
     // volunteer PII), so it is safe to echo back. The browser uses it to rank
     // rehabbers by distance. Distinct key names (animal_lat/animal_lon) keep it

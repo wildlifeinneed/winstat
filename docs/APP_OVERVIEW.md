@@ -179,15 +179,28 @@ so that this information **never reaches the public web**.
 - Volunteer locations live only in a **private backend** — a Cloudflare Worker
   backed by private storage. When the dispatcher searches by address, the browser
   asks this private backend "how many qualified volunteers are within X miles?"
-  and the backend answers with **aggregate counts only** — totals by role and by
-  WIN area. It **never** returns an individual volunteer's location, name, address,
-  or phone, even in error messages.
-- The public website only ever sees those aggregate numbers. There is no way for
-  a member of the public — or even the dispatcher's own browser — to see where any
-  individual volunteer lives.
+  and the backend answers with **aggregate counts** — totals by role and by
+  WIN area. It **never** returns an individual volunteer's exact location,
+  address, or phone, even in error messages.
+- **First names (first name only) are shown on the detailed dispatcher surfaces.**
+  When a search returns a small/marginal roster, the Tier 2 radius list, the
+  Tier 1 by-county list, the map popups, and the policy-editor unavailable list
+  each show each matching volunteer's **first name** (a single token) next to
+  their role/availability/approx distance. This is a deliberate, honest
+  exposure: **these surfaces are reachable on the public GitHub Pages site and a
+  publicly reachable Worker endpoint**, so a member of the public who reaches
+  them can see first names. **Last names are never exposed and never leave the
+  data pipeline.** Map pins remain on a ~1-mile jittered coordinate — the exact
+  home is never shown.
+- This first-name exposure is governed by a **single kill-switch**: the Worker
+  environment variable `SHOW_VOLUNTEER_FIRST_NAME` (default **ON**). Setting it
+  to `0`/`false` and redeploying the Worker makes the backend omit the name from
+  every response (byte-identical to the earlier names-free shape) and, because
+  the frontend only renders a name when the payload carries one, **instantly
+  removes all names from the public site with no data refresh required.**
 - The volunteer coordinate data derived from home addresses is stripped down to
-  just location/role/area, is never committed to the public site, and is pushed
-  only into the private backend.
+  just location/role/area **plus a first-name token**, is never committed to the
+  public site, and is pushed only into the private backend.
 - **Rehabber and coordinator data is public-safe** by contrast (facilities and
   coordinator names are meant to be shared), so that information is handled
   normally. Even there, coordinator and volunteer **phone numbers are kept out**

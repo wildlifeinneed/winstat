@@ -224,7 +224,10 @@ def test_aggregate_result_has_no_pii_fields():
             "roles": ["C&T"],
             "home_county": "Bucks",
             "win_area": "8",
-            "name": "Jane Doe",        # PII that MUST NOT survive aggregation
+            # The pipeline now emits a FIRST-NAME token only (never a full/last
+            # name). Even so, the Tier 1 aggregate is counts-only and MUST NOT
+            # surface any name field — first name included.
+            "first_name": "Jane",
             "address": "123 Owl Ln",
         }
     ]
@@ -233,9 +236,12 @@ def test_aggregate_result_has_no_pii_fields():
     )
     # The complete public shape: exactly these three fields.
     assert set(agg._fields) == {"total_in_range", "role_counts", "win_areas"}
-    # No coordinate / address / name leakage anywhere in the result.
+    # No coordinate / address / name leakage anywhere in the result. The Tier 1
+    # AGGREGATE never carries per-volunteer names (first name lives only on the
+    # Worker's Tier 1 by-county LIST rows, gated by SHOW_VOLUNTEER_FIRST_NAME).
     flat = repr(agg)
-    for forbidden in ("Jane Doe", "Owl Ln", "home_county", "lat", "lon", "address"):
+    for forbidden in ("Jane", "Owl Ln", "home_county", "lat", "lon", "address",
+                      "name", "first_name"):
         assert forbidden not in flat
 
 

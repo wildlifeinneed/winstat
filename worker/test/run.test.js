@@ -41,6 +41,8 @@ const {
   jitterCoord,
   jitterSeed,
   hashString,
+  firstNameToken,
+  isFirstNameFlagOn,
   JITTER_MILES,
   DEFAULT_RADIUS_MI,
   MAX_RADIUS_MI,
@@ -1160,14 +1162,15 @@ async function main() {
 
   // (i) TIER 2 -- out-of-county context list (PII-safe) ----------------
   // Forbidden keys that must NEVER appear at any depth of a Tier 2 response.
-  // NOTE: 'name' is intentionally ALLOWED in the Tier 2 response so the
-  // dispatcher can show volunteer names in the low-capacity roster.
+  // NOTE: only a single-token 'first_name' is allowed (gated by the
+  // SHOW_VOLUNTEER_FIRST_NAME kill-switch). The full-name 'name' key must NEVER
+  // appear -- last names never leave the pipeline.
   const TIER2_FORBIDDEN_KEYS = [
-    'lat', 'lon', 'latitude', 'longitude', '_addr_sig', 'rehab_name',
+    'name', 'lat', 'lon', 'latitude', 'longitude', '_addr_sig', 'rehab_name',
     'phone', 'email', 'address', 'street', 'city', 'zip', 'home_county',
     'monday_item_id', 'coords', 'coordinates',
   ];
-  const TIER2_ROW_KEYS = ['approx_lat', 'approx_lon', 'availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'monitored_areas', 'name', 'roles', 'win_area'];
+  const TIER2_ROW_KEYS = ['approx_lat', 'approx_lon', 'availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'first_name', 'monitored_areas', 'roles', 'win_area'];
 
   // Deep-walk every key in an object/array tree, collecting key names.
   function collectKeys(node, out) {
@@ -1226,11 +1229,12 @@ async function main() {
     assert.strictEqual(rows[0].county, 'Lebanon');
     assert.deepStrictEqual(rows[1].roles, ['COURIER']);
     assert.strictEqual(rows[1].county, 'Lancaster');
-    // name + availability_note + available are passed through from KV record.
-    assert.strictEqual(rows[0].name, 'Bob', 'Lebanon row carries name');
+    // first_name (single token) + availability_note + available are passed
+    // through from the KV record (recordFirstName reduces to the first token).
+    assert.strictEqual(rows[0].first_name, 'Bob', 'Lebanon row carries first_name');
     assert.strictEqual(rows[0].availability_note, 'Evenings M-F', 'Lebanon row carries availability_note');
     assert.strictEqual(rows[0].available, true, 'Lebanon row (no available field in KV) defaults to true');
-    assert.strictEqual(rows[1].name, 'Carol', 'Lancaster row carries name');
+    assert.strictEqual(rows[1].first_name, 'Carol', 'Lancaster row carries first_name');
     assert.strictEqual(rows[1].availability_note, '', 'Lancaster row carries empty availability_note when absent');
     assert.strictEqual(rows[1].available, true, 'Lancaster row (no available field in KV) defaults to true');
     // Each row carries ONLY the whitelisted keys.
@@ -1404,6 +1408,117 @@ async function main() {
     for (const k of TIER2_FORBIDDEN_KEYS) {
       assert.strictEqual(allKeys.indexOf(k), -1, 'PII key leaked at some depth: ' + k);
     }
+  });
+
+  // (iF) SHOW_VOLUNTEER_FIRST_NAME kill-switch -------------------------------
+  // Fixtures deliberately carry FULL names ("Bob Smith") in KV to prove the
+  // Worker reduces them to a single first-name token and never leaks the last
+  // name, and that the flag OFF path emits NO name key at all.
+  const COORDS_FULLNAME = [
+    { lat: 40.36, lon: -76.78, roles: ['C&T'], home_county: 'Lebanon',
+      win_area: 'WIN-2', name: 'Bob Smith', availability_note: '' },
+    { lat: 40.10, lon: -76.75, roles: ['Courier'], home_county: 'Lancaster',
+      win_area: 'WIN-1', first_name: 'Carol', availability_note: '' },
+  ];
+
+  await test('(iF1) flag ON (default): rows carry a SINGLE first-name token, NO last name', () => {
+    const rows = findContextRows(ANIMAL.lat, ANIMAL.lon, 100, COORDS_FULLNAME, 'Dauphin');
+    const resp = buildTier2Response(
+      { total_in_range: 2, role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 1 }, win_areas: [] },
+      rows, 'straight_line', '1'
+    );
+    const serialized = JSON.stringify(resp);
+    // The full/last name must NEVER appear anywhere in the response.
+    assert.strictEqual(serialized.indexOf('Smith'), -1, 'last name must not leak');
+    assert.strictEqual(serialized.indexOf('"name"'), -1, 'no full-name key');
+    // Every out_of_county row carries first_name as a single token.
+    for (const r of resp.out_of_county) {
+      assert.ok(typeof r.first_name === 'string', 'first_name present');
+      assert.strictEqual(r.first_name.indexOf(' '), -1, 'first_name is a single token');
+    }
+    const fn = resp.out_of_county.map((r) => r.first_name).sort();
+    assert.deepStrictEqual(fn, ['Bob', 'Carol'], 'first tokens only');
+  });
+
+  await test('(iF2) flag OFF: NO first_name/name key anywhere; byte-identical to PII-free shape', () => {
+    const rows = findContextRows(ANIMAL.lat, ANIMAL.lon, 100, COORDS_FULLNAME, 'Dauphin');
+    const agg = { total_in_range: 2, role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 1 }, win_areas: [] };
+    const respOff = buildTier2Response(agg, rows, 'straight_line', '0');
+    // No name-ish key at any depth.
+    const keysOff = collectKeys(respOff, []);
+    assert.strictEqual(keysOff.indexOf('first_name'), -1, 'flag OFF => no first_name key');
+    assert.strictEqual(keysOff.indexOf('name'), -1, 'flag OFF => no name key');
+    // Byte-identity: OFF response must equal a response built by a code path
+    // that never knew about names. Re-project the SAME rows with the name field
+    // deleted and confirm the serialized output is identical.
+    const rowsSansName = rows.map((r) => {
+      const c = Object.assign({}, r);
+      delete c.first_name;
+      delete c.name;
+      return c;
+    });
+    const respBaseline = buildTier2Response(agg, rowsSansName, 'straight_line', '0');
+    assert.strictEqual(JSON.stringify(respOff), JSON.stringify(respBaseline),
+      'flag OFF is byte-identical whether or not rows carried a name upstream');
+  });
+
+  await test('(iF3) flag OFF via handler: Tier 2 response carries no name field', async () => {
+    const res = await handleRequest(
+      mockRequest('GET', {
+        animal_lat: ANIMAL.lat, animal_lon: ANIMAL.lon, radius_mi: 100,
+        exclude_county: 'Dauphin', context: '1',
+      }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS_FULLNAME),
+        allowedOrigin: 'https://pages.example', showVolunteerFirstName: '0' }
+    );
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    const allKeys = collectKeys(body, []);
+    assert.strictEqual(allKeys.indexOf('first_name'), -1, 'flag OFF handler => no first_name');
+    assert.strictEqual(allKeys.indexOf('name'), -1, 'flag OFF handler => no name');
+    assert.strictEqual(JSON.stringify(body).indexOf('Smith'), -1, 'no last name in handler body');
+  });
+
+  await test('(iF4) flag ON via handler: Tier 2 rows carry single first-name token', async () => {
+    const res = await handleRequest(
+      mockRequest('GET', {
+        animal_lat: ANIMAL.lat, animal_lon: ANIMAL.lon, radius_mi: 100,
+        exclude_county: 'Dauphin', context: '1',
+      }),
+      { ResponseCtor: MockResponse, kv: mockKV(COORDS_FULLNAME),
+        allowedOrigin: 'https://pages.example', showVolunteerFirstName: '1' }
+    );
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.strictEqual(JSON.stringify(body).indexOf('Smith'), -1, 'last name never leaks even with flag ON');
+    for (const r of body.out_of_county) {
+      assert.ok(typeof r.first_name === 'string' && r.first_name.length > 0, 'first_name present');
+      assert.strictEqual(r.first_name.indexOf(' '), -1, 'single token');
+    }
+  });
+
+  await test('(iF5) isFirstNameFlagOn: default ON, explicit OFF values disable', () => {
+    // Default ON when unset/undefined/null.
+    assert.strictEqual(isFirstNameFlagOn(undefined), true);
+    assert.strictEqual(isFirstNameFlagOn(null), true);
+    // Truthy variants.
+    for (const on of ['1', 'true', 'TRUE', 'yes', 'on', true]) {
+      assert.strictEqual(isFirstNameFlagOn(on), true, 'ON for ' + on);
+    }
+    // Explicit OFF variants.
+    for (const off of ['0', 'false', 'FALSE', 'no', 'off', '', false]) {
+      assert.strictEqual(isFirstNameFlagOn(off), false, 'OFF for ' + off);
+    }
+  });
+
+  await test('(iF6) firstNameToken: single token, trims, handles empty/multi-space', () => {
+    assert.strictEqual(firstNameToken('Jane Smith'), 'Jane');
+    assert.strictEqual(firstNameToken('  Jane   Marie  Smith '), 'Jane');
+    assert.strictEqual(firstNameToken('Jane'), 'Jane');
+    assert.strictEqual(firstNameToken(''), '');
+    assert.strictEqual(firstNameToken('   '), '');
+    assert.strictEqual(firstNameToken(null), '');
+    assert.strictEqual(firstNameToken(undefined), '');
   });
 
   // (i10..i13) ~1-MILE DETERMINISTIC JITTER for PII-safe map pins -------
@@ -2144,7 +2259,7 @@ async function main() {
     assert.strictEqual(byCounty['Lancaster'].driving_miles, 60.0, 'Lancaster driving distance annotation');
     ctx.rows.forEach((r) => { assert.strictEqual(r.duration_min, 10, 'driving time annotation (min)'); });
     assert.deepStrictEqual(Object.keys(byCounty['Lebanon']).sort(),
-      ['approx_lat', 'approx_lon', 'availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'driving_miles', 'duration_min', 'monitored_areas', 'name', 'roles', 'win_area']);
+      ['approx_lat', 'approx_lon', 'availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'driving_miles', 'duration_min', 'first_name', 'monitored_areas', 'roles', 'win_area']);
     // Sorted ascending by STRAIGHT-LINE distance_mi (not driving).
     assert.ok(ctx.rows[0].distance_mi <= ctx.rows[1].distance_mi, 'sorted by straight-line distance');
 
@@ -2159,7 +2274,7 @@ async function main() {
       assert.ok(!('driving_miles' in r), 'straight_line row has NO driving distance');
     });
     assert.deepStrictEqual(Object.keys(fb.rows[0]).sort(),
-      ['approx_lat', 'approx_lon', 'availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'monitored_areas', 'name', 'roles', 'win_area']);
+      ['approx_lat', 'approx_lon', 'availability_note', 'available', 'connecteam_user', 'county', 'distance_mi', 'first_name', 'monitored_areas', 'roles', 'win_area']);
   });
 
   await test('(l9b) findContextRowsDriving: ORS error => rows still render, membership unchanged, no driving tags', async () => {

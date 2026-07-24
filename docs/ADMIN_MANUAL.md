@@ -214,9 +214,12 @@ This is the volunteer roster. The refresh aggregates per-county capacity by role
 bucket (C&T no-RVS / C&T+RVS / Courier). Volunteer addresses are geocoded into
 lat/lon and written to a **PRIVATE** coords dataset
 (`data/volunteer_coords.json`). That coords file contains only
-`{lat, lon, roles, home_county, win_area}` — no names, addresses, or phone — and is
-**gitignored / never committed / never public**. It is pushed only to private
-Cloudflare KV (see §3).
+`{lat, lon, roles, home_county, win_area, first_name}` — a **first name only**
+(single token; **no last names**, addresses, or phone — last names never leave
+the pipeline) — and is **gitignored / never committed / never public**. It is
+pushed only to private Cloudflare KV (see §3). Whether that first name is ever
+surfaced in a Worker response is governed by the single kill-switch
+`SHOW_VOLUNTEER_FIRST_NAME` (default ON; see §3).
 
 ```58:58:refresh_monday.py
 BOARD_ID = "9092079933"          # Connecteam_Users
@@ -404,7 +407,12 @@ The Worker serves multiple roles:
 
 1. **Volunteer radius search** — the browser sends an animal location (lat/lon, or
    an address the Worker geocodes server-side) plus a radius; the Worker reads the
-   **private** volunteer coords from KV and returns only a **PII-free aggregate**.
+   **private** volunteer coords from KV and returns a role/WIN-area aggregate.
+   When the detailed roster is surfaced it may also include each matching
+   volunteer's **first name only** (single token), gated by the single
+   kill-switch `SHOW_VOLUNTEER_FIRST_NAME` (default ON). With the flag OFF the
+   response is byte-identical to the earlier names-free aggregate. **Last names,
+   exact locations, addresses, and phones are never returned.**
 2. **Address autocomplete** — proxies Photon (OSM) typeahead for the address input
    fields.
 3. **Rehabber driving distances** — computes driving distances via the ORS Matrix

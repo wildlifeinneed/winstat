@@ -37,8 +37,12 @@ rank rehabbers by distance:
 }
 ```
 
-No names, volunteer coordinates, addresses, `home_county`, `roles`, or
-per-volunteer rows are ever returned. The tests assert this (deep key scan).
+Volunteer coordinates, addresses, `home_county`, and per-volunteer exact
+locations are never returned. The detailed roster rows may carry a volunteer's
+**first name only** (single token), gated by the `SHOW_VOLUNTEER_FIRST_NAME`
+env var (default ON). With the flag OFF, no name field appears anywhere in the
+response — byte-identical to the names-free shape. **Last names are never
+returned.** The tests assert this (deep key scan for both flag states).
 
 ## Request contract
 
