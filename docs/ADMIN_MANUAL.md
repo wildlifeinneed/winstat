@@ -229,10 +229,13 @@ BOARD_ID = "9092079933"          # Connecteam_Users
 Maps each WIN area to a coordinator name. Two important rules:
 
 - The board's **item name** is the WIN area string (e.g. `"15N"`, `"10"`).
-- The coordinator **name** comes from `long_text_mm455k2n`.
+- The coordinator **name** comes from `long_text_mm455k2n`. It is reduced to a
+  **first-name token only** (`geocoder.first_name_token`) before it is written
+  to the public `docs/data/coordinators.json` — last names MUST NEVER reach the
+  public GitHub Pages site.
 - The coordinator **phone column (`phone_mm45s2h0`) is NEVER fetched, stored, or
-  emitted.** The site is public GitHub Pages; only area + name reach the public
-  output.
+  emitted.** The site is public GitHub Pages; only area + first name reach the
+  public output.
 
 ```215:219:refresh_monday.py
 COORDINATORS_BOARD_ID = "18416913502"   # Area Coordinators
@@ -253,7 +256,7 @@ On a full run (no `--if-stale` skip), the script:
 3. Pulls `RehabDB` and writes the public `docs/data/rehabbers.json` (no geocoding;
    lat/lon already on the board).
 4. Pulls `Area Coordinators` and writes the public `docs/data/coordinators.json`
-   (area → name; phone excluded).
+   (area → first name only; last names and phone excluded).
 5. Stamps the sidecar (`docs/data/.last_remote_update`) with the remote sentinel
    timestamp so future `--if-stale` runs can compare.
 
@@ -631,9 +634,9 @@ This is a **data-only** change — no code edit needed.
 2. Bump `Last_Updated` on the `VolDB_Status` sentinel board (`6750158385`) so CI
    picks up the change on its next run.
 
-The refresh writes `docs/data/coordinators.json` (area → name), which the page reads
-as an override on top of the static county→area map. No code change, no manual file
-edit.
+The refresh writes `docs/data/coordinators.json` (area → first name only), which
+the page reads as an override on top of the static county→area map. No code
+change, no manual file edit.
 
 ---
 

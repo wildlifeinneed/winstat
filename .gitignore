@@ -30,6 +30,11 @@ data/volunteer_coords.json
 # job acted on so the next run can compare. Local/CI-only state, never committed.
 last_refresh_date.json
 
+# Private local-only backup of coordinator FULL names (first + last). Moved
+# OUT of docs/ so GitHub Pages can never serve it. This directory (and the
+# full-name backup inside it) must NEVER be committed/pushed.
+private/
+
 # Wrangler local cache (may hold account info)
 worker/.wrangler/
 

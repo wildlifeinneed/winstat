@@ -329,6 +329,61 @@ jobs:
             fi
           fi
 
+          # (d) Known-schema guard on coordinators.json.
+          # docs/data/coordinators.json IS served by the public GitHub Pages
+          # site, so its VALUES must be FIRST-NAME tokens only — a last name /
+          # multi-token value would publish coordinator PII. The PII-key scan
+          # in (b) only catches PII-shaped KEYS; this guard validates the
+          # VALUES against the known {area-string -> single-token name} schema,
+          # mirroring the geocode_failures.json single-token validator above.
+          # We parse the ACTUAL staged JSON (git show :<path>) so the check
+          # runs against real structure, not line-diff text.
+          if git diff --cached --quiet -- docs/data/coordinators.json; then
+            :  # not staged / unchanged — nothing to validate.
+          else
+            coord_rc=0
+            python3 - <<'PY' || coord_rc=$?
+          import json, subprocess, sys
+
+          blob = subprocess.check_output(
+              ["git", "show", ":docs/data/coordinators.json"]
+          ).decode("utf-8")
+          try:
+              data = json.loads(blob)
+          except json.JSONDecodeError as e:
+              print(f"ABORT: coordinators.json is not valid JSON: {e}",
+                    file=sys.stderr)
+              sys.exit(1)
+
+          if not isinstance(data, dict):
+              print("ABORT: coordinators.json must be a JSON object "
+                    "(area -> name).", file=sys.stderr)
+              sys.exit(1)
+
+          for area, name in data.items():
+              if not isinstance(name, str):
+                  print(f"ABORT: coordinators.json[{area!r}] value is not a "
+                        "string.", file=sys.stderr)
+                  sys.exit(1)
+              # Single-token first name only: any internal whitespace means a
+              # last name / multi-token value leaked through.
+              if name != name.strip() or len(name.split()) > 1:
+                  print(
+                      "ABORT: coordinators.json[%r] value is not a "
+                      "single-token first name (last name / multi-token "
+                      "leaked): %r" % (area, name),
+                      file=sys.stderr,
+                  )
+                  sys.exit(1)
+          print("coordinators.json schema OK (%d entr%s)."
+                % (len(data), "y" if len(data) == 1 else "ies"))
+          PY
+            if [ "$coord_rc" -ne 0 ]; then
+              git reset -q
+              exit 1
+            fi
+          fi
+
           ts="$(date -u +'%Y-%m-%d %H:%M UTC')"
           git commit -m "Auto-refresh dispatcher data (${ts})"
           for i in 1 2 3 4 5; do

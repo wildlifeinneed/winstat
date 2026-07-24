@@ -203,8 +203,9 @@ so that this information **never reaches the public web**.
   public site, and is pushed only into the private backend.
 - **Rehabber and coordinator data is public-safe** by contrast (facilities and
   coordinator names are meant to be shared), so that information is handled
-  normally. Even there, coordinator and volunteer **phone numbers are kept out**
-  of anything published publicly.
+  normally. Coordinator names are published as a **first name only** (no last
+  name), and even there, coordinator and volunteer **phone numbers are kept
+  out** of anything published publicly.
 
 In short: the app is split into a **public face** that only ever knows aggregate
 counts, and a **private core** that holds the sensitive location data and never

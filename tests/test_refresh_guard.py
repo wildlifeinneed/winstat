@@ -58,6 +58,64 @@ def validator_src() -> str:
     return _extract_guard_validator()
 
 
+def _extract_coordinators_validator() -> str:
+    """Pull the coordinators.json single-token validator out of refresh.yml.
+
+    The workflow embeds it as a here-doc:  python3 - <<'PY' ... PY  inside the
+    guard section that references coordinators.json (the block that opens with
+    `git show :docs/data/coordinators.json`). We locate that PY block and
+    de-indent it so it runs standalone.
+    """
+    text = WORKFLOW.read_text(encoding="utf-8")
+    blocks = re.findall(r"<<'PY'[^\n]*\n(.*?)\n[ \t]*PY\b", text, flags=re.DOTALL)
+    guard = next(
+        (b for b in blocks if ":docs/data/coordinators.json" in b), None
+    )
+    assert guard is not None, \
+        "could not find the coordinators.json validator in refresh.yml"
+    lines = guard.split("\n")
+    indents = [len(ln) - len(ln.lstrip()) for ln in lines if ln.strip()]
+    common = min(indents) if indents else 0
+    return "\n".join(ln[common:] if len(ln) >= common else ln for ln in lines)
+
+
+@pytest.fixture(scope="module")
+def coord_validator_src() -> str:
+    return _extract_coordinators_validator()
+
+
+def _run_coord_guard(
+    tmp_path: Path, validator_src: str, payload
+) -> subprocess.CompletedProcess:
+    """Stage a docs/data/coordinators.json fixture and run the extracted validator.
+
+    Returns the CompletedProcess (rc 0 => guard PASS, rc != 0 => guard ABORT).
+    """
+    repo = tmp_path
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
+
+    (repo / "docs" / "data").mkdir(parents=True, exist_ok=True)
+    fpath = repo / "docs" / "data" / "coordinators.json"
+    fpath.write_text(
+        payload if isinstance(payload, str) else json.dumps(payload),
+        encoding="utf-8",
+    )
+    subprocess.run(
+        ["git", "add", "docs/data/coordinators.json"], cwd=repo, check=True
+    )
+
+    script = repo / "_coord_guard.py"
+    script.write_text(validator_src, encoding="utf-8")
+    return subprocess.run(
+        [sys.executable, str(script)],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+
+
 def _run_guard(tmp_path: Path, validator_src: str, payload) -> subprocess.CompletedProcess:
     """Stage a geocode_failures.json fixture and run the extracted validator.
 
@@ -177,3 +235,62 @@ def test_geocoder_failure_schema_matches_guard_allowlist(tmp_path, validator_src
     assert res.returncode == 0, f"real geocoder failure must PASS guard; stderr={res.stderr}"
     # And the published artifact carries NO last name.
     assert "Zimmerman" not in json.dumps(failures)
+
+
+# ---------------------------------------------------------------------------
+# coordinators.json guard — public site dataset must be first-name-only.
+# ---------------------------------------------------------------------------
+
+
+def test_coord_guard_passes_all_first_names(tmp_path, coord_validator_src):
+    payload = {
+        "1": "Sue",
+        "10": "Julia",
+        "15N": "Jane",
+        "15S": "Jane",
+        "9": "Judith",
+    }
+    res = _run_coord_guard(tmp_path, coord_validator_src, payload)
+    assert res.returncode == 0, \
+        f"all-first-names must PASS; stderr={res.stderr}"
+
+
+def test_coord_guard_passes_empty_object(tmp_path, coord_validator_src):
+    res = _run_coord_guard(tmp_path, coord_validator_src, {})
+    assert res.returncode == 0, f"empty {{}} must PASS; stderr={res.stderr}"
+
+
+def test_coord_guard_aborts_on_two_token_last_name(tmp_path, coord_validator_src):
+    payload = {"6": "Jane Smith"}
+    res = _run_coord_guard(tmp_path, coord_validator_src, payload)
+    assert res.returncode != 0, "guard must ABORT on 'Jane Smith'"
+    assert "single-token" in res.stderr or "ABORT" in res.stderr
+
+
+def test_coord_guard_aborts_on_multi_token_last_name(tmp_path, coord_validator_src):
+    payload = {"3": "Bob De La Cruz"}
+    res = _run_coord_guard(tmp_path, coord_validator_src, payload)
+    assert res.returncode != 0, "guard must ABORT on 'Bob De La Cruz'"
+
+
+def test_coord_guard_aborts_when_any_value_has_last_name(tmp_path, coord_validator_src):
+    # One bad value among many first names must still abort.
+    payload = {"1": "Sue", "10": "Julia", "13": "Gary Shimmel"}
+    res = _run_coord_guard(tmp_path, coord_validator_src, payload)
+    assert res.returncode != 0, "guard must ABORT when any value has a last name"
+    assert "Shimmel" in res.stderr or "single-token" in res.stderr
+
+
+def test_coord_guard_aborts_on_non_object(tmp_path, coord_validator_src):
+    res = _run_coord_guard(tmp_path, coord_validator_src, ["Sue", "Julia"])
+    assert res.returncode != 0, "guard must ABORT when JSON is not an object"
+
+
+def test_coord_guard_matches_repo_coordinators_json(tmp_path, coord_validator_src):
+    """The real committed coordinators.json must PASS the guard unchanged."""
+    real = json.loads(
+        (ROOT / "docs" / "data" / "coordinators.json").read_text(encoding="utf-8")
+    )
+    res = _run_coord_guard(tmp_path, coord_validator_src, real)
+    assert res.returncode == 0, \
+        f"repo coordinators.json must PASS guard; stderr={res.stderr}"

@@ -93,6 +93,46 @@ def test_build_coordinators_never_emits_phone():
     assert PHONE_COL_ID not in blob
 
 
+# ---------------------------------------------------------------------------
+# 2b. Coordinator name is reduced to a FIRST-NAME token only (no last names)
+# ---------------------------------------------------------------------------
+
+def test_build_coordinators_emits_first_name_only():
+    # PRIVACY-CRITICAL: coordinators.json is public; last names must be dropped.
+    items = [
+        _coord_item(area="1", name="Sue DeArment"),
+        _coord_item(area="10", name="Julia Meredith"),
+        _coord_item(area="6", name="Jane Pierzga"),
+    ]
+    result = rm.build_coordinators(items)
+    assert result == {"1": "Sue", "10": "Julia", "6": "Jane"}
+    blob = json.dumps(result)
+    for surname in ("DeArment", "Meredith", "Pierzga"):
+        assert surname not in blob
+
+
+def test_build_coordinators_first_name_only_multi_and_extra_whitespace():
+    # Multi-token surnames and stray whitespace still reduce to one token.
+    items = [
+        _coord_item(area="3", name="Bob De La Cruz"),
+        _coord_item(area="4", name="  Kelly   Martin  "),
+    ]
+    result = rm.build_coordinators(items)
+    assert result == {"3": "Bob", "4": "Kelly"}
+
+
+def test_build_coordinators_values_are_all_single_token():
+    # Every emitted value must be a single whitespace-delimited token.
+    items = [
+        _coord_item(area="1", name="Sue DeArment"),
+        _coord_item(area="9", name="Judith Ullman"),
+    ]
+    result = rm.build_coordinators(items)
+    for name in result.values():
+        assert name == name.strip()
+        assert len(name.split()) == 1
+
+
 def test_phone_column_id_not_in_coord_col_ids():
     # Defensive: the phone column id must not be in the requested column set.
     assert PHONE_COL_ID not in rm.COORD_COL_IDS.values()

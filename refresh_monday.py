@@ -1282,14 +1282,18 @@ def build_coordinators(items: Iterable[Dict[str, Any]]) -> Dict[str, str]:
 
     The item NAME is the WIN area string (kept verbatim so it matches the
     county_win area values exactly). The coordinator name comes from the
-    COORD_COL_IDS["name"] long-text column. Items with a blank area name or a
-    blank coordinator name are skipped (nothing to override with). Phone is
-    never read. Returns a plain dict suitable for atomic_write_json.
+    COORD_COL_IDS["name"] long-text column, reduced to its FIRST-NAME token
+    only (geocoder.first_name_token) — PRIVACY-CRITICAL: docs/data/
+    coordinators.json is served by the public GitHub Pages site, so last
+    names MUST NEVER be emitted. Items with a blank area name or a blank
+    coordinator name (after tokenizing) are skipped (nothing to override
+    with). Phone is never read. Returns a plain dict suitable for
+    atomic_write_json.
     """
     out: Dict[str, str] = {}
     for it in items:
         area = (it.get("name") or "").strip()
-        name = _column_text(it, COORD_COL_IDS["name"])
+        name = geocoder.first_name_token(_column_text(it, COORD_COL_IDS["name"]))
         if not area or not name:
             continue
         out[area] = name
