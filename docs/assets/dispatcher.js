@@ -3976,10 +3976,15 @@
           lat = v.lat + rad * Math.cos(ang);
           lon = v.lon + rad * Math.sin(ang);
         }
-        // Popup content: ROLES · "X miles / Y min" · COUNTY. The distance/time
-        // line uses the REAL ORS driving time (duration_min) when present,
-        // otherwise the shared 40 mph estimate (marked "(est.)").
+        // Popup content: FIRST NAME · ROLES · "X miles / Y min" · COUNTY. The
+        // distance/time line uses the REAL ORS driving time (duration_min) when
+        // present, otherwise the shared 40 mph estimate (marked "(est.)").
+        // FIRST NAME ONLY — PRESENCE-DRIVEN. Populated only when the Worker's
+        // SHOW_VOLUNTEER_FIRST_NAME kill-switch is ON (payload carries a
+        // non-empty first_name); first token only so no last name can surface.
+        var fn = v.first_name ? String(v.first_name).trim().split(/\s+/)[0] : '';
         var lines = [];
+        if (fn) lines.push('<strong>' + escapeHtml(fn) + '</strong>');
         if (v.roles && v.roles.length) {
           lines.push(escapeHtml(v.roles.join(', ')));
         }
@@ -3998,9 +4003,10 @@
         }
         if (!v.available) lines.push('<em style="color:#999;">Unavailable</em>');
         var pinCls = t2VolPinClass(v.roles) + (v.available ? '' : ' t2-pin-unavail');
+        var titleBase = fn ? fn : 'Volunteer';
         var marker = L_.marker([lat, lon], {
           icon: t2DivIcon(pinCls, 14),
-          title: 'Volunteer' + (v.available ? '' : ' (unavailable)')
+          title: titleBase + (v.available ? '' : ' (unavailable)')
         }).bindPopup(lines.length ? lines.join('<br>') : '');
         marker.addTo(t2map.layers.volunteer);
         t2VolMarkers.push({ marker: marker, available: !!v.available });
