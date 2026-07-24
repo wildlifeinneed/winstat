@@ -219,17 +219,37 @@ REHAB_COL_IDS = {
 # As the column is filled, the map shrinks toward empty with no code change.
 
 # Area Coordinators board. The county->area map stays in counties.xlsx
-# (stable); only the volatile coordinator NAME is sourced here so a Monday
-# rename flows through the normal refresh. The board's ITEM NAME is the WIN
-# area string (e.g. "15N"/"10"); long_text_mm455k2n is the coordinator name.
+# (stable); only the volatile coordinator FIRST NAME is sourced here so a
+# Monday edit flows through the normal refresh. The board's ITEM NAME is the
+# WIN area string (e.g. "15N"/"10").
 #
-# HARD PII RULE: the coordinator PHONE column (phone_mm45s2h0) is NEVER
+# FIRST-NAME COLUMN (long_text_mm455k2n): the org curates this column to hold
+# the coordinator's FIRST NAME ONLY. It was formerly a full-name field but has
+# been edited down to first-name data, so it is now the AUTHORITATIVE published
+# first name. build_coordinators publishes its value VERBATIM (whitespace
+# trimmed only) — it is NOT tokenized, so legitimate multi-word / hyphenated
+# first names ("Mary Jane", "Anne-Marie") survive intact.
+#
+# HARD PII RULE #1: the coordinator PHONE column (phone_mm45s2h0) is NEVER
 # fetched, stored, or emitted — the dispatcher site is public GitHub Pages.
-# Only the area (item name) + coordinator name are read.
+#
+# HARD PII RULE #2: the LAST NAME column (text_mm5jhd0x) is NEVER fetched,
+# stored, published, committed, or logged. It is deliberately absent from
+# COORD_COL_IDS so it is never even requested from Monday. The full-name
+# backup (private/coordinators_full.json) is gitignored and never published.
+# Because last names live in this separate, never-read column, the only
+# remaining leak path is a coordinator's own curated first-name cell being
+# mistyped to include a surname — an ACCEPTED residual under the locked
+# first-name-only posture (the CI structural guard cannot distinguish a legit
+# two-word first name from a first+last typo, and two-word first names are
+# explicitly supported).
 COORDINATORS_BOARD_ID = "18416913502"   # Area Coordinators
 COORDINATORS_GROUP_TITLE = "Coordinators"
+# Last_Name column id — recorded here ONLY to assert it is never fetched; it is
+# intentionally NOT part of COORD_COL_IDS (the requested column set).
+COORD_LAST_NAME_COL_ID = "text_mm5jhd0x"  # NEVER fetched / published / logged.
 COORD_COL_IDS = {
-    "name": "long_text_mm455k2n",
+    "first_name": "long_text_mm455k2n",
 }
 
 # Output file — relative to this script's directory.
@@ -1164,14 +1184,16 @@ def build_facilities(
 # ---------------------------------------------------------------------------
 #
 # The county->area map stays in counties.xlsx (stable). Only the volatile
-# coordinator NAME is refreshed from Monday so a coordinator change flows
+# coordinator FIRST NAME is refreshed from Monday so a coordinator change flows
 # through the normal refresh. The board ITEM NAME is the WIN area string
 # (matched EXACTLY against county_win area values like "15N"/"10"); the
-# coordinator name lives in long_text_mm455k2n.
+# coordinator first name lives in long_text_mm455k2n (curated first-name-only,
+# published verbatim).
 #
-# HARD PII RULE: the phone column (phone_mm45s2h0) is NEVER requested, stored,
-# or emitted. We only ever ask Monday for COORD_COL_IDS (the name column) and
-# read the item name — phone never enters this pipeline.
+# HARD PII RULE: neither the phone column (phone_mm45s2h0) nor the Last_Name
+# column (text_mm5jhd0x) is ever requested, stored, or emitted. We only ever
+# ask Monday for COORD_COL_IDS (the first-name column) and read the item name —
+# phone and last name never enter this pipeline.
 
 # Group-scoped query: coordinators live in the 'Coordinators' topics group.
 COORDINATORS_ITEMS_QUERY = """
@@ -1278,22 +1300,28 @@ def fetch_coordinators(
 
 
 def build_coordinators(items: Iterable[Dict[str, Any]]) -> Dict[str, str]:
-    """Transform raw coordinator items into an area-string -> name mapping.
+    """Transform raw coordinator items into an area-string -> first-name mapping.
 
     The item NAME is the WIN area string (kept verbatim so it matches the
-    county_win area values exactly). The coordinator name comes from the
-    COORD_COL_IDS["name"] long-text column, reduced to its FIRST-NAME token
-    only (geocoder.first_name_token) — PRIVACY-CRITICAL: docs/data/
-    coordinators.json is served by the public GitHub Pages site, so last
-    names MUST NEVER be emitted. Items with a blank area name or a blank
-    coordinator name (after tokenizing) are skipped (nothing to override
-    with). Phone is never read. Returns a plain dict suitable for
-    atomic_write_json.
+    county_win area values exactly). The coordinator FIRST NAME comes from the
+    COORD_COL_IDS["first_name"] long-text column, published VERBATIM (surrounding
+    whitespace trimmed only — via _column_text). This column is curated by the
+    org to hold FIRST-NAME-ONLY data, so it is authoritative and is NOT
+    tokenized: legitimate multi-word / hyphenated first names ("Mary Jane",
+    "Anne-Marie") are preserved intact.
+
+    PRIVACY-CRITICAL: docs/data/coordinators.json is served by the public
+    GitHub Pages site. The separate Last_Name column (COORD_LAST_NAME_COL_ID,
+    text_mm5jhd0x) is never fetched or referenced here, so no surname can enter
+    the output through this path. Items with a blank area name or a blank
+    first-name cell are skipped (nothing to override with) — presence-driven,
+    no fallback to any other field. Phone is never read. Returns a plain dict
+    suitable for atomic_write_json.
     """
     out: Dict[str, str] = {}
     for it in items:
         area = (it.get("name") or "").strip()
-        name = geocoder.first_name_token(_column_text(it, COORD_COL_IDS["name"]))
+        name = _column_text(it, COORD_COL_IDS["first_name"])
         if not area or not name:
             continue
         out[area] = name

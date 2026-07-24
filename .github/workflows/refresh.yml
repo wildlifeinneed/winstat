@@ -228,6 +228,16 @@ jobs:
             exit 1
           fi
 
+          # Belt-and-braces: nothing under private/ (e.g. the gitignored
+          # coordinators_full.json full-name backup) may ever be staged for a
+          # public commit. The allow-list (a) already rejects it, but assert it
+          # explicitly since private/ holds the coordinator LAST NAMES.
+          if printf '%s\n' "$staged" | grep -q '^private/'; then
+            echo "ABORT: a private/ path (full-name backup?) staged for public commit." >&2
+            git reset -q
+            exit 1
+          fi
+
           # (b) PII content scan of the staged additions. The public rehabber +
           # coordinator datasets must contain NO volunteer phone/email/street/
           # address keys. Scan added lines (leading '+') for those JSON keys.
@@ -329,15 +339,31 @@ jobs:
             fi
           fi
 
-          # (d) Known-schema guard on coordinators.json.
+          # (d) STRUCTURAL guard on coordinators.json.
           # docs/data/coordinators.json IS served by the public GitHub Pages
-          # site, so its VALUES must be FIRST-NAME tokens only — a last name /
-          # multi-token value would publish coordinator PII. The PII-key scan
-          # in (b) only catches PII-shaped KEYS; this guard validates the
-          # VALUES against the known {area-string -> single-token name} schema,
-          # mirroring the geocode_failures.json single-token validator above.
-          # We parse the ACTUAL staged JSON (git show :<path>) so the check
-          # runs against real structure, not line-diff text.
+          # site. Its VALUES are coordinator FIRST NAMES, now sourced VERBATIM
+          # from a Monday first-name-only column (long_text_mm455k2n) so the org
+          # can publish legitimate multi-word / hyphenated first names ("Mary
+          # Jane", "Anne-Marie"). A space-based single-token content check would
+          # FALSE-ABORT on those, and — critically — it CANNOT distinguish a
+          # legit two-word first name from a first+last typo, so it is NOT a
+          # reliable privacy control. It is therefore REPLACED here by a
+          # STRUCTURAL guarantee:
+          #   * validate the {area-string -> first-name string} shape, and
+          #   * assert the Monday Last_Name column id (text_mm5jhd0x) never
+          #     appears anywhere in the published file — the pipeline never
+          #     fetches that column, so its id must never surface as a key or
+          #     value. If it ever did, a code/config regression leaked the
+          #     last-name column and we abort.
+          # Last names live ONLY in that separate, never-read Monday column; the
+          # full-name backup (private/coordinators_full.json) is gitignored and
+          # blocked from staging by (a) + the private/ belt-and-braces above.
+          # ACCEPTED RESIDUAL: a coordinator's own curated first-name cell being
+          # mistyped to include a surname is the user's own data and is accepted
+          # under the locked first-name-only posture — it is indistinguishable
+          # from a legit two-word first name and is out of scope for this guard.
+          # We parse the ACTUAL staged JSON (git show :<path>) so the check runs
+          # against real structure, not line-diff text.
           if git diff --cached --quiet -- docs/data/coordinators.json; then
             :  # not staged / unchanged — nothing to validate.
           else
@@ -345,9 +371,26 @@ jobs:
             python3 - <<'PY' || coord_rc=$?
           import json, subprocess, sys
 
+          # Monday Last_Name column id for the Area Coordinators board. The
+          # pipeline never requests or emits this column; if its id ever appears
+          # in the published file, a regression leaked the last-name column.
+          LAST_NAME_COL_ID = "text_mm5jhd0x"
+
           blob = subprocess.check_output(
               ["git", "show", ":docs/data/coordinators.json"]
           ).decode("utf-8")
+
+          # Structural leak tripwire: the Last_Name column id must not appear
+          # anywhere in the serialized public file (key or value).
+          if LAST_NAME_COL_ID in blob:
+              print(
+                  "ABORT: coordinators.json contains the Last_Name column id "
+                  "%r — the never-read last-name column leaked into published "
+                  "output." % LAST_NAME_COL_ID,
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
           try:
               data = json.loads(blob)
           except json.JSONDecodeError as e:
@@ -357,7 +400,7 @@ jobs:
 
           if not isinstance(data, dict):
               print("ABORT: coordinators.json must be a JSON object "
-                    "(area -> name).", file=sys.stderr)
+                    "(area -> first name).", file=sys.stderr)
               sys.exit(1)
 
           for area, name in data.items():
@@ -365,17 +408,9 @@ jobs:
                   print(f"ABORT: coordinators.json[{area!r}] value is not a "
                         "string.", file=sys.stderr)
                   sys.exit(1)
-              # Single-token first name only: any internal whitespace means a
-              # last name / multi-token value leaked through.
-              if name != name.strip() or len(name.split()) > 1:
-                  print(
-                      "ABORT: coordinators.json[%r] value is not a "
-                      "single-token first name (last name / multi-token "
-                      "leaked): %r" % (area, name),
-                      file=sys.stderr,
-                  )
-                  sys.exit(1)
-          print("coordinators.json schema OK (%d entr%s)."
+              # Verbatim first-name model: multi-word / hyphenated first names
+              # are LEGITIMATE and must NOT abort. No single-token check here.
+          print("coordinators.json structure OK (%d entr%s)."
                 % (len(data), "y" if len(data) == 1 else "ies"))
           PY
             if [ "$coord_rc" -ne 0 ]; then

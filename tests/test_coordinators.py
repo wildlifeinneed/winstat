@@ -1,9 +1,11 @@
-"""Tests for the area-coordinator NAME pipeline — fully offline.
+"""Tests for the area-coordinator FIRST-NAME pipeline — fully offline.
 
 The Area Coordinators Monday board is mocked; NO live network is used. Covers:
-  * item NAME -> area, long_text_mm455k2n -> coordinator name mapping
+  * item NAME -> area, long_text_mm455k2n -> coordinator FIRST NAME (VERBATIM)
+  * legitimate multi-word / hyphenated first names are preserved intact
   * the phone column (phone_mm45s2h0) is NEVER requested NOR emitted
-  * blank area / blank name rows are skipped
+  * the Last_Name column (text_mm5jhd0x) is NEVER requested NOR emitted
+  * blank area / blank first-name rows are skipped
   * fetch_coordinators issues a narrow group-scoped items_page query
   * county_win prefers coordinators.json override, falls back to xlsx
 """
@@ -24,25 +26,29 @@ import county_win as cw  # noqa: E402
 
 # The phone column id that MUST NEVER appear in any query or output.
 PHONE_COL_ID = "phone_mm45s2h0"
+# The Last_Name column id that MUST NEVER be requested, read, or emitted.
+LAST_NAME_COL_ID = "text_mm5jhd0x"
 
 
-def _coord_item(area="15N", name="Jane Coordinator", phone="555-1234") -> dict:
+def _coord_item(area="15N", name="Jane", phone="555-1234", last="Surname") -> dict:
     """Build a raw coordinator item.
 
-    The phone column is present in the RAW board payload (as it would be on
-    Monday) so the tests can prove our code does NOT read it.
+    Both the phone column AND the Last_Name column are present in the RAW board
+    payload (as they would be on Monday) so the tests can prove our code does
+    NOT read either of them.
     """
     return {
         "id": f"item_{area}",
         "name": area,
         "column_values": [
             {
-                "id": rm.COORD_COL_IDS["name"],
+                "id": rm.COORD_COL_IDS["first_name"],
                 "text": name,
                 "value": None,
                 "type": "long_text",
             },
             {"id": PHONE_COL_ID, "text": phone, "value": None, "type": "phone"},
+            {"id": LAST_NAME_COL_ID, "text": last, "value": None, "type": "text"},
         ],
     }
 
@@ -94,43 +100,86 @@ def test_build_coordinators_never_emits_phone():
 
 
 # ---------------------------------------------------------------------------
-# 2b. Coordinator name is reduced to a FIRST-NAME token only (no last names)
+# 2b. Coordinator FIRST NAME is published VERBATIM (curated first-name-only
+#     column) — multi-word / hyphenated first names are preserved intact.
 # ---------------------------------------------------------------------------
 
-def test_build_coordinators_emits_first_name_only():
-    # PRIVACY-CRITICAL: coordinators.json is public; last names must be dropped.
+def test_build_coordinators_publishes_first_name_verbatim():
+    # The column is curated to first-name-only; publish exactly what's there.
     items = [
-        _coord_item(area="1", name="Sue DeArment"),
-        _coord_item(area="10", name="Julia Meredith"),
-        _coord_item(area="6", name="Jane Pierzga"),
+        _coord_item(area="1", name="Sue"),
+        _coord_item(area="10", name="Julia"),
+        _coord_item(area="6", name="Jane"),
     ]
     result = rm.build_coordinators(items)
     assert result == {"1": "Sue", "10": "Julia", "6": "Jane"}
+
+
+def test_build_coordinators_preserves_multiword_first_name():
+    # PRIVACY POSTURE: last names live in a separate never-read column, so a
+    # legit two-word / hyphenated FIRST name must survive intact (NOT tokenized
+    # down to one word, which the old first_name_token heuristic did wrongly).
+    items = [
+        _coord_item(area="3", name="Mary Jane"),
+        _coord_item(area="4", name="Anne-Marie"),
+        _coord_item(area="5", name="Jo Ellen"),
+    ]
+    result = rm.build_coordinators(items)
+    assert result == {"3": "Mary Jane", "4": "Anne-Marie", "5": "Jo Ellen"}
+
+
+def test_build_coordinators_trims_surrounding_whitespace_only():
+    # _column_text strips surrounding whitespace; internal spacing is verbatim.
+    items = [_coord_item(area="4", name="  Mary Jane  ")]
+    result = rm.build_coordinators(items)
+    assert result == {"4": "Mary Jane"}
+
+
+# ---------------------------------------------------------------------------
+# 2c. Last_Name column (text_mm5jhd0x) is NEVER read NOR emitted.
+# ---------------------------------------------------------------------------
+
+def test_build_coordinators_never_emits_last_name():
+    # The raw item carries a Last_Name column; it must never reach the output.
+    items = [
+        _coord_item(area="1", name="Sue", last="DeArment"),
+        _coord_item(area="10", name="Julia", last="Meredith"),
+    ]
+    result = rm.build_coordinators(items)
+    assert result == {"1": "Sue", "10": "Julia"}
     blob = json.dumps(result)
-    for surname in ("DeArment", "Meredith", "Pierzga"):
+    for surname in ("DeArment", "Meredith"):
         assert surname not in blob
+    assert LAST_NAME_COL_ID not in blob
 
 
-def test_build_coordinators_first_name_only_multi_and_extra_whitespace():
-    # Multi-token surnames and stray whitespace still reduce to one token.
-    items = [
-        _coord_item(area="3", name="Bob De La Cruz"),
-        _coord_item(area="4", name="  Kelly   Martin  "),
-    ]
-    result = rm.build_coordinators(items)
-    assert result == {"3": "Bob", "4": "Kelly"}
+def test_last_name_column_id_not_in_coord_col_ids():
+    # Defensive: the Last_Name column id must not be in the requested column set.
+    assert LAST_NAME_COL_ID not in rm.COORD_COL_IDS.values()
+    # And it is recorded ONLY as the never-fetched sentinel constant.
+    assert rm.COORD_LAST_NAME_COL_ID == LAST_NAME_COL_ID
 
 
-def test_build_coordinators_values_are_all_single_token():
-    # Every emitted value must be a single whitespace-delimited token.
-    items = [
-        _coord_item(area="1", name="Sue DeArment"),
-        _coord_item(area="9", name="Judith Ullman"),
-    ]
-    result = rm.build_coordinators(items)
-    for name in result.values():
-        assert name == name.strip()
-        assert len(name.split()) == 1
+def test_fetch_coordinators_does_not_request_last_name_column():
+    captured: list = []
+    items = [_coord_item(area="15N", name="Alice", last="Smith")]
+
+    def fake(query, variables=None, token=None, session=None, _retry=True):
+        captured.append({"query": query, "variables": variables})
+        return {
+            "boards": [
+                {"groups": [{"items_page": {"cursor": None, "items": items}}]}
+            ]
+        }
+
+    with mock.patch.object(rm, "graphql_request", side_effect=fake):
+        raw = rm.fetch_coordinators("grp1", token="TEST")
+
+    sent_cols = captured[0]["variables"]["col_ids"]
+    assert LAST_NAME_COL_ID not in sent_cols
+    # The resulting mapping never carries the last-name value.
+    result = rm.build_coordinators(raw)
+    assert "Smith" not in json.dumps(result)
 
 
 def test_phone_column_id_not_in_coord_col_ids():

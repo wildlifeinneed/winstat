@@ -59,7 +59,7 @@ def validator_src() -> str:
 
 
 def _extract_coordinators_validator() -> str:
-    """Pull the coordinators.json single-token validator out of refresh.yml.
+    """Pull the coordinators.json structural validator out of refresh.yml.
 
     The workflow embeds it as a here-doc:  python3 - <<'PY' ... PY  inside the
     guard section that references coordinators.json (the block that opens with
@@ -238,7 +238,10 @@ def test_geocoder_failure_schema_matches_guard_allowlist(tmp_path, validator_src
 
 
 # ---------------------------------------------------------------------------
-# coordinators.json guard — public site dataset must be first-name-only.
+# coordinators.json guard — public site dataset: STRUCTURAL first-name model.
+# Values are curated FIRST NAMES published verbatim (multi-word allowed); the
+# guard's job is now to (a) validate the {area -> first-name string} shape and
+# (b) trip if the never-read Last_Name column id ever surfaces in the file.
 # ---------------------------------------------------------------------------
 
 
@@ -260,25 +263,29 @@ def test_coord_guard_passes_empty_object(tmp_path, coord_validator_src):
     assert res.returncode == 0, f"empty {{}} must PASS; stderr={res.stderr}"
 
 
-def test_coord_guard_aborts_on_two_token_last_name(tmp_path, coord_validator_src):
-    payload = {"6": "Jane Smith"}
+def test_coord_guard_passes_two_word_first_name(tmp_path, coord_validator_src):
+    # VERBATIM model: a legit two-word / hyphenated FIRST name must NOT abort
+    # (the old single-token guard false-aborted here).
+    payload = {"6": "Mary Jane", "7": "Anne-Marie", "8": "Jo Ellen"}
     res = _run_coord_guard(tmp_path, coord_validator_src, payload)
-    assert res.returncode != 0, "guard must ABORT on 'Jane Smith'"
-    assert "single-token" in res.stderr or "ABORT" in res.stderr
+    assert res.returncode == 0, \
+        f"two-word first names must PASS under verbatim model; stderr={res.stderr}"
 
 
-def test_coord_guard_aborts_on_multi_token_last_name(tmp_path, coord_validator_src):
-    payload = {"3": "Bob De La Cruz"}
+def test_coord_guard_aborts_when_last_name_column_id_present(tmp_path, coord_validator_src):
+    # STRUCTURAL tripwire: the never-read Last_Name column id (text_mm5jhd0x)
+    # must never appear in the published file. If a regression ever emitted the
+    # last-name column (as a key or value), the guard must abort.
+    payload = '{"1": "Sue", "text_mm5jhd0x": "Smith"}'
     res = _run_coord_guard(tmp_path, coord_validator_src, payload)
-    assert res.returncode != 0, "guard must ABORT on 'Bob De La Cruz'"
+    assert res.returncode != 0, "guard must ABORT when Last_Name column id appears"
+    assert "text_mm5jhd0x" in res.stderr or "Last_Name" in res.stderr
 
 
-def test_coord_guard_aborts_when_any_value_has_last_name(tmp_path, coord_validator_src):
-    # One bad value among many first names must still abort.
-    payload = {"1": "Sue", "10": "Julia", "13": "Gary Shimmel"}
+def test_coord_guard_aborts_on_last_name_column_id_as_value(tmp_path, coord_validator_src):
+    payload = {"1": "text_mm5jhd0x"}
     res = _run_coord_guard(tmp_path, coord_validator_src, payload)
-    assert res.returncode != 0, "guard must ABORT when any value has a last name"
-    assert "Shimmel" in res.stderr or "single-token" in res.stderr
+    assert res.returncode != 0, "guard must ABORT when col id leaks as a value"
 
 
 def test_coord_guard_aborts_on_non_object(tmp_path, coord_validator_src):
