@@ -980,3 +980,87 @@ def test_regression_build_geocode_input_default_connecteam_user_is_none():
         COLUMN_IDS,
     )
     assert out["connecteam_user"] is None
+
+
+# ---------------------------------------------------------------------------
+# First-name source fix (2026-07-24): on the Connecteam_Users board the ITEM
+# name is the volunteer's LAST name. build_geocode_input MUST read the
+# published first name VERBATIM from the dedicated First-name column
+# (VOLUNTEER_FIRST_NAME_COL_ID = text_mkqqbdwt) and MUST NOT emit the item
+# (last) name in any field.
+# ---------------------------------------------------------------------------
+
+# A complete column_ids map (includes WIN Area) so build_geocode_input runs
+# end-to-end for these focused first-name tests.
+GEO_COLUMN_IDS = {
+    rm.COL_TITLE_COUNTY: "country_or_region",
+    rm.COL_TITLE_ROLES: "tags__1",
+    rm.COL_TITLE_AVAILABILITY: "long_text__1",
+    rm.COL_TITLE_WIN_AREA: "win_area__1",
+}
+
+
+def _geo_item(last_name: str, first_name: str, county: str = "Bucks",
+              roles: str = "C&T", availability: str = "",
+              win_area: str = "") -> dict:
+    """Raw Monday item where the ITEM name is the LAST name and the dedicated
+    First-name column (VOLUNTEER_FIRST_NAME_COL_ID) holds the first name."""
+    return {
+        "id": last_name.replace(" ", "_"),
+        "name": last_name,  # ITEM name = LAST name (must never be published)
+        "column_values": [
+            {"id": GEO_COLUMN_IDS[rm.COL_TITLE_COUNTY], "text": county,
+             "value": None, "type": "status"},
+            {"id": GEO_COLUMN_IDS[rm.COL_TITLE_ROLES], "text": roles,
+             "value": None, "type": "tags"},
+            {"id": GEO_COLUMN_IDS[rm.COL_TITLE_AVAILABILITY], "text": availability,
+             "value": None, "type": "long_text"},
+            {"id": GEO_COLUMN_IDS[rm.COL_TITLE_WIN_AREA], "text": win_area,
+             "value": None, "type": "text"},
+            {"id": rm.VOLUNTEER_FIRST_NAME_COL_ID, "text": first_name,
+             "value": None, "type": "text"},
+        ],
+    }
+
+
+def test_build_geocode_input_reads_first_name_column_verbatim():
+    out = rm.build_geocode_input(
+        _geo_item(last_name="DeArment", first_name="Mary Jane"),
+        GEO_COLUMN_IDS,
+    )
+    assert out is not None
+    # first_name comes VERBATIM from text_mkqqbdwt (two-word name preserved).
+    assert out["first_name"] == "Mary Jane"
+    # The ITEM (last) name must NOT appear in any emitted field.
+    assert "name" not in out
+    assert "DeArment" not in json.dumps(out)
+
+
+def test_build_geocode_input_blank_first_name_publishes_empty():
+    out = rm.build_geocode_input(
+        _geo_item(last_name="McDonagh", first_name=""),
+        GEO_COLUMN_IDS,
+    )
+    assert out is not None
+    # Blank First-name cell -> "" (no name). NEVER falls back to the last name.
+    assert out["first_name"] == ""
+    assert "McDonagh" not in json.dumps(out)
+
+
+def test_build_geocode_input_never_emits_item_last_name_end_to_end():
+    """Trace: build_geocode_input -> geocoder.batch_geocode_volunteers coords
+    record. The item/last name must not survive into the coords blob."""
+    gin = rm.build_geocode_input(
+        _geo_item(last_name="Beatty-Umbel", first_name="Anne-Marie",
+                  county="Lancaster"),
+        GEO_COLUMN_IDS,
+    )
+    with mock.patch.object(rm.geocoder, "geocode_address",
+                           return_value=(40.0, -76.3)):
+        coords, failures = rm.geocoder.batch_geocode_volunteers([gin])
+    assert len(coords) == 1
+    rec = coords[0]
+    assert rec["first_name"] == "Anne-Marie"  # verbatim, hyphen preserved
+    blob = json.dumps(coords) + json.dumps(failures)
+    assert "Beatty-Umbel" not in blob
+    assert "name" not in rec  # no full-name / item-name key in the coords record

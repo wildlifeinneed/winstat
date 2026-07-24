@@ -91,6 +91,15 @@ ADDRESS_COL_IDS = {
     "zip": "text_mkqqez45",
 }
 
+# Dedicated First-name column on the Connecteam_Users board. HARD PII RULE:
+# on this board the ITEM (name) column is the volunteer's LAST name and must
+# NEVER be published/stored/logged. The volunteer's actual FIRST name lives in
+# this dedicated column, which is the AUTHORITATIVE source for the published
+# `first_name`. build_geocode_input reads it VERBATIM (whitespace-trim only,
+# NOT tokenized) so legitimate two-word / hyphenated first names survive, and
+# a blank cell publishes NO name (never falls back to the item/last name).
+VOLUNTEER_FIRST_NAME_COL_ID = "text_mkqqbdwt"
+
 # Roles that qualify a volunteer for dispatch capacity. Anyone who only has
 # Dispatch / Board / IT / TestUsers tags is filtered out.
 QUALIFYING_ROLES = {"C&T", "RVS", "Courier"}
@@ -557,6 +566,10 @@ def fetch_volunteers(
     # Phase B — also pull the 4 address columns (resolved by concrete ID) so
     # the geocoder can build the private coords dataset.
     col_ids.extend(ADDRESS_COL_IDS.values())
+    # Also pull the dedicated First-name column so the geocoder can publish the
+    # volunteer's ACTUAL first name (the ITEM name on this board is the LAST
+    # name and must never be published — see VOLUNTEER_FIRST_NAME_COL_ID).
+    col_ids.append(VOLUNTEER_FIRST_NAME_COL_ID)
     out: List[Dict[str, Any]] = []
     cursor: Optional[str] = None
     page = 0
@@ -824,21 +837,30 @@ def build_geocode_input(
     (role_counts, findContextRows qualify-only gate) at query time.
 
     The address fields are PII and are consumed only in-memory by the
-    geocoder; they are NEVER written to the output dataset. The FULL name is
-    likewise consumed only in-memory: the geocoder reduces it to a single
-    first-name token (first_name_token) before writing, so the LAST NAME never
-    reaches data/volunteer_coords.json, KV, the Worker response, or any
-    published artifact.
+    geocoder; they are NEVER written to the output dataset. The published
+    ``first_name`` is read VERBATIM (whitespace-trim only) from the dedicated
+    First-name column (VOLUNTEER_FIRST_NAME_COL_ID = text_mkqqbdwt), NOT from
+    the Monday ITEM name — on this board the item name is the volunteer's LAST
+    name and is NEVER read/stored/published here, so it can never reach
+    data/volunteer_coords.json, KV, the Worker response, or any published
+    artifact. A blank First-name cell yields "" (publish NO name — no fallback
+    to the item/last name).
     """
     county = _column_text(item, column_ids[COL_TITLE_COUNTY])
     roles_text = _column_text(item, column_ids[COL_TITLE_ROLES])
     roles = parse_roles(roles_text)
 
-    name = (item.get("name") or "").strip()
+    # Read the volunteer's ACTUAL first name from the dedicated column VERBATIM.
+    # The item name (item.get("name")) is the LAST name and is intentionally
+    # NOT read here so it can never propagate downstream.
+    first_name = _column_text(item, VOLUNTEER_FIRST_NAME_COL_ID)
     availability_text = _column_text(item, column_ids[COL_TITLE_AVAILABILITY])
     win_area_text = _column_text(item, column_ids[COL_TITLE_WIN_AREA])
     return {
-        "name": name,
+        # AUTHORITATIVE first name, verbatim from text_mkqqbdwt. The geocoder
+        # publishes this as the coords `first_name` without tokenizing it. No
+        # `name` (item/last name) key is emitted — see HARD PII RULE above.
+        "first_name": first_name,
         "county": county,
         "roles": roles,
         # Availability is computed here (SAME definition as build_volunteer_record

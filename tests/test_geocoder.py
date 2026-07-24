@@ -147,7 +147,8 @@ def test_geocode_address_missing_street_skips_without_calling(caplog):
 def test_batch_strips_all_pii_fields():
     volunteers = [
         {
-            "name": "Jane Volunteer",
+            "first_name": "Jane",
+            "name": "Volunteer",  # ITEM name = LAST name; must never surface
             "phone": "555-1212",
             "email": "jane@example.com",
             "street": "100 Main St",
@@ -174,14 +175,13 @@ def test_batch_strips_all_pii_fields():
         "first_name", "_addr_sig",
     }
     # No full name / last name / other PII leaked. `first_name` is the ONLY
-    # name-ish field and it must be a SINGLE token (first name only).
+    # name-ish field and it comes VERBATIM from the dedicated First-name field.
     for forbidden in ("name", "phone", "email", "street", "city", "address"):
         assert forbidden not in rec
-    # First name = first whitespace-delimited token of "Jane Volunteer".
+    # First name = the verbatim First-name column value.
     assert rec["first_name"] == "Jane"
-    # The LAST NAME must never appear anywhere in the emitted record.
+    # The LAST NAME (item name) must never appear anywhere in the emitted record.
     assert "Volunteer" not in json.dumps(rec)
-    assert " " not in rec["first_name"]
     assert rec["lat"] == 40.0
     assert rec["lon"] == -76.3
     assert rec["roles"] == ["C&T", "RVS"]
@@ -217,8 +217,48 @@ def test_first_name_token(raw, expected):
     assert geocoder.first_name_token(raw) == expected
 
 
-def test_batch_multitoken_name_yields_only_first_token():
-    """A full multi-token Monday name yields ONLY its first token downstream."""
+def test_batch_verbatim_first_name_preserves_two_word_and_hyphenated():
+    """The authoritative First-name column value is published VERBATIM (not
+    tokenized): two-word and hyphenated first names survive intact, while the
+    ITEM name (last name) never surfaces."""
+    volunteers = [
+        {
+            "first_name": "Mary Jane",
+            "name": "Watson",  # ITEM = last name
+            "street": "100 Main St",
+            "city": "Lancaster",
+            "state": "PA",
+            "zip": "17601",
+            "county": "Lancaster",
+            "roles": ["C&T"],
+        },
+        {
+            "first_name": "Anne-Marie",
+            "name": "DeArment",  # ITEM = last name
+            "street": "2 B St",
+            "city": "Lancaster",
+            "state": "PA",
+            "zip": "17601",
+            "county": "Lancaster",
+            "roles": ["RVS"],
+        },
+    ]
+    with mock.patch.object(
+        geocoder, "geocode_address", return_value=(40.0, -76.3)
+    ):
+        out, _failures = geocoder.batch_geocode_volunteers(volunteers)
+
+    assert out[0]["first_name"] == "Mary Jane"
+    assert out[1]["first_name"] == "Anne-Marie"
+    # No last name / item name may appear ANYWHERE in the serialized records.
+    blob = json.dumps(out)
+    for last in ("Watson", "DeArment"):
+        assert last not in blob
+
+
+def test_batch_legacy_name_field_is_tokenized_defensively():
+    """A stray legacy `name` field (not populated by the current pipeline) is
+    reduced to its FIRST token so a surname can never survive from it."""
     volunteers = [
         {
             "name": "Robert James Paulson",
@@ -243,13 +283,43 @@ def test_batch_multitoken_name_yields_only_first_token():
     assert "Paulson" not in blob
 
 
-def test_batch_coords_records_carry_first_name_only_never_last_name():
-    """The coords dataset (-> KV -> Worker) must carry first names only."""
+def test_batch_blank_first_name_publishes_no_name_never_last_name():
+    """A blank First-name cell -> first_name is "" (no name published). The
+    pipeline never falls back to the item/last name."""
     volunteers = [
-        {"name": "Alice Anderson", "street": "1 A St", "city": "Lancaster",
-         "state": "PA", "zip": "17601", "county": "Lancaster", "roles": ["C&T"]},
-        {"name": "Bob Brown", "street": "2 B St", "city": "Lancaster",
-         "state": "PA", "zip": "17601", "county": "Lancaster", "roles": ["RVS"]},
+        {
+            "first_name": "",  # blank First-name column
+            "name": "McDonagh",  # ITEM = last name
+            "street": "100 Main St",
+            "city": "Lancaster",
+            "state": "PA",
+            "zip": "17601",
+            "county": "Lancaster",
+            "roles": ["C&T"],
+        }
+    ]
+    with mock.patch.object(
+        geocoder, "geocode_address", return_value=(40.0, -76.3)
+    ):
+        out, _failures = geocoder.batch_geocode_volunteers(volunteers)
+
+    rec = out[0]
+    # Blank First-name column with only an item (last) name present publishes
+    # NO name — it does NOT fall back to the last name.
+    assert rec["first_name"] == ""
+    assert "McDonagh" not in json.dumps(rec)
+
+
+def test_batch_coords_records_carry_first_name_only_never_last_name():
+    """The coords dataset (-> KV -> Worker) must carry first names only, sourced
+    verbatim from the First-name column; item/last names never appear."""
+    volunteers = [
+        {"first_name": "Alice", "name": "Anderson", "street": "1 A St",
+         "city": "Lancaster", "state": "PA", "zip": "17601",
+         "county": "Lancaster", "roles": ["C&T"]},
+        {"first_name": "Bob", "name": "Brown", "street": "2 B St",
+         "city": "Lancaster", "state": "PA", "zip": "17601",
+         "county": "Lancaster", "roles": ["RVS"]},
     ]
     with mock.patch.object(
         geocoder, "geocode_address", return_value=(40.0, -76.3)
@@ -259,20 +329,20 @@ def test_batch_coords_records_carry_first_name_only_never_last_name():
     first_names = sorted(r["first_name"] for r in out)
     assert first_names == ["Alice", "Bob"]
     blob = json.dumps(out)
-    # Last names must NEVER appear in the coords dataset.
+    # Last names (item names) must NEVER appear in the coords dataset.
     for last in ("Anderson", "Brown"):
         assert last not in blob
-    # Every record's first_name is a single token.
     for r in out:
-        assert " " not in r["first_name"]
-        assert "name" not in r  # no full-name key
+        assert "name" not in r  # no full-name / item-name key
 
 
 def test_batch_failures_carry_first_name_only():
-    """geocode_failures.json is published — it must carry first names only."""
+    """geocode_failures.json is published — it must carry first names only,
+    from the verbatim First-name column, never the item/last name."""
     volunteers = [
-        {"name": "Zoe Zimmerman", "street": "999 Nowhere", "city": "Nowhere",
-         "state": "PA", "zip": "00000", "county": "Lancaster", "roles": ["C&T"]},
+        {"first_name": "Zoe", "name": "Zimmerman", "street": "999 Nowhere",
+         "city": "Nowhere", "state": "PA", "zip": "00000",
+         "county": "Lancaster", "roles": ["C&T"]},
     ]
     with mock.patch.object(geocoder, "geocode_address", return_value=None), \
          mock.patch.object(geocoder, "geocode_address_nominatim", return_value=None):

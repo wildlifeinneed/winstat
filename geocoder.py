@@ -72,11 +72,15 @@ def _address_signature(
 def first_name_token(name: Any) -> str:
     """Return the FIRST whitespace-delimited token of a name, trimmed.
 
-    PRIVACY-CRITICAL. Last names MUST NEVER leave the pipeline, so the coords
-    dataset (and thus KV / the Worker / the public site) may carry ONLY this
-    single first-name token. Handles empty / single-token / multiple-spaces
-    gracefully: returns ``""`` when there is no usable token, and never returns
-    anything past the first run of whitespace (so a surname can't survive).
+    LEGACY / DEFENSIVE ONLY. The volunteer pipeline no longer derives the
+    published first name from the Monday ITEM name (on the Connecteam_Users
+    board the item name is the volunteer's LAST name — see
+    ``build_geocode_input`` / the dedicated First-name column text_mkqqbdwt).
+    The authoritative first name is now carried verbatim on each geocode-input
+    dict's ``first_name`` field; this tokenizer survives only as a defensive
+    reducer for the published geocode_failures.json list and any stray legacy
+    ``name`` field, guaranteeing a surname can never survive a single run of
+    whitespace. Returns ``""`` when there is no usable token.
     """
     if name is None:
         return ""
@@ -84,6 +88,20 @@ def first_name_token(name: Any) -> str:
     if not text:
         return ""
     return text.split()[0]
+
+
+def _verbatim_first_name(value: Any) -> str:
+    """Return the authoritative first name VERBATIM (whitespace-trim only).
+
+    Used for the volunteer coords ``first_name``, sourced from the dedicated
+    Monday First-name column (text_mkqqbdwt). It is NOT tokenized, so legitimate
+    two-word / hyphenated first names ("Mary Jane", "Anne-Marie") survive
+    intact. Returns ``""`` for None/blank so a blank First-name cell publishes
+    NO name (presence-driven; never falls back to the last name / item name).
+    """
+    if value is None:
+        return ""
+    return str(value).strip()
 
 
 def geocode_address(
@@ -286,10 +304,14 @@ def batch_geocode_volunteers(
 
     Each input volunteer dict is expected to carry the address fields
     ``street`` / ``city`` / ``state`` / ``zip`` plus ``roles`` and
-    ``county`` (home county).  An optional ``name`` field (the volunteer's
-    display name from Monday.com) is consumed ONLY in-memory: it is reduced to
-    a single FIRST-NAME token before anything is written, so a LAST NAME is
-    NEVER propagated to the output coords records or the failures list.
+    ``county`` (home county).  The published first name is taken VERBATIM from
+    the ``first_name`` field (sourced upstream from the Monday dedicated
+    First-name column text_mkqqbdwt) — it is NOT tokenized, so two-word /
+    hyphenated first names survive. The Monday ITEM name is the volunteer's
+    LAST name and is NEVER read for the coords ``first_name``; a stray legacy
+    ``name`` field (not populated by the current pipeline) is only ever reduced
+    to its first token as a defensive fallback, so a LAST NAME is NEVER
+    propagated to the output coords records or the failures list.
 
     Output records contain ONLY::
 
@@ -358,7 +380,15 @@ def batch_geocode_volunteers(
                     # The failures list is a PUBLISHED artifact (committed as
                     # geocode_failures.json and surfaced in a GitHub Issue), so
                     # it must carry FIRST NAME ONLY — never a last name.
-                    vol_name = first_name_token(v.get("name", ""))
+                    # Presence-driven, mirroring the coords first_name: prefer
+                    # the authoritative verbatim First-name value when its KEY is
+                    # present; only when the key is ABSENT fall back to a
+                    # defensively-tokenized legacy ``name`` (never the item/last
+                    # name in the current pipeline).
+                    if "first_name" in v:
+                        vol_name = _verbatim_first_name(v.get("first_name"))
+                    else:
+                        vol_name = first_name_token(v.get("name", ""))
                     addr_parts = [
                         str(street or "").strip(),
                         str(city or "").strip(),
@@ -388,15 +418,28 @@ def batch_geocode_volunteers(
                 "roles": list(v.get("roles") or []),
                 "home_county": home_county,
                 "win_area": win_area,
-                # FIRST NAME ONLY (single whitespace-delimited token). The full
-                # Monday name is consumed ONLY in-memory here (and in transient
-                # error logs); the LAST NAME is NEVER written to this dataset,
-                # so it can never reach data/volunteer_coords.json, KV, the
-                # Worker response, or any published artifact. first_name_token()
-                # trims to the first token and yields "" for empty/blank names.
-                # The Worker's SHOW_VOLUNTEER_FIRST_NAME kill-switch decides
-                # whether even this first name is surfaced to clients.
-                "first_name": first_name_token(v.get("name")),
+                # AUTHORITATIVE FIRST NAME — sourced VERBATIM from the Monday
+                # dedicated First-name column (text_mkqqbdwt), threaded through
+                # build_geocode_input as ``first_name``. It is NOT tokenized, so
+                # legitimate two-word / hyphenated first names survive intact. A
+                # blank First-name cell yields "" (publish NO name — never fall
+                # back to the item/LAST name). Presence-driven: when the
+                # ``first_name`` KEY is provided (the current pipeline always
+                # provides it), it is authoritative — a blank value stays blank
+                # and NO name is published. Only when the key is ABSENT (a
+                # legacy in-memory dict / older blob) do we defensively reduce a
+                # stray ``name`` to its first whitespace-delimited token so a
+                # surname still cannot survive. The Monday ITEM name (the
+                # volunteer's LAST name) is NEVER read for a record that carries
+                # the ``first_name`` key, so it can never reach
+                # data/volunteer_coords.json, KV, the Worker response, or any
+                # published artifact. The Worker's SHOW_VOLUNTEER_FIRST_NAME
+                # kill-switch decides whether even this first name is surfaced.
+                "first_name": (
+                    _verbatim_first_name(v.get("first_name"))
+                    if "first_name" in v
+                    else first_name_token(v.get("name"))
+                ),
                 # PII-free availability flag (boolean) so the Worker can tally
                 # Tier 2 availability the SAME way Tier 1 does. Computed upstream
                 # by build_geocode_input via the shared is_available() rule;
