@@ -245,33 +245,88 @@ jobs:
             exit 1
           fi
 
-          # (c) First-name-only guard on published volunteer names.
-          # geocode_failures.json is a PUBLIC artifact (committed + surfaced as a
-          # GitHub Issue). Its per-entry "name" MUST be a single-token FIRST NAME
-          # only — the pipeline reduces it via first_name_token(). A last name /
-          # multi-token value (any internal whitespace) OR a PII-shaped key would
-          # mean a last name or contact detail leaked into a published file, so
-          # abort. This keeps the publish path from ever carrying a last name.
-          FIRSTNAME_SCAN_PATHS="geocode_failures.json"
-          fn_added="$(git diff --cached -- $FIRSTNAME_SCAN_PATHS | grep -E '^\+' || true)"
-          # Block PII-shaped keys outright in the failures file.
-          if printf '%s\n' "$fn_added" | grep -Eiq '"(phone|phone_number|cell|mobile|email|e_mail|street|address|address1|address_line|home_address|zip|postal|last_name|full_name)"[[:space:]]*:'; then
-            echo "ABORT: geocode_failures.json contains a PII-shaped key (phone/email/address/last_name/etc.)." >&2
-            git reset -q
-            exit 1
-          fi
-          # Any "name": "<value with internal whitespace>" => multi-token =>
-          # a last name slipped through. Extract added "name" values and reject
-          # any that contain a space (after trimming surrounding quotes/space).
-          multi_tok="$(printf '%s\n' "$fn_added" \
-            | grep -Eo '"name"[[:space:]]*:[[:space:]]*"[^"]*"' \
-            | sed -E 's/^"name"[[:space:]]*:[[:space:]]*"([^"]*)"$/\1/' \
-            | grep -E '[[:space:]]' || true)"
-          if [ -n "$multi_tok" ]; then
-            echo "ABORT: geocode_failures.json 'name' is not a single-token first name (last name / multi-token leaked):" >&2
-            printf '%s\n' "$multi_tok" >&2
-            git reset -q
-            exit 1
+          # (c) Known-schema guard on geocode_failures.json.
+          # geocode_failures.json is committed to the repo (and surfaced as a
+          # GitHub Issue) but is NOT served on the public GitHub Pages site —
+          # Pages publishes only docs/, and this file lives at the repo root, so
+          # it is repo/CI-internal, not a public-site artifact. It carries the
+          # pipeline's own legitimate schema {name, address, reason}, where:
+          #   * "name"    is the FIRST-NAME token ONLY (geocoder.first_name_token),
+          #   * "address" is an internal debug string for the failed lookup
+          #               (geocoder.py appends {name, address, reason}),
+          #   * "reason"  is the failure reason.
+          # The guard therefore validates the file against that KNOWN SCHEMA
+          # rather than blocklisting individual key names (a blocklist would
+          # false-abort on the file's own expected "address" field). It still:
+          #   * REJECTS any entry key outside {name, address, reason} — so a
+          #     genuinely unexpected PII key (phone/email/last_name/full_name/
+          #     street/zip/…) that ever leaked in still aborts the publish, and
+          #   * REJECTS any "name" that is not a single token (internal
+          #     whitespace) — so a last name / multi-token name still aborts.
+          # We parse the ACTUAL staged JSON (git show :<path>) so the check runs
+          # against real structure, not line-diff text.
+          if git diff --cached --quiet -- geocode_failures.json; then
+            :  # not staged / unchanged — nothing to validate.
+          else
+            # NOTE: `|| schema_rc=$?` keeps `set -e` from aborting the step
+            # before we can run the cleanup (git reset) below.
+            schema_rc=0
+            python3 - <<'PY' || schema_rc=$?
+          import json, subprocess, sys
+
+          ALLOWED_KEYS = {"name", "address", "reason"}
+
+          blob = subprocess.check_output(
+              ["git", "show", ":geocode_failures.json"]
+          ).decode("utf-8")
+          try:
+              data = json.loads(blob)
+          except json.JSONDecodeError as e:
+              print(f"ABORT: geocode_failures.json is not valid JSON: {e}",
+                    file=sys.stderr)
+              sys.exit(1)
+
+          if not isinstance(data, list):
+              print("ABORT: geocode_failures.json must be a JSON array.",
+                    file=sys.stderr)
+              sys.exit(1)
+
+          for i, entry in enumerate(data):
+              if not isinstance(entry, dict):
+                  print(f"ABORT: geocode_failures.json[{i}] is not an object.",
+                        file=sys.stderr)
+                  sys.exit(1)
+              extra = set(entry.keys()) - ALLOWED_KEYS
+              if extra:
+                  print(
+                      "ABORT: geocode_failures.json[%d] has unexpected key(s) "
+                      "outside {name, address, reason}: %s"
+                      % (i, ", ".join(sorted(extra))),
+                      file=sys.stderr,
+                  )
+                  sys.exit(1)
+              name = entry.get("name", "")
+              if not isinstance(name, str):
+                  print(f"ABORT: geocode_failures.json[{i}] 'name' is not a string.",
+                        file=sys.stderr)
+                  sys.exit(1)
+              # Single-token first name only: any internal whitespace means a
+              # last name / multi-token value leaked through.
+              if name != name.strip() or len(name.split()) > 1:
+                  print(
+                      "ABORT: geocode_failures.json[%d] 'name' is not a "
+                      "single-token first name (last name / multi-token "
+                      "leaked): %r" % (i, name),
+                      file=sys.stderr,
+                  )
+                  sys.exit(1)
+          print("geocode_failures.json schema OK (%d entr%s)."
+                % (len(data), "y" if len(data) == 1 else "ies"))
+          PY
+            if [ "$schema_rc" -ne 0 ]; then
+              git reset -q
+              exit 1
+            fi
           fi
 
           ts="$(date -u +'%Y-%m-%d %H:%M UTC')"
