@@ -463,6 +463,9 @@ async function findContextRowsDriving(
   // phase-2 ORS matrix maps cell j -> rows[j].
   const rows = [];
   const surviveCoords = [];
+  // Same-address bearing sectors: precompute the address groups over the FULL
+  // prescreened set so housemates get non-opposite/non-collinear bearings.
+  const addrGroups = buildAddrGroups(pre.records);
   for (let i = 0; i < pre.records.length; i += 1) {
     const rec = pre.records[i];
     const miles = pre.haversineMiles[i];
@@ -509,7 +512,7 @@ async function findContextRowsDriving(
     // ~1-mile deterministic jitter of the EXACT coord (PII-safe map pin). The
     // precise coord is NEVER serialized; only this nudged point is. null when
     // the record had no usable coordinate.
-    const approx = jitterCoord(rec.lat, rec.lon, jitterSeed(rec));
+    const approx = jitterCoord(rec.lat, rec.lon, jitterSeed(rec), addrSlotInfo(rec, addrGroups));
     rows.push({
       roles: matchedRoles,
       distance_mi: round1(miles),
@@ -646,16 +649,40 @@ function isFirstNameFlagOn(flag) {
 // home coordinate would breach the PII boundary; the county centroid is too
 // coarse (an edge-of-county volunteer lands at the county's geographic center,
 // often 10-20 mi off). The approved compromise: take the EXACT coordinate and
-// nudge it a FIXED ~1 mile in a per-volunteer RANDOM direction, emitting only
-// the nudged point. The pin sits ~1 mi from the real home -- close enough to be
-// useful, far enough that it never points at an actual house -- and the exact
-// coord itself is NEVER serialized (see buildTier2Response's whitelist).
+// nudge it a RANDOM direction AND a RANDOM distance of AT MOST ~1 mile,
+// emitting only the nudged point. The pin sits within ~1 mi of the real home --
+// close enough to be useful, far enough that it never points at an actual house
+// -- and the exact coord itself is NEVER serialized (see buildTier2Response's
+// whitelist).
 //
-// DETERMINISTIC: the direction is derived from a stable hash of the volunteer's
-// identity (name / connecteam_user / win_area+county fallback), so the same
-// volunteer always lands on the SAME jittered point across requests (the pin
-// does not jump around between refreshes).
-const JITTER_MILES = 1.0;
+// DETERMINISTIC: both the direction AND the distance are derived from stable
+// hashes of the volunteer's identity (name / roles / etc + location), so the
+// same volunteer always lands on the SAME jittered point across requests (the
+// pin does not jump around between refreshes).
+//
+// PRIVACY -- ANTI-TRIANGULATION (2026-07 hardening): the original intent was a
+// randomized DIRECTION *and* randomized DISTANCE (up to ~1 mile). A regression
+// had pinned the distance at a FIXED ~1 mile and varied only the ANGLE, which
+// put EVERY pin on the SAME known-radius circle around the true address; two
+// pins known to be one household then both lay on that one circle, and an
+// observer could intersect the two equal-radius circles (or take the
+// perpendicular bisector of the segment between the pins) to recover the true
+// home. The fix draws an INDEPENDENT per-person distance in the band
+// [JITTER_MIN_MILES, JITTER_MAX_MILES] = [0.5, 1.0] mile from a SEPARATE,
+// decorrelated hash of the seed, so pins are no longer co-radial while a 0.5 mi
+// obscuring FLOOR is guaranteed. Additionally, for volunteers who share the
+// SAME address, bearings are assigned as a group (see safeArcBearing) into a
+// safe band away from BOTH 0deg (stacking) and 180deg (collinear-through-
+// center), so the true home is never on the line/midpoint between two same-
+// address pins and the perpendicular bisector never points at it. Deterministic
+// (same roster -> same pins).
+const JITTER_MILES = 1.0; // MAX offset distance (the CEILING of the band).
+// Offset distance BAND [floor, ceiling] in miles: each pin sits between 0.5 and
+// 1.0 mile from the true home at an independent per-person random radius, so
+// pins are NOT co-radial yet a 0.5 mi obscuring floor is always kept. The true
+// coordinate is NEVER plotted.
+const JITTER_MIN_MILES = 0.5;          // 0.5 -- guaranteed obscuring floor
+const JITTER_MAX_MILES = JITTER_MILES; // 1.0 -- the ~1 mile ceiling
 const MILES_PER_DEG_LAT = 69.0; // ~69 statute miles per degree of latitude.
 
 /** Stable 32-bit FNV-1a hash of a string -> unsigned int. */
@@ -671,11 +698,33 @@ function hashString(s) {
 }
 
 /**
- * Offset a precise coordinate a FIXED ~1 mile in a deterministic direction
- * derived from `seed`. Returns null when lat/lon are missing or non-finite.
- * Values are rounded to 5 decimals purely to trim float noise from the JSON.
+ * Offset a precise coordinate into a per-person deterministic point whose
+ * DIRECTION and DISTANCE are BOTH derived from `seed`, independently. Returns
+ * null when lat/lon are missing or non-finite. Values are rounded to 5 decimals
+ * purely to trim float noise from the JSON.
+ *
+ * Anti-triangulation (single person): the angle comes from hashString(seed);
+ * the radius comes from a SEPARATE hash of a distinct derivation of the seed
+ * ('R|' + seed), so the two are decorrelated. The radius maps into
+ * [JITTER_MIN_MILES, JITTER_MAX_MILES] -- a band whose FLOOR equals the
+ * historical fixed radius, so obscuring is never weakened, only ever pushed
+ * farther out.
+ *
+ * Anti-triangulation (same address, count > 1): when `slotInfo` describes a
+ * multi-person address group ({ slot, count } with count > 1), the bearing is
+ * NOT left to an independent per-person hash (which could, by chance, land two
+ * housemates ~180deg apart -- putting the true home on the segment between the
+ * two pins / at its midpoint, or ~0deg apart -- stacking them). Instead every
+ * member of the group is packed into a single deterministic ARC that is at most
+ * SAFE_ARC_MAX_DEG wide and whose members are spaced so ALL pairwise bearing
+ * separations stay inside the safe band [SAFE_SEP_MIN_DEG, SAFE_ARC_MAX_DEG] --
+ * away from BOTH 0deg (stacking) and 180deg (collinear-through-center). Radii
+ * remain independent per person (decorrelated hash), so same-address pins are
+ * neither co-radial NOR collinear-through-center: equal-radius circle
+ * intersection, the connecting line / midpoint, and the perpendicular bisector
+ * all fail to recover the true home. Deterministic: same roster -> same pins.
  */
-function jitterCoord(lat, lon, seed) {
+function jitterCoord(lat, lon, seed, slotInfo) {
   // Reject anything that is not already a finite number. Note: Number(null)===0
   // and Number('')===0, so we must guard the TYPE before any coercion or a
   // missing coordinate would jitter (0,0) instead of yielding null.
@@ -683,18 +732,144 @@ function jitterCoord(lat, lon, seed) {
       !Number.isFinite(lat) || !Number.isFinite(lon)) {
     return null;
   }
-  // Deterministic angle in [0, 2pi): map the hash onto a full turn.
-  const angle = (hashString(seed) / 0x100000000) * 2 * Math.PI;
-  const dLat = (JITTER_MILES / MILES_PER_DEG_LAT) * Math.cos(angle);
+  // Deterministic radius in [JITTER_MIN_MILES, JITTER_MAX_MILES): drawn from a
+  // SEPARATE, decorrelated hash ('R|' + seed) so distance is independent of
+  // bearing. Same person -> same radius (deterministic); different person ->
+  // (almost surely) a different radius, so same-address pins are NOT co-radial.
+  const rFrac = hashString('R|' + seed) / 0x100000000;
+  const radiusMiles = JITTER_MIN_MILES + rFrac * (JITTER_MAX_MILES - JITTER_MIN_MILES);
+  // Deterministic bearing. Single person (or unknown group): map the identity
+  // hash onto a full turn. Multi-person address group: use the safe-arc slot so
+  // pairwise separations are guaranteed out of the 0deg / 180deg danger zones.
+  let angle;
+  const count = slotInfo && Number.isInteger(slotInfo.count) ? slotInfo.count : 1;
+  const slot = slotInfo && Number.isInteger(slotInfo.slot) ? slotInfo.slot : 0;
+  if (count > 1) {
+    angle = safeArcBearing(seed, slot, count);
+  } else {
+    angle = (hashString(seed) / 0x100000000) * 2 * Math.PI;
+  }
+  const dLat = (radiusMiles / MILES_PER_DEG_LAT) * Math.cos(angle);
   // Longitude degrees shrink with latitude; guard near the poles (never hit in
   // PA, but keeps the math safe).
   const cosLat = Math.cos((lat * Math.PI) / 180);
   const milesPerDegLon = MILES_PER_DEG_LAT * (Math.abs(cosLat) < 1e-6 ? 1e-6 : cosLat);
-  const dLon = (JITTER_MILES / milesPerDegLon) * Math.sin(angle);
+  const dLon = (radiusMiles / milesPerDegLon) * Math.sin(angle);
   return {
     lat: Math.round((lat + dLat) * 1e5) / 1e5,
     lon: Math.round((lon + dLon) * 1e5) / 1e5,
   };
+}
+
+// Safe angular band for same-address groups (degrees). Pairwise bearing
+// separation between any two same-address pins is GUARANTEED to fall inside
+// [SAFE_SEP_MIN_DEG, SAFE_ARC_MAX_DEG]: at least SAFE_SEP_MIN_DEG apart (never
+// ~0deg -> no stacking) and never wider than SAFE_ARC_MAX_DEG (never ~180deg ->
+// never collinear-through-center, so the connecting line / midpoint / perp
+// bisector never point at the true home).
+const SAFE_SEP_MIN_DEG = 40;  // minimum pairwise angular separation
+const SAFE_ARC_MAX_DEG = 150; // maximum arc span == maximum pairwise separation
+
+/**
+ * Deterministic bearing (radians) for member `slot` of a `count`-person
+ * same-address group. All members are placed on a single arc of width
+ * `arcSpan` (<= SAFE_ARC_MAX_DEG) so every pairwise separation lands in the
+ * safe band. The arc's starting orientation is derived from a hash of the
+ * shared LOCATION component of the seed, so the whole household rotates as a
+ * unit deterministically (same roster -> same pins) but the arc's absolute
+ * direction is unpredictable and varies per address. `slot` fixes each member's
+ * position on the arc, giving a stable, collision-free ordering.
+ */
+function safeArcBearing(seed, slot, count) {
+  const n = Math.max(2, count);
+  // Even spacing that keeps all pairwise separations within the safe band:
+  // step in [SAFE_SEP_MIN_DEG, SAFE_ARC_MAX_DEG/(n-1)] so the total span
+  // (n-1)*step never exceeds SAFE_ARC_MAX_DEG. For n=2 this yields a 95deg
+  // separation (mid-band); for larger groups the step compresses toward the
+  // floor but never below SAFE_SEP_MIN_DEG until geometry forces it.
+  const maxStep = SAFE_ARC_MAX_DEG / (n - 1);
+  const step = Math.min(Math.max(SAFE_SEP_MIN_DEG, maxStep === SAFE_ARC_MAX_DEG ? 95 : maxStep), maxStep);
+  const spanDeg = step * (n - 1);
+  // Rotate the whole arc by a per-ADDRESS phase so its absolute direction is
+  // unpredictable, then center the arc so the group straddles that phase.
+  const locKey = 'ARC|' + arcLocKey(seed);
+  const phaseDeg = (hashString(locKey) / 0x100000000) * 360;
+  const startDeg = phaseDeg - spanDeg / 2;
+  const bearingDeg = startDeg + step * slot;
+  return (bearingDeg * Math.PI) / 180;
+}
+
+/**
+ * Extract the shared LOCATION component of a jitterSeed string so that every
+ * member of one address group derives the SAME arc phase. jitterSeed formats
+ * the location tail as '|a:<sig>' or '|wc:<area>|<county>'; we key the arc on
+ * that tail (falling back to the whole seed if the marker is absent).
+ */
+function arcLocKey(seed) {
+  const s = String(seed);
+  let idx = s.indexOf('|a:');
+  if (idx !== -1) return s.slice(idx);
+  idx = s.indexOf('|wc:');
+  if (idx !== -1) return s.slice(idx);
+  return s;
+}
+
+/**
+ * Build a Map< addressKey, string[] > of the ORDERED per-person seed list for
+ * every same-address group in `dataset`. Records that share the same location
+ * component (arcLocKey of their jitterSeed) AND the same true lat/lon are one
+ * group. Members are sorted by their full per-person seed so the ordering is
+ * STABLE and deterministic (same roster -> same slot assignment every load),
+ * independent of the dataset's array order. Only records with a usable finite
+ * coordinate participate (others never produce a pin).
+ *
+ * The result feeds addrSlotInfo() so jitterCoord can place each member of a
+ * multi-person address into a safe bearing sector (see safeArcBearing).
+ */
+function buildAddrGroups(dataset) {
+  const groups = new Map();
+  const arr = Array.isArray(dataset) ? dataset : [];
+  for (const rec of arr) {
+    if (!rec || typeof rec !== 'object' || Array.isArray(rec)) continue;
+    const lat = Number(rec.lat);
+    const lon = Number(rec.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    const seed = jitterSeed(rec);
+    // Group key = location component + exact coordinate, so only volunteers who
+    // truly share an address (identical geocode) share bearing sectors.
+    const key = arcLocKey(seed) + '|@' + lat.toFixed(6) + ',' + lon.toFixed(6);
+    let bucket = groups.get(key);
+    if (!bucket) {
+      bucket = [];
+      groups.set(key, bucket);
+    }
+    bucket.push(seed);
+  }
+  // Deterministic ordering within each group (stable regardless of input order).
+  for (const bucket of groups.values()) {
+    bucket.sort();
+  }
+  return groups;
+}
+
+/**
+ * Given a record and the precomputed address groups (buildAddrGroups), return
+ * this record's { slot, count } within its same-address group. count === 1 for
+ * a lone volunteer (jitterCoord then uses a full-circle independent bearing);
+ * count > 1 triggers the safe-arc sector assignment so housemates' bearings are
+ * never ~0deg (stacked) or ~180deg (collinear-through-center) apart.
+ */
+function addrSlotInfo(rec, groups) {
+  if (!rec || typeof rec !== 'object') return { slot: 0, count: 1 };
+  const lat = Number(rec.lat);
+  const lon = Number(rec.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return { slot: 0, count: 1 };
+  const seed = jitterSeed(rec);
+  const key = arcLocKey(seed) + '|@' + lat.toFixed(6) + ',' + lon.toFixed(6);
+  const bucket = groups && groups.get ? groups.get(key) : null;
+  if (!bucket || bucket.length <= 1) return { slot: 0, count: 1 };
+  const slot = bucket.indexOf(seed);
+  return { slot: slot < 0 ? 0 : slot, count: bucket.length };
 }
 
 /**
@@ -837,6 +1012,9 @@ function findContextRows(animalLat, animalLon, radiusMi, coordsDataset, excludeC
 
   const rows = [];
   const dataset = Array.isArray(coordsDataset) ? coordsDataset : [];
+  // Same-address bearing sectors: precompute the address groups over the FULL
+  // dataset so housemates get non-opposite/non-collinear bearings.
+  const addrGroups = buildAddrGroups(dataset);
   for (const rec of dataset) {
     if (!rec || typeof rec !== 'object' || Array.isArray(rec)) {
       continue;
@@ -897,7 +1075,7 @@ function findContextRows(animalLat, animalLon, radiusMi, coordsDataset, excludeC
         : null;
     // ~1-mile deterministic jitter of the EXACT coord (PII-safe map pin); see
     // jitterCoord above.
-    const approx = jitterCoord(rec.lat, rec.lon, jitterSeed(rec));
+    const approx = jitterCoord(rec.lat, rec.lon, jitterSeed(rec), addrSlotInfo(rec, addrGroups));
 
     rows.push({
       roles: matchedRoles,
@@ -1142,10 +1320,18 @@ module.exports = {
   jitterCoord,
   jitterSeed,
   hashString,
+  safeArcBearing,
+  arcLocKey,
+  buildAddrGroups,
+  addrSlotInfo,
   firstNameToken,
   recordFirstName,
   isFirstNameFlagOn,
   JITTER_MILES,
+  JITTER_MIN_MILES,
+  JITTER_MAX_MILES,
+  SAFE_SEP_MIN_DEG,
+  SAFE_ARC_MAX_DEG,
   rolesOf,
   isAvailableRecord,
   prescreenByHaversine,

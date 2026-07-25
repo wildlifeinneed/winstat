@@ -41,9 +41,16 @@ const {
   jitterCoord,
   jitterSeed,
   hashString,
+  safeArcBearing,
+  buildAddrGroups,
+  addrSlotInfo,
   firstNameToken,
   isFirstNameFlagOn,
   JITTER_MILES,
+  JITTER_MIN_MILES,
+  JITTER_MAX_MILES,
+  SAFE_SEP_MIN_DEG,
+  SAFE_ARC_MAX_DEG,
   DEFAULT_RADIUS_MI,
   MAX_RADIUS_MI,
   DEFAULT_MARGINAL_THRESHOLD,
@@ -1522,25 +1529,37 @@ async function main() {
   });
 
   // (i10..i13) ~1-MILE DETERMINISTIC JITTER for PII-safe map pins -------
-  await test('(i10) jitterCoord: ~1 mile offset, deterministic per seed, null on bad input', () => {
-    assert.strictEqual(JITTER_MILES, 1.0, 'jitter distance is the documented ~1 mile');
+  await test('(i10) jitterCoord: distance in [0.5,1] mi band (varies, not fixed), deterministic per seed, null on bad input', () => {
+    assert.strictEqual(JITTER_MILES, 1.0, 'jitter distance CEILING is the documented ~1 mile');
+    assert.strictEqual(JITTER_MIN_MILES, 0.5, 'jitter distance FLOOR is 0.5 mile');
+    assert.strictEqual(JITTER_MAX_MILES, 1.0, 'jitter distance ceiling is 1.0 mile');
     const LAT = 40.36;
     const LON = -76.78;
     const a = jitterCoord(LAT, LON, 'n:Alice');
     assert.ok(a, 'returns a point for a finite coord');
-    // The jittered point is ~1 mile from the exact coord (allow small rounding +
-    // the lat/lon flat-earth approximation slack).
+    // The jittered point is WITHIN the [0.5, 1.0] mile band from the exact coord
+    // (allow small rounding + the lat/lon flat-earth approximation slack).
     const d = haversineMi(LAT, LON, a.lat, a.lon);
-    assert.ok(Math.abs(d - 1.0) < 0.05, 'offset is ~1 mile, got ' + d);
+    assert.ok(d >= 0.5 - 0.02 && d <= 1.0 + 0.02, 'offset within [0.5,1] mile, got ' + d);
     // It is NEVER the exact input (privacy).
     assert.notStrictEqual(a.lat, LAT, 'exact lat not echoed');
     assert.notStrictEqual(a.lon, LON, 'exact lon not echoed');
     // DETERMINISTIC: same seed -> byte-identical point across calls.
     assert.deepStrictEqual(jitterCoord(LAT, LON, 'n:Alice'), a, 'same seed is stable');
-    // Different seeds -> a DIFFERENT direction (so two neighbors do not stack).
+    // Different seeds -> a DIFFERENT point (so two neighbors do not stack).
     const b = jitterCoord(LAT, LON, 'n:Bob');
     assert.notDeepStrictEqual(b, a, 'different seed -> different jittered point');
-    assert.ok(Math.abs(haversineMi(LAT, LON, b.lat, b.lon) - 1.0) < 0.05, 'Bob also ~1 mile');
+    const db = haversineMi(LAT, LON, b.lat, b.lon);
+    assert.ok(db >= 0.5 - 0.02 && db <= 1.0 + 0.02, 'Bob also within [0.5,1] mile, got ' + db);
+    // DISTANCE VARIES: the offset radius is NOT a fixed constant across seeds.
+    // Sample several seeds and prove at least two distinct distances appear (so
+    // pins are not co-radial -- the anti-triangulation property).
+    const dists = ['s1', 's2', 's3', 's4', 's5', 's6'].map((s) => {
+      const p = jitterCoord(LAT, LON, s);
+      return Math.round(haversineMi(LAT, LON, p.lat, p.lon) * 1000) / 1000;
+    });
+    const uniqueDists = new Set(dists);
+    assert.ok(uniqueDists.size >= 2, 'offset distance VARIES across seeds (not fixed): ' + dists.join(','));
     // Bad / missing input -> null (frontend then falls back to county centroid).
     assert.strictEqual(jitterCoord(null, null, 's'), null);
     assert.strictEqual(jitterCoord(40, undefined, 's'), null);
@@ -1587,18 +1606,106 @@ async function main() {
     };
     const husband = Object.assign({}, base, { first_name: 'Pat' });
     const wife = Object.assign({}, base, { first_name: 'Sam' });
-    const a = jitterCoord(LAT, LON, jitterSeed(husband));
-    const b = jitterCoord(LAT, LON, jitterSeed(wife));
+    // Group both so the safe-arc bearing assignment applies (as it does in the
+    // real request path via buildAddrGroups over the dataset).
+    const groups = buildAddrGroups([husband, wife]);
+    const a = jitterCoord(LAT, LON, jitterSeed(husband), addrSlotInfo(husband, groups));
+    const b = jitterCoord(LAT, LON, jitterSeed(wife), addrSlotInfo(wife, groups));
     assert.ok(a && b, 'both jitter to a point');
     assert.notDeepStrictEqual(a, b, 'housemates get DIFFERENT jittered coords (no stacking)');
     // A single volunteer's jitter is UNCHANGED / deterministic across calls.
-    assert.deepStrictEqual(jitterCoord(LAT, LON, jitterSeed(husband)), a, 'same person -> same pin');
-    // OFFSET MAGNITUDE is UNCHANGED — both remain ~1 mile from the real home,
-    // within the SAME bound the existing (i10) test asserts.
+    assert.deepStrictEqual(
+      jitterCoord(LAT, LON, jitterSeed(husband), addrSlotInfo(husband, groups)), a,
+      'same person -> same pin');
+    // OFFSET MAGNITUDE stays within the [0.5, 1.0] mile band for both.
     const da = haversineMi(LAT, LON, a.lat, a.lon);
     const db = haversineMi(LAT, LON, b.lat, b.lon);
-    assert.ok(Math.abs(da - 1.0) < 0.05, 'Pat still ~1 mile, got ' + da);
-    assert.ok(Math.abs(db - 1.0) < 0.05, 'Sam still ~1 mile, got ' + db);
+    assert.ok(da >= 0.5 - 0.02 && da <= 1.0 + 0.02, 'Pat within [0.5,1] mile, got ' + da);
+    assert.ok(db >= 0.5 - 0.02 && db <= 1.0 + 0.02, 'Sam within [0.5,1] mile, got ' + db);
+  });
+
+  await test('(i10d) ANTI-TRIANGULATION: same-address pins are NOT co-radial and NOT ~180deg apart', () => {
+    // Helper: bearing (deg, 0..360) and distance (mi) of a pin from the true home.
+    const bearingDeg = (lat0, lon0, lat1, lon1) => {
+      const cosLat = Math.cos((lat0 * Math.PI) / 180);
+      const dN = (lat1 - lat0) * 69.0;              // north component (mi)
+      const dE = (lon1 - lon0) * 69.0 * cosLat;     // east  component (mi)
+      let deg = (Math.atan2(dE, dN) * 180) / Math.PI; // 0 = north, cw
+      if (deg < 0) deg += 360;
+      return deg;
+    };
+    const angSep = (a, b) => {
+      let d = Math.abs(a - b) % 360;
+      if (d > 180) d = 360 - d;
+      return d;
+    };
+    const LAT = 40.2732;
+    const LON = -76.8867;
+    const base = {
+      lat: LAT, lon: LON, _addr_sig: 'sig-house', roles: ['C&T'],
+      win_area: 'WIN-1', home_county: 'Dauphin', availability_note: 'Weekdays',
+    };
+    // Two housemates at one address.
+    const pat = Object.assign({}, base, { first_name: 'Pat' });
+    const sam = Object.assign({}, base, { first_name: 'Sam' });
+    const groups = buildAddrGroups([pat, sam]);
+    const a = jitterCoord(LAT, LON, jitterSeed(pat), addrSlotInfo(pat, groups));
+    const b = jitterCoord(LAT, LON, jitterSeed(sam), addrSlotInfo(sam, groups));
+    const da = haversineMi(LAT, LON, a.lat, a.lon);
+    const db = haversineMi(LAT, LON, b.lat, b.lon);
+    // (a) NOT co-radial: the two offset distances differ (equal-radius circle
+    //     intersection attack no longer holds).
+    assert.ok(Math.abs(da - db) > 0.02, 'same-address radii DIFFER (not co-radial): ' + da + ' vs ' + db);
+    // (b) bearings are in the SAFE band: >= SAFE_SEP_MIN_DEG apart (not stacked)
+    //     and <= SAFE_ARC_MAX_DEG apart (never ~180deg / collinear-through-center,
+    //     so the connecting line / midpoint / perp bisector never point home).
+    const sep = angSep(bearingDeg(LAT, LON, a.lat, a.lon), bearingDeg(LAT, LON, b.lat, b.lon));
+    assert.ok(sep >= SAFE_SEP_MIN_DEG - 1, 'bearings not stacked (>=' + SAFE_SEP_MIN_DEG + 'deg), got ' + sep);
+    assert.ok(sep <= SAFE_ARC_MAX_DEG + 1, 'bearings not ~180deg (<=' + SAFE_ARC_MAX_DEG + 'deg), got ' + sep);
+    assert.ok(Math.abs(sep - 180) > 25, 'bearings NOT near-opposite, got ' + sep);
+    // (c) direction between two pins is NOT a fixed constant across addresses:
+    //     a DIFFERENT address (different _addr_sig) rotates the whole arc, so the
+    //     inter-pin bearing changes.
+    const base2 = Object.assign({}, base, { _addr_sig: 'sig-other', lat: 41.10, lon: -77.20 });
+    const pat2 = Object.assign({}, base2, { first_name: 'Pat' });
+    const sam2 = Object.assign({}, base2, { first_name: 'Sam' });
+    const groups2 = buildAddrGroups([pat2, sam2]);
+    const a2 = jitterCoord(base2.lat, base2.lon, jitterSeed(pat2), addrSlotInfo(pat2, groups2));
+    const b2 = jitterCoord(base2.lat, base2.lon, jitterSeed(sam2), addrSlotInfo(sam2, groups2));
+    const dir1 = bearingDeg(a.lat, a.lon, b.lat, b.lon);
+    const dir2 = bearingDeg(a2.lat, a2.lon, b2.lat, b2.lon);
+    assert.ok(angSep(dir1, dir2) > 1, 'inter-pin direction is NOT a fixed constant across addresses');
+    // (d) GEOMETRIC: equal-radius circle-intersection recovery FAILS. If both
+    //     pins were on a common radius R about some center, that center would be
+    //     one of the two intersection points of the R-circles about each pin.
+    //     Because da != db there is NO single R for which both pins are R from a
+    //     common point equal to the TRUE home other than the home itself -- and
+    //     an attacker who assumes equal radii computes the WRONG center. We prove
+    //     the pins are not equidistant from their own midpoint-derived guess: the
+    //     perpendicular-bisector midpoint is NOT the true home.
+    const mid = { lat: (a.lat + b.lat) / 2, lon: (a.lon + b.lon) / 2 };
+    assert.ok(haversineMi(LAT, LON, mid.lat, mid.lon) > 0.05,
+      'midpoint of the two pins is NOT the true home (line/midpoint attack fails)');
+    // DETERMINISM: same roster -> identical pins on a re-run.
+    const groupsR = buildAddrGroups([pat, sam]);
+    assert.deepStrictEqual(jitterCoord(LAT, LON, jitterSeed(pat), addrSlotInfo(pat, groupsR)), a, 'Pat pin stable');
+    assert.deepStrictEqual(jitterCoord(LAT, LON, jitterSeed(sam), addrSlotInfo(sam, groupsR)), b, 'Sam pin stable');
+  });
+
+  await test('(i10e) safeArcBearing: pairwise separations for a 3-person address stay in the safe band', () => {
+    const groupSeeds = ['n:Ann|a:sig-x', 'n:Bob|a:sig-x', 'n:Cy|a:sig-x'];
+    const angs = groupSeeds.map((s, i) => safeArcBearing(s, i, 3) * 180 / Math.PI);
+    const norm = (d) => ((d % 360) + 360) % 360;
+    const sep = (x, y) => { let d = Math.abs(norm(x) - norm(y)) % 360; return d > 180 ? 360 - d : d; };
+    for (let i = 0; i < angs.length; i += 1) {
+      for (let j = i + 1; j < angs.length; j += 1) {
+        const s = sep(angs[i], angs[j]);
+        assert.ok(s >= SAFE_SEP_MIN_DEG - 1, '3-person sep >= floor, got ' + s);
+        assert.ok(s <= SAFE_ARC_MAX_DEG + 1, '3-person sep <= ceiling (never ~180), got ' + s);
+      }
+    }
+    // Determinism: same seed+slot+count -> same bearing.
+    assert.strictEqual(safeArcBearing('n:Ann|a:sig-x', 0, 3), safeArcBearing('n:Ann|a:sig-x', 0, 3));
   });
 
   await test('(i11) findContextRows rows carry the JITTERED coord (not the exact coord)', () => {
@@ -1613,11 +1720,12 @@ async function main() {
       'row carries the deterministic jittered coord'
     );
     // The exact KV coordinate must NOT survive on the row, and the jitter is
-    // ~1 mile from it.
+    // within the [0.5, 1.0] mile band from it.
     assert.notStrictEqual(lebanon.approx_lat, 40.36, 'exact lat not on row');
     assert.notStrictEqual(lebanon.approx_lon, -76.78, 'exact lon not on row');
-    assert.ok(Math.abs(haversineMi(40.36, -76.78, lebanon.approx_lat, lebanon.approx_lon) - 1.0) < 0.05,
-      'jitter ~1 mile from exact home');
+    const dLeb = haversineMi(40.36, -76.78, lebanon.approx_lat, lebanon.approx_lon);
+    assert.ok(dLeb >= 0.5 - 0.02 && dLeb <= 1.0 + 0.02,
+      'jitter within [0.5,1] mile from exact home, got ' + dLeb);
     // Every row exposes ONLY the whitelisted keys (now including approx_*).
     for (const r of rows) {
       assert.deepStrictEqual(Object.keys(r).sort(), TIER2_ROW_KEYS);
