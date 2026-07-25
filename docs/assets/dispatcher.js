@@ -4209,6 +4209,12 @@
           exact: !!(typeof row.approx_lat === 'number' && isFinite(row.approx_lat)),
           county: row.county,
           roles: Array.isArray(row.roles) ? row.roles : [],
+          // FIRST NAME ONLY — carried through so paintT2Map's popup can show it,
+          // matching the qualified-volunteer list (renderContextList). Presence-
+          // driven by the Worker's SHOW_VOLUNTEER_FIRST_NAME flag; the popup
+          // renderer takes only the first token and HTML-escapes it, and no
+          // last-name field exists on the row to leak. Absent => no name line.
+          first_name: row.first_name,
           distance_mi: (typeof row.distance_mi === 'number') ? row.distance_mi : NaN,
           // Real ORS driving distance (display-only annotation the list shows).
           // Carried through so the popup shows the SAME "mi driving" number as
