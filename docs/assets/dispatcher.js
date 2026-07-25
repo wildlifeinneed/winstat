@@ -1914,6 +1914,21 @@
           var rad = n === 0 ? 0 : 0.012 + 0.006 * n;
           pinLat = vLat + rad * Math.cos(ang);
           pinLon = vLon + rad * Math.sin(ang);
+        } else {
+          // COINCIDENCE BACKSTOP: two housemates whose per-person jitter seeds
+          // still collide (e.g. identical first_name + roles) land on the SAME
+          // jittered point. Nudge the 2nd+ pin with the same tiny golden-angle
+          // spiral used for county-centroid fallbacks so both stay visible.
+          // Only fires on exact coincidence; first pin at a point is untouched.
+          var jkey = 'j:' + pinLat.toFixed(5) + ',' + pinLon.toFixed(5);
+          var jn = perCounty[jkey] || 0;
+          perCounty[jkey] = jn + 1;
+          if (jn > 0) {
+            var jang = jn * 2.399;
+            var jrad = 0.004 + 0.002 * jn;
+            pinLat = pinLat + jrad * Math.cos(jang);
+            pinLon = pinLon + jrad * Math.sin(jang);
+          }
         }
         var vNote = row.availability_note ? String(row.availability_note).trim() : '';
         var rowAvail = row.available !== false && !isUnavailNote(vNote);
@@ -3975,6 +3990,20 @@
           var rad = n === 0 ? 0 : 0.012 + 0.006 * n;
           lat = v.lat + rad * Math.cos(ang);
           lon = v.lon + rad * Math.sin(ang);
+        } else {
+          // COINCIDENCE BACKSTOP: two housemates whose per-person jitter seeds
+          // still collide land on the SAME jittered (exact) point. Nudge the
+          // 2nd+ pin with the same golden-angle spiral so both stay visible.
+          // Only fires on exact coincidence; the first pin here is untouched.
+          var jkey = 'j:' + v.lat.toFixed(5) + ',' + v.lon.toFixed(5);
+          var jn = perCounty[jkey] || 0;
+          perCounty[jkey] = jn + 1;
+          if (jn > 0) {
+            var jang = jn * 2.399;
+            var jrad = 0.004 + 0.002 * jn;
+            lat = v.lat + jrad * Math.cos(jang);
+            lon = v.lon + jrad * Math.sin(jang);
+          }
         }
         // Popup content: FIRST NAME · ROLES · "X miles / Y min" · COUNTY. The
         // distance/time line uses the REAL ORS driving time (duration_min) when

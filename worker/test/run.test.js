@@ -1548,23 +1548,65 @@ async function main() {
     assert.strictEqual(jitterCoord(NaN, NaN, 's'), null);
   });
 
-  await test('(i10b) hashString stable + jitterSeed prefers name then connecteam_user then win_area+county', () => {
+  await test('(i10b) hashString stable + jitterSeed is PER-PERSON (first_name/roles/etc + location)', () => {
     // Stable, unsigned 32-bit.
     const h = hashString('n:Alice');
     assert.strictEqual(h, hashString('n:Alice'), 'hash is deterministic');
     assert.ok(Number.isInteger(h) && h >= 0 && h <= 0xffffffff, 'unsigned 32-bit');
     assert.notStrictEqual(hashString('n:Alice'), hashString('n:Bob'), 'distinct inputs differ');
-    // Seed precedence.
-    assert.strictEqual(jitterSeed({ name: 'Alice', connecteam_user: 'a@x', home_county: 'Dauphin' }), 'n:Alice');
-    assert.strictEqual(jitterSeed({ name: '  ', connecteam_user: 'a@x', home_county: 'Dauphin' }), 'c:a@x');
-    assert.strictEqual(jitterSeed({ win_area: 'WIN-1', home_county: 'Dauphin' }), 'wc:WIN-1|Dauphin');
+    // Seed is DETERMINISTIC per record (same record -> same seed every call).
+    const rec = {
+      first_name: 'Alice', roles: ['C&T'], monitored_areas: ['12'],
+      availability_note: 'Weekdays', _addr_sig: 'sig-xyz', win_area: 'WIN-1', home_county: 'Dauphin',
+    };
+    assert.strictEqual(jitterSeed(rec), jitterSeed(rec), 'seed is deterministic per record');
+    // Legacy literal `name` is honored (defensive) and drives the name token.
+    assert.ok(jitterSeed({ name: 'Bob', _addr_sig: 'sig-b' }).indexOf('n:Bob') !== -1, 'legacy name used');
+    // PER-PERSON: two housemates (same address/_addr_sig) with DIFFERENT
+    // first_name produce DIFFERENT seeds -> different pins.
+    const share = { _addr_sig: 'sig-shared', win_area: 'WIN-1', home_county: 'Dauphin', roles: ['C&T'] };
+    const p1 = jitterSeed(Object.assign({}, share, { first_name: 'Ann' }));
+    const p2 = jitterSeed(Object.assign({}, share, { first_name: 'Bob' }));
+    assert.notStrictEqual(p1, p2, 'housemates with different first_name -> different seed');
+    // Same address + same first_name but DIFFERENT roles also differ.
+    const r1 = jitterSeed(Object.assign({}, share, { first_name: 'Sam', roles: ['C&T'] }));
+    const r2 = jitterSeed(Object.assign({}, share, { first_name: 'Sam', roles: ['COURIER'] }));
+    assert.notStrictEqual(r1, r2, 'housemates with different roles -> different seed');
+    // Falls back to win_area+county when no _addr_sig present.
+    assert.ok(jitterSeed({ first_name: 'Zoe', win_area: 'WIN-1', home_county: 'Dauphin' }).indexOf('wc:WIN-1|Dauphin') !== -1);
+  });
+
+  await test('(i10c) housemates: identical lat/lon/_addr_sig but different first_name -> DIFFERENT jittered coords', () => {
+    // Two volunteers who share a home address geocode to the SAME base coord and
+    // the SAME _addr_sig. The per-person seed must still separate their pins.
+    const LAT = 40.2732;
+    const LON = -76.8867;
+    const base = {
+      lat: LAT, lon: LON, _addr_sig: 'sig-house', roles: ['C&T'],
+      win_area: 'WIN-1', home_county: 'Dauphin', availability_note: 'Weekdays',
+    };
+    const husband = Object.assign({}, base, { first_name: 'Pat' });
+    const wife = Object.assign({}, base, { first_name: 'Sam' });
+    const a = jitterCoord(LAT, LON, jitterSeed(husband));
+    const b = jitterCoord(LAT, LON, jitterSeed(wife));
+    assert.ok(a && b, 'both jitter to a point');
+    assert.notDeepStrictEqual(a, b, 'housemates get DIFFERENT jittered coords (no stacking)');
+    // A single volunteer's jitter is UNCHANGED / deterministic across calls.
+    assert.deepStrictEqual(jitterCoord(LAT, LON, jitterSeed(husband)), a, 'same person -> same pin');
+    // OFFSET MAGNITUDE is UNCHANGED — both remain ~1 mile from the real home,
+    // within the SAME bound the existing (i10) test asserts.
+    const da = haversineMi(LAT, LON, a.lat, a.lon);
+    const db = haversineMi(LAT, LON, b.lat, b.lon);
+    assert.ok(Math.abs(da - 1.0) < 0.05, 'Pat still ~1 mile, got ' + da);
+    assert.ok(Math.abs(db - 1.0) < 0.05, 'Sam still ~1 mile, got ' + db);
   });
 
   await test('(i11) findContextRows rows carry the JITTERED coord (not the exact coord)', () => {
     const rows = findContextRows(ANIMAL.lat, ANIMAL.lon, 20, COORDS_PII, 'Dauphin');
     assert.strictEqual(rows.length, 2, 'Lebanon + Lancaster');
     const lebanon = rows.find((r) => r.county === 'Lebanon');
-    const expected = jitterCoord(40.36, -76.78, jitterSeed({ name: 'Bob', home_county: 'Lebanon' }));
+    const bobRec = COORDS_PII.find((r) => r.name === 'Bob');
+    const expected = jitterCoord(40.36, -76.78, jitterSeed(bobRec));
     assert.deepStrictEqual(
       { lat: lebanon.approx_lat, lon: lebanon.approx_lon },
       { lat: expected.lat, lon: expected.lon },
@@ -1597,7 +1639,8 @@ async function main() {
         }
         const lebanon = rows.find((r) => r.county === 'Lebanon');
         if (lebanon) {
-          const expected = jitterCoord(40.36, -76.78, jitterSeed({ name: 'Bob', home_county: 'Lebanon' }));
+          const bobRec = COORDS_PII.find((r) => r.name === 'Bob');
+          const expected = jitterCoord(40.36, -76.78, jitterSeed(bobRec));
           assert.deepStrictEqual(
             { lat: lebanon.approx_lat, lon: lebanon.approx_lon },
             { lat: expected.lat, lon: expected.lon }

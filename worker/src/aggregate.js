@@ -698,21 +698,39 @@ function jitterCoord(lat, lon, seed) {
 }
 
 /**
- * Build the stable jitter seed for a KV record: prefer the volunteer's name,
- * then connecteam_user, then a win_area+county composite. The seed only needs
- * to be STABLE per volunteer, not unique, so this fallback chain is fine.
+ * Build the stable jitter seed for a KV record. This must be PER-PERSON, not
+ * merely per-location: two volunteers who share the same home address geocode
+ * to IDENTICAL lat/lon, so a location-only seed would nudge both pins the same
+ * direction and stack them into a single visible marker. To keep a married
+ * couple (or any housemates) as two distinct nearby pins, the seed composes the
+ * per-person distinguishing fields already on the record — `first_name`,
+ * `roles`, `monitored_areas`, `availability_note` — with the location component
+ * (`_addr_sig`, or win_area+county when absent).
+ *
+ * The seed is ONLY ever fed into a hash (never emitted / exposed), so composing
+ * it from these fields carries NO privacy cost. It only changes the DIRECTION of
+ * the fixed-magnitude offset per person; the obscuring radius is untouched.
+ * Result stays deterministic (same person+location -> same pin every load).
  */
 function jitterSeed(rec) {
-  if (rec && rec.name !== null && rec.name !== undefined && String(rec.name).trim() !== '') {
-    return 'n:' + String(rec.name).trim();
-  }
-  if (rec && rec.connecteam_user !== null && rec.connecteam_user !== undefined &&
-      String(rec.connecteam_user).trim() !== '') {
-    return 'c:' + String(rec.connecteam_user).trim();
-  }
-  const wa = rec && rec.win_area !== null && rec.win_area !== undefined ? String(rec.win_area) : '';
-  const co = rec && rec.home_county !== null && rec.home_county !== undefined ? String(rec.home_county) : '';
-  return 'wc:' + wa + '|' + co;
+  const r = rec && typeof rec === 'object' ? rec : {};
+  const str = (v) => (v === null || v === undefined ? '' : String(v));
+  const list = (v) => (Array.isArray(v) ? v.map((x) => str(x)).join(',') : str(v));
+  // Prefer a legacy literal name when present (defensive; current pipeline never
+  // writes `name`), then the pipeline first_name — both distinguish housemates.
+  const name = str(r.name).trim() !== '' ? str(r.name).trim() : str(r.first_name).trim();
+  // Location component: the address signature when present, else win_area+county.
+  const loc = str(r._addr_sig).trim() !== ''
+    ? 'a:' + str(r._addr_sig).trim()
+    : 'wc:' + str(r.win_area) + '|' + str(r.home_county);
+  // Per-person distinguishers that vary between housemates.
+  const person = [
+    'n:' + name,
+    'r:' + list(r.roles),
+    'm:' + list(r.monitored_areas),
+    'v:' + str(r.availability_note).trim(),
+  ].join('|');
+  return person + '|' + loc;
 }
 
 /** Normalize a county name for comparison (mirror county_win._normalize). */
