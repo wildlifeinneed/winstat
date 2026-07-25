@@ -37,6 +37,7 @@ private/
 
 # Wrangler local cache (may hold account info)
 worker/.wrangler/
+.wrangler/
 
 # Node test-only deps (jsdom harness for docs/dispatcher.js). Test-only; the
 # served site (docs/) ships no node_modules.
