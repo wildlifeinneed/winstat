@@ -152,21 +152,8 @@
         "total": 1
       },
       "ct_rvs": {
-        "available": 1,
-        "marginal_volunteers": [
-          {
-            "availability_note": "Avail Mon, Tues, Thur, Fri, Weekends & 5PM-8PM Wed; Unavail 7/20-7/25",
-            "connecteam_user": true
-          },
-          {
-            "availability_note": "Avail, except Thurs, Fri & Sat evenings, Unavail until further notice",
-            "connecteam_user": true
-          },
-          {
-            "availability_note": "Availability varies",
-            "connecteam_user": true
-          }
-        ],
+        "available": 2,
+        "marginal_volunteers": [],
         "total": 3
       }
     },
@@ -1172,7 +1159,7 @@
       }
     }
   },
-  "generated_at": "2026-07-25T11:17:26Z",
+  "generated_at": "2026-07-26T11:23:50Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
