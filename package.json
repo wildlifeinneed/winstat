@@ -4,11 +4,12 @@
   "private": true,
   "description": "Test-only harness for the served dispatcher UI (docs/). NOT shipped to GitHub Pages.",
   "scripts": {
-    "test": "node test/decision.test.js && node test/dispatcher_dom.test.js && node test/flags_dom.test.js && node test/vol_pin_coincidence.test.js",
+    "test": "node test/decision.test.js && node test/dispatcher_dom.test.js && node test/flags_dom.test.js && node test/vol_pin_coincidence.test.js && node test/monitoring_pins.test.js",
     "test:decision": "node test/decision.test.js",
     "test:dispatcher": "node test/dispatcher_dom.test.js",
     "test:flags": "node test/flags_dom.test.js",
-    "test:volpins": "node test/vol_pin_coincidence.test.js"
+    "test:volpins": "node test/vol_pin_coincidence.test.js",
+    "test:monitoring": "node test/monitoring_pins.test.js"
   },
   "devDependencies": {
     "jsdom": "^24.1.3"

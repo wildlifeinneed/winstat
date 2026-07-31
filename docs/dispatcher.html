@@ -1481,6 +1481,14 @@
     .map-legend-panel .mlp-vol-courier { background: #1d6fb8; border-color: #14507f; }
     .map-legend-panel .mlp-vol-ct { background: #5bbf5b; border-color: #3a8a3a; }
     .map-legend-panel .mlp-vol-rvsct { background: #1f7a33; border-color: #145222; }
+    /* Monitoring-volunteer legend dot: same amber base + dashed ring, matching
+       the .t2-pin-monitor map marker so the legend and pins visually agree. */
+    .map-legend-panel .mlp-vol-monitor {
+      background: var(--amber);
+      border-style: dashed;
+      border-width: 2px;
+      border-color: #7a5b00;
+    }
     .map-legend-panel .mlp-area-dispatch {
       background: rgba(118,183,178,0.30);
       border: 2px solid #76b7b2;
@@ -1646,6 +1654,17 @@
     .t2-pin-vol-courier { width: 14px; height: 14px; background: #1d6fb8; }
     .t2-pin-vol-ct      { width: 14px; height: 14px; background: #5bbf5b; }
     .t2-pin-vol-rvsct   { width: 14px; height: 14px; background: #1f7a33; }
+    /* Monitoring volunteers (cross-area, opted-in) get the SAME role color as
+       a normal volunteer pin PLUS a dashed outer ring — the shape difference
+       (not just color) is the at-a-glance visual cue, and the popup/legend
+       carry the "Monitoring volunteer" text label so color is never the sole
+       indicator (see mlp-vol-monitor legend entry below). */
+    .t2-pin-monitor {
+      width: 14px; height: 14px;
+      border-style: dashed;
+      border-width: 3px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.4), 0 0 0 2px rgba(0,0,0,.55);
+    }
     .t2-pin-animal {
       width: 14px; height: 14px;
       background: var(--red);

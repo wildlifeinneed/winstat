@@ -2014,6 +2014,65 @@
       });
     }
 
+    // ── Monitoring volunteers (cross-area, opted-in) ──
+    // These vols live in a DIFFERENT WIN area but opted in to be notified for
+    // the dispatch/suggested area (agg.monitoring_area_vols, PII-safe: roles +
+    // win_area + home_county + monitored_areas only — no approx_lat/lon). Place
+    // them at their HOME COUNTY centroid (same fallback the county-only branch
+    // above uses) and route them through the SAME shared `perCounty` jitter/
+    // coincidence map so a monitoring vol sharing a centroid with a normal
+    // volunteer (or another monitor) still lands on a distinct, visible point.
+    // Deduplicated across the per-area fetch loop below by county+roles+home
+    // area (the Worker payload carries no volunteer id).
+    var monSeen = {};
+    function addMonitoringVolRows(rows) {
+      (rows || []).forEach(function (row) {
+        if (!row) return;
+        if (qualifyFn && hasBase) {
+          var roleList = Array.isArray(row.roles) ? row.roles : [];
+          if (!qualifyFn(roleList, rvs, issue)) return;
+        }
+        var homeCounty = row.home_county ? String(row.home_county).trim() : '';
+        var homeArea = row.win_area != null ? String(row.win_area).trim() : '';
+        var dedupeKey = homeCounty + '|' + homeArea + '|' +
+          (Array.isArray(row.roles) ? row.roles.join(',') : '');
+        if (monSeen[dedupeKey]) return;
+        monSeen[dedupeKey] = true;
+
+        var c = homeCounty && state.countyCentroids && state.countyCentroids[homeCounty];
+        if (!c || !isFinite(c.lat) || !isFinite(c.lon)) return;
+
+        // Same golden-angle jitter + coincidence backstop as the county-only
+        // branch above, keyed into the SAME shared perCounty map so monitoring
+        // pins and normal volunteer pins never silently overlap each other.
+        var key = homeCounty || (c.lat + ',' + c.lon);
+        var n = perCounty[key] || 0;
+        perCounty[key] = n + 1;
+        var ang = n * 2.399;
+        var rad = n === 0 ? 0 : 0.012 + 0.006 * n;
+        var pinLat = c.lat + rad * Math.cos(ang);
+        var pinLon = c.lon + rad * Math.sin(ang);
+
+        var lines = ['<strong>Monitoring volunteer</strong>'];
+        if (row.roles && row.roles.length) lines.push(escapeHtml(row.roles.join(', ')));
+        if (homeCounty) lines.push('Home county: ' + escapeHtml(homeCounty));
+        if (homeArea) lines.push('Home area: ' + escapeHtml(homeArea));
+        lines.push('<em>Opted in to monitor this area from outside it</em>');
+
+        var pinCls = t2VolPinClass(row.roles) + ' t2-pin-monitor';
+        var marker = L.marker([pinLat, pinLon], {
+          icon: t2DivIcon(pinCls, 14),
+          title: 'Monitoring volunteer' + (homeCounty ? ' (' + homeCounty + ')' : '')
+        }).bindPopup(lines.join('<br>'));
+        marker.addTo(cpMapRef.layers.vols);
+        cpVolMarkers.push({
+          marker: marker, available: true,
+          roles: Array.isArray(row.roles) ? row.roles : [], monitoring: true
+        });
+        bounds.push([pinLat, pinLon]);
+      });
+    }
+
     // Fetch vols for each area (dispatch + suggested) from the Worker using the
     // animal's ACTUAL coordinates. The Worker's win_area param scopes results to
     // the target area; tier1County (animal_county) enables filterWinArea so the
@@ -2043,6 +2102,13 @@
             ? agg.out_of_county_all
             : (agg && Array.isArray(agg.out_of_county) ? agg.out_of_county : []);
           addVolRows(rows, areaKey);
+          // Monitoring volunteers: same by_county-scoped response also carries
+          // agg.monitoring_area_vols (Worker-computed, see handler.js) — cross-
+          // area vols who opted in to this specific area. Plot them too so the
+          // dispatcher sees the ONLY people who can help when county/area both
+          // fail and monitoring is the qualifying tier.
+          addMonitoringVolRows(agg && Array.isArray(agg.monitoring_area_vols)
+            ? agg.monitoring_area_vols : []);
           // Re-render the cross-post legend with updated counts after async vols arrive.
           paintCpMapLegend(cpMapRef, wrap, cpVolMarkers, allRehabbers, suggestedSet, dispatchArea);
         })
@@ -2119,9 +2185,14 @@
     panel.className = 'map-legend-panel';
     panel.setAttribute('aria-label', 'Cross-post map legend');
 
-    // Count by role + availability
+    // Count by role + availability. Monitoring vols are counted SEPARATELY
+    // (own legend line, own "Monitoring volunteer" text label) — they are not
+    // folded into the regular role counts because they are a distinct
+    // dispatch tier, not an in-area/in-county qualified volunteer.
     var counts = { ct: 0, ctAvail: 0, rvsct: 0, rvsctAvail: 0, courier: 0, courierAvail: 0 };
+    var monCount = 0;
     (volMarkers || []).forEach(function (entry) {
+      if (entry.monitoring) { monCount++; return; }
       var cls = t2VolPinClass(entry.roles);
       var avail = !!entry.available;
       if (cls === 't2-pin-vol-rvsct') { counts.rvsct++; if (avail) counts.rvsctAvail++; }
@@ -2148,6 +2219,10 @@
     if (counts.courier > 0) {
       html += '<span class="mlp-item"><span class="mlp-dot mlp-vol-courier"></span>Courier <span class="mlp-count">' +
         counts.courier + ' (' + counts.courierAvail + ' avail)</span></span>';
+    }
+    if (monCount > 0) {
+      html += '<span class="mlp-item"><span class="mlp-dot mlp-vol-monitor"></span>Monitoring volunteers <span class="mlp-count">(' +
+        monCount + ')</span></span>';
     }
     // Area highlighting
     html += '<span class="mlp-item"><span class="mlp-dot mlp-area-dispatch"></span>Dispatch area</span>';
