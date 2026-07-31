@@ -87,6 +87,27 @@ function makeFetch(workerHost, opts) {
   const aggCalls = opts.aggCalls || (opts.aggCalls = []);
   return function fetchMock(url) {
     const u = String(url);
+    // Live PGC DMA (FeatureServer/300) point-in-polygon check invoked directly
+    // by checkDmaForLocation() -- NOT routed through the Worker host. Default
+    // fixture is the REAL recorded response (2026-07-31) for the empty-result
+    // case: {"features":[]} -- so tests exercise the actual fail-safe path a
+    // scenario can override via opts.dmaResponse / opts.dmaFail.
+    if (u.indexOf('FeatureServer/300/query') !== -1) {
+      if (opts.dmaFail) {
+        return Promise.reject(new Error('network error'));
+      }
+      var dmaBody = opts.dmaResponse || {
+        objectIdFieldName: 'OBJECTID',
+        uniqueIdField: { name: 'OBJECTID', isSystemMaintained: true },
+        globalIdFieldName: 'GlobalID',
+        features: [],
+      };
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: function () { return Promise.resolve(dmaBody); },
+      });
+    }
     if (u.indexOf(workerHost) === 0 || u.indexOf('workers.dev') !== -1) {
       // Autocomplete route: return a deterministic suggestion list. A scenario
       // may override the list via opts.acSuggestions (e.g. a single Census-
@@ -5383,6 +5404,154 @@ async function runCrossPostCss() {
   console.log('PASS: cross-post CSS classes present in dispatcher.html.');
 }
 
+// ── Live DMA (Disease Management Area) check -- fail-safe regression ──────
+// checkDmaForLocation() queries the PGC FeatureServer/300 layer directly
+// (not through the Worker). This pins THREE outcomes:
+//   1. A non-empty features array (point inside an active DMA) -> red
+//      "dma-warn" banner naming the DMA (ground-truth-shaped fixture).
+//   2. An EMPTY features array (the REAL response shape recorded live on
+//      2026-07-31 for a known-inside coordinate, because upstream layer 300
+//      is presently all dma_status='I') -> must NOT render the old "dma-clear"
+//      confident-negative banner. It must render the inconclusive
+//      "dma-unknown" advisory instead, per the fail-safe fix.
+//   3. A network failure -> banner hidden entirely (unchanged silent-fail
+//      behavior; advisory only, must never block the rest of Tier 2).
+async function runDmaCheckWarnOnMatch() {
+  const agg = {
+    total_in_range: 3,
+    role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 2 },
+    win_areas: ['10'],
+    animal_lat: 40.14672851102545,
+    animal_lon: -78.3180356752656,
+    out_of_county: [],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { window: w2, opts } = loadDom({
+    workerAgg: agg,
+    data: { 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS },
+    dmaResponse: {
+      features: [{ attributes: { dma_name: 'DMA 2', dma: 2, dma_status: 'A' } }],
+    },
+  });
+  void opts;
+  const doc = w2.document;
+  await flush(w2);
+  await flush(w2);
+  doc.getElementById('widen-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  doc.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+
+  const banner = doc.getElementById('dma-status');
+  assert.ok(banner, '#dma-status element exists');
+  assert.strictEqual(banner.style.display, 'block', 'banner shown on DMA match');
+  assert.ok(banner.className.indexOf('dma-warn') !== -1,
+    'banner uses dma-warn class on match (got: "' + banner.className + '")');
+  assert.ok(/Warning/i.test(banner.innerHTML), 'banner text says Warning');
+  assert.ok(/DMA 2/.test(banner.innerHTML), 'banner names the matched DMA (got: "' + banner.innerHTML + '")');
+
+  console.log('PASS: DMA check renders red dma-warn banner naming the DMA on a feature match.');
+}
+
+async function runDmaCheckFailSafeOnEmpty() {
+  const agg = {
+    total_in_range: 3,
+    role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 2 },
+    win_areas: ['10'],
+    // Real known-inside-an-Established-Area coordinate (verified against the
+    // live PGC service 2026-07-31): layer 300 nonetheless returns EMPTY
+    // features for dma_status='A' because every layer-300 record statewide
+    // is currently 'I' (Inactive). This is the exact shape that must NOT be
+    // shown as a confident "clear" banner.
+    animal_lat: 40.14672851102545,
+    animal_lon: -78.3180356752656,
+    out_of_county: [],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { window: w2, opts } = loadDom({
+    workerAgg: agg,
+    data: { 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS },
+    // Real recorded live response body for this exact point (2026-07-31):
+    dmaResponse: {
+      objectIdFieldName: 'OBJECTID',
+      uniqueIdField: { name: 'OBJECTID', isSystemMaintained: true },
+      globalIdFieldName: 'GlobalID',
+      features: [],
+    },
+  });
+  void opts;
+  const doc = w2.document;
+  await flush(w2);
+  await flush(w2);
+  doc.getElementById('widen-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  doc.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+
+  const banner = doc.getElementById('dma-status');
+  assert.ok(banner, '#dma-status element exists');
+  assert.strictEqual(banner.style.display, 'block', 'banner shown (not silently hidden) on empty result');
+  assert.ok(banner.className.indexOf('dma-unknown') !== -1,
+    'empty result renders dma-unknown (inconclusive), got class: "' + banner.className + '"');
+  assert.ok(banner.className.indexOf('dma-clear') === -1,
+    'empty result must NEVER render dma-clear (confident negative) -- fail-safe regression');
+  assert.ok(/[Cc]ould not confirm/.test(banner.textContent || ''),
+    'inconclusive banner text says it could not confirm (got: "' + banner.textContent + '")');
+  assert.ok(!/not within/i.test(banner.textContent || ''),
+    'inconclusive banner must not assert "not within a DMA" (got: "' + banner.textContent + '")');
+
+  console.log('PASS: DMA check fails SAFE (inconclusive dma-unknown) on an empty upstream result, never a confident dma-clear.');
+}
+
+async function runDmaCheckSilentOnNetworkFailure() {
+  const agg = {
+    total_in_range: 3,
+    role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 2 },
+    win_areas: ['10'],
+    animal_lat: 40.14672851102545,
+    animal_lon: -78.3180356752656,
+    out_of_county: [],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { window: w2, opts } = loadDom({
+    workerAgg: agg,
+    data: { 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS },
+    dmaFail: true,
+  });
+  void opts;
+  const doc = w2.document;
+  await flush(w2);
+  await flush(w2);
+  doc.getElementById('widen-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  doc.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+
+  const banner = doc.getElementById('dma-status');
+  assert.ok(banner, '#dma-status element exists');
+  assert.strictEqual(banner.style.display, 'none', 'banner hidden entirely on network failure (unchanged silent-fail behavior)');
+
+  console.log('PASS: DMA check stays silent (hidden) on a network/fetch failure.');
+}
+
 async function run() {
   await runHelpLink();
   await runHelpViewerRenders();
@@ -5465,7 +5634,10 @@ async function run() {
   await runCrossPostButton();
   await runCrossPostDistanceCheck();
   await runCrossPostCss();
-  console.log('\nALL DOM TESTS PASSED (79 scenarios).');
+  await runDmaCheckWarnOnMatch();
+  await runDmaCheckFailSafeOnEmpty();
+  await runDmaCheckSilentOnNetworkFailure();
+  console.log('\nALL DOM TESTS PASSED (82 scenarios).');
 }
 
 run().then(function () {

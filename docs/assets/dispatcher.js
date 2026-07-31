@@ -4331,9 +4331,20 @@
   //  Queries the PA Game Commission public ArcGIS REST layer (CWD Disease
   //  Management Areas) for the animal coordinate. Public endpoint, no auth.
   //  A non-empty `features` array means the point is INSIDE a DMA → red
-  //  warning banner; otherwise a green "not within a DMA" note. Any network
-  //  / parse failure fails SILENTLY (the banner is hidden) so it never blocks
-  //  the rest of the Tier-2 result.
+  //  warning banner. Any network / parse failure fails SILENTLY (the banner
+  //  is hidden) so it never blocks the rest of the Tier-2 result.
+  //
+  //  FAIL-SAFE NOTE (2026-07-31): an EMPTY `features` array is deliberately
+  //  NOT rendered as a confident "not within a DMA" claim. As of this date
+  //  every record in layer 300 statewide has dma_status='I' (Inactive) --
+  //  including records PGC edited as recently as 2026-07-06 -- so a
+  //  dma_status='A' query on this layer can never return a match, whether or
+  //  not the point is actually in a CWD containment zone. PGC appears to have
+  //  moved current containment into a separate "CWD Established Area" layer
+  //  (id 302, field ea_status). Until that upstream question is resolved by a
+  //  human, an empty result here is shown as INCONCLUSIVE ("could not
+  //  confirm"), never as a confirmed-clear green banner. See
+  //  .artifacts/code-docs/PGC_DMA_API_REFERENCE.md for the layer inventory.
   // ════════════════════════════════════════════════════════════════════
   var DMA_QUERY_URL = 'https://services1.arcgis.com/k8yxvICm95iIFicb/arcgis/rest/services/CWD/FeatureServer/300/query';
 
@@ -4384,8 +4395,15 @@
           '<strong>Warning:</strong> This location is within ' + nameTxt +
           '(active Disease Management Area)');
       } else {
-        setDmaStatus('dma-clear',
-          'This location is not within an active Disease Management Area.');
+        // FAIL-SAFE: an empty result is NOT proof the point is outside every
+        // containment zone -- it is also what a stale/restructured upstream
+        // layer looks like (see note above DMA_QUERY_URL). Never render a
+        // confident "clear" claim off an empty response; show an inconclusive
+        // advisory instead and tell the dispatcher to verify manually.
+        setDmaStatus('dma-unknown',
+          'Could not confirm Disease Management Area status from the live PGC ' +
+          'layer (no result). Verify manually before transporting this animal ' +
+          'out of any potential containment area.');
       }
     }).catch(function () {
       if (token !== dmaCheckToken) return;
