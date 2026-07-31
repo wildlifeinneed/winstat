@@ -161,12 +161,6 @@
   // availability_note means the volunteer is currently unavailable.
   var DENY_WORDS = ['unavail', 'vacation', 'out', 'inactive', 'leave', 'away', 'on hold', 'extended', 'hiatus'];
 
-  // Token used to ignore stale/out-of-order live DMA-check responses: each new
-  // Tier-2 lookup (or result reset) bumps it so a slow earlier fetch can't
-  // overwrite a newer result. Declared up here so clearResolvedLocation() can
-  // bump it before checkDmaForLocation() is defined further below.
-  var dmaCheckToken = 0;
-
   // Token used to ignore stale/out-of-order Tier-1 volunteer-list responses:
   // each new By-County recommendation (or county reset) bumps it so a slow
   // earlier county's fetch can't overwrite a newer county's rendered list.
@@ -2734,11 +2728,6 @@
   function clearResolvedLocation() {
     var el = $('#resolved-location');
     if (el) { el.innerHTML = ''; el.style.display = 'none'; }
-    // Drop any DMA banner from a prior lookup, and bump the token so a slow
-    // in-flight DMA fetch can't repopulate it after this reset.
-    dmaCheckToken++;
-    var dma = $('#dma-status');
-    if (dma) { dma.innerHTML = ''; dma.style.display = 'none'; dma.className = 'dma-status'; }
     if (typeof highlightAreas === 'function') highlightAreas([], []);
   }
 
@@ -4327,90 +4316,27 @@
   }
 
   // ════════════════════════════════════════════════════════════════════
-  //  LIVE DMA (Disease Management Area) CHECK — Tier-2 only
-  //  Queries the PA Game Commission public ArcGIS REST layer (CWD Disease
-  //  Management Areas) for the animal coordinate. Public endpoint, no auth.
-  //  A non-empty `features` array means the point is INSIDE a DMA → red
-  //  warning banner. Any network / parse failure fails SILENTLY (the banner
-  //  is hidden) so it never blocks the rest of the Tier-2 result.
+  //  CWD LOCATION CONTEXT LINK — Tier-2 only
+  //  PGC retired the numbered DMA system effective 2026-06-30 (every record
+  //  in the CWD FeatureServer's layer 300 now carries dma_status='I'), and
+  //  PGC publishes no machine-readable WMU→CWD-rule-status mapping to
+  //  replace it (see docs/DMA_TO_WMU_MIGRATION_SCOPE.md). There is no data
+  //  source left that can honestly answer "does this location have active
+  //  CWD rules" by automated lookup, so this dispatcher no longer tries.
   //
-  //  FAIL-SAFE NOTE (2026-07-31): an EMPTY `features` array is deliberately
-  //  NOT rendered as a confident "not within a DMA" claim. As of this date
-  //  every record in layer 300 statewide has dma_status='I' (Inactive) --
-  //  including records PGC edited as recently as 2026-07-06 -- so a
-  //  dma_status='A' query on this layer can never return a match, whether or
-  //  not the point is actually in a CWD containment zone. PGC appears to have
-  //  moved current containment into a separate "CWD Established Area" layer
-  //  (id 302, field ea_status). Until that upstream question is resolved by a
-  //  human, an empty result here is shown as INCONCLUSIVE ("could not
-  //  confirm"), never as a confirmed-clear green banner. See
-  //  .artifacts/code-docs/PGC_DMA_API_REFERENCE.md for the layer inventory.
+  //  Instead, #dma-map-link is kept updated with the animal's coordinates so
+  //  it deep-links into PGC's own CWD Interactive Map for that location. This
+  //  is LOCATION CONTEXT ONLY -- it never asserts a compliance verdict.
   // ════════════════════════════════════════════════════════════════════
-  var DMA_QUERY_URL = 'https://services1.arcgis.com/k8yxvICm95iIFicb/arcgis/rest/services/CWD/FeatureServer/300/query';
-
-  function setDmaStatus(cls, html) {
-    var el = $('#dma-status');
-    if (!el) return;
-    if (!cls) { el.style.display = 'none'; el.innerHTML = ''; el.className = 'dma-status'; return; }
-    el.className = 'dma-status ' + cls;
-    el.innerHTML = html;
-    el.style.display = 'block';
-  }
-
-  function checkDmaForLocation(agg) {
-    var el = $('#dma-status');
-    if (!el) return;
-
+  function updateCwdMapLink(agg) {
+    var link = $('#dma-map-link');
+    if (!link) return;
     var hasCoords = agg && typeof agg.animal_lat === 'number' &&
                     typeof agg.animal_lon === 'number' &&
                     isFinite(agg.animal_lat) && isFinite(agg.animal_lon);
-    if (!hasCoords) { setDmaStatus(null); return; }
-    if (typeof fetch !== 'function') { setDmaStatus(null); return; }
-
-    var token = ++dmaCheckToken;
-    setDmaStatus('dma-checking', 'Checking Disease Management Area status…');
-
-    var url = DMA_QUERY_URL +
-      '?geometry=' + encodeURIComponent(agg.animal_lon + ',' + agg.animal_lat) +
-      '&geometryType=esriGeometryPoint' +
-      '&inSR=4326' +
-      '&spatialRel=esriSpatialRelIntersects' +
-      '&where=' + encodeURIComponent("dma_status='A'") +
-      '&outFields=' + encodeURIComponent('dma_name,dma,dma_status,start_date,end_date,area_sqmi') +
-      '&returnGeometry=false' +
-      '&f=json';
-
-    fetch(url).then(function (resp) {
-      if (!resp.ok) throw new Error('DMA query HTTP ' + resp.status);
-      return resp.json();
-    }).then(function (data) {
-      if (token !== dmaCheckToken) return; // a newer lookup superseded this one
-      var features = (data && Array.isArray(data.features)) ? data.features : [];
-      if (features.length) {
-        var attrs = (features[0] && features[0].attributes) || {};
-        var dmaName = attrs.dma_name || attrs.dma || '';
-        dmaName = String(dmaName).trim();
-        var nameTxt = dmaName ? (escapeHtml(dmaName) + ' ') : '';
-        setDmaStatus('dma-warn',
-          '<strong>Warning:</strong> This location is within ' + nameTxt +
-          '(active Disease Management Area)');
-      } else {
-        // FAIL-SAFE: an empty result is NOT proof the point is outside every
-        // containment zone -- it is also what a stale/restructured upstream
-        // layer looks like (see note above DMA_QUERY_URL). Never render a
-        // confident "clear" claim off an empty response; show an inconclusive
-        // advisory instead and tell the dispatcher to verify manually.
-        setDmaStatus('dma-unknown',
-          'Could not confirm Disease Management Area status from the live PGC ' +
-          'layer (no result). Verify manually before transporting this animal ' +
-          'out of any potential containment area.');
-      }
-    }).catch(function () {
-      if (token !== dmaCheckToken) return;
-      // Fail silently: hide the banner rather than show a scary error. The DMA
-      // check is advisory and must never block the rest of the Tier-2 result.
-      setDmaStatus(null);
-    });
+    if (!hasCoords) return;
+    link.href = 'https://pagame.maps.arcgis.com/apps/webappviewer/index.html?id=084308c67d524d14ad90dcb2232b0c01&marker=' +
+      agg.animal_lon + ',' + agg.animal_lat + '&level=12';
   }
 
   function renderAggregate(agg, ctx) {
@@ -4712,12 +4638,7 @@
     renderContextList(agg, ctx);
     renderNearestRehabbers(pickRehabberOrigin(agg, ctx));
     renderTier2Map(agg, pickRehabberOrigin(agg, ctx), ctx);
-    checkDmaForLocation(agg);
-    // Update DMA map link with animal coordinates for find parameter
-    var dmaLink = document.getElementById('dma-map-link');
-    if (dmaLink && agg.animal_lat && agg.animal_lon) {
-      dmaLink.href = 'https://pagame.maps.arcgis.com/apps/webappviewer/index.html?id=c9c7c8912356450fa77fc34d30b131fb&marker=' + agg.animal_lon + ',' + agg.animal_lat + '&level=12&showLayers=NEW_PUBLIC_718';
-    }
+    updateCwdMapLink(agg);
     $('#address-result').style.display = 'block';
   }
 

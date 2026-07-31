@@ -87,27 +87,6 @@ function makeFetch(workerHost, opts) {
   const aggCalls = opts.aggCalls || (opts.aggCalls = []);
   return function fetchMock(url) {
     const u = String(url);
-    // Live PGC DMA (FeatureServer/300) point-in-polygon check invoked directly
-    // by checkDmaForLocation() -- NOT routed through the Worker host. Default
-    // fixture is the REAL recorded response (2026-07-31) for the empty-result
-    // case: {"features":[]} -- so tests exercise the actual fail-safe path a
-    // scenario can override via opts.dmaResponse / opts.dmaFail.
-    if (u.indexOf('FeatureServer/300/query') !== -1) {
-      if (opts.dmaFail) {
-        return Promise.reject(new Error('network error'));
-      }
-      var dmaBody = opts.dmaResponse || {
-        objectIdFieldName: 'OBJECTID',
-        uniqueIdField: { name: 'OBJECTID', isSystemMaintained: true },
-        globalIdFieldName: 'GlobalID',
-        features: [],
-      };
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: function () { return Promise.resolve(dmaBody); },
-      });
-    }
     if (u.indexOf(workerHost) === 0 || u.indexOf('workers.dev') !== -1) {
       // Autocomplete route: return a deterministic suggestion list. A scenario
       // may override the list via opts.acSuggestions (e.g. a single Census-
@@ -5404,19 +5383,17 @@ async function runCrossPostCss() {
   console.log('PASS: cross-post CSS classes present in dispatcher.html.');
 }
 
-// ── Live DMA (Disease Management Area) check -- fail-safe regression ──────
-// checkDmaForLocation() queries the PGC FeatureServer/300 layer directly
-// (not through the Worker). This pins THREE outcomes:
-//   1. A non-empty features array (point inside an active DMA) -> red
-//      "dma-warn" banner naming the DMA (ground-truth-shaped fixture).
-//   2. An EMPTY features array (the REAL response shape recorded live on
-//      2026-07-31 for a known-inside coordinate, because upstream layer 300
-//      is presently all dma_status='I') -> must NOT render the old "dma-clear"
-//      confident-negative banner. It must render the inconclusive
-//      "dma-unknown" advisory instead, per the fail-safe fix.
-//   3. A network failure -> banner hidden entirely (unchanged silent-fail
-//      behavior; advisory only, must never block the rest of Tier 2).
-async function runDmaCheckWarnOnMatch() {
+// ── CWD location-context link-out -- replaces the removed DMA check ───────
+// The automated DMA/CWD determination has been removed entirely (PGC retired
+// the numbered DMA system 2026-06-30; see docs/DMA_TO_WMU_MIGRATION_SCOPE.md).
+// This pins the NEW contract:
+//   1. The link-out (#dma-map-link) renders and its href carries the animal's
+//      resolved coordinates, so it lands on the relevant area.
+//   2. No fetch/XHR is issued to the CWD FeatureServer during a Tier-2 lookup.
+//   3. No element in the rendered result claims a DMA/CWD compliance verdict
+//      (no #dma-status element, no dma-warn/dma-clear/dma-unknown class
+//      anywhere in the document after a lookup).
+async function runCwdMapLinkCarriesCoordinates() {
   const agg = {
     total_in_range: 3,
     role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 2 },
@@ -5430,9 +5407,6 @@ async function runDmaCheckWarnOnMatch() {
   const { window: w2, opts } = loadDom({
     workerAgg: agg,
     data: { 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS },
-    dmaResponse: {
-      features: [{ attributes: { dma_name: 'DMA 2', dma: 2, dma_status: 'A' } }],
-    },
   });
   void opts;
   const doc = w2.document;
@@ -5448,45 +5422,41 @@ async function runDmaCheckWarnOnMatch() {
   await flush(w2);
   await flush(w2);
 
-  const banner = doc.getElementById('dma-status');
-  assert.ok(banner, '#dma-status element exists');
-  assert.strictEqual(banner.style.display, 'block', 'banner shown on DMA match');
-  assert.ok(banner.className.indexOf('dma-warn') !== -1,
-    'banner uses dma-warn class on match (got: "' + banner.className + '")');
-  assert.ok(/Warning/i.test(banner.innerHTML), 'banner text says Warning');
-  assert.ok(/DMA 2/.test(banner.innerHTML), 'banner names the matched DMA (got: "' + banner.innerHTML + '")');
+  const link = doc.getElementById('dma-map-link');
+  assert.ok(link, '#dma-map-link element exists');
+  assert.ok(link.href.indexOf(String(agg.animal_lon)) !== -1 &&
+    link.href.indexOf(String(agg.animal_lat)) !== -1,
+    'link-out href carries the animal lon/lat (got: "' + link.href + '")');
+  assert.ok(/pagame\.maps\.arcgis\.com/.test(link.href),
+    'link-out points at the PGC ArcGIS CWD map (got: "' + link.href + '")');
 
-  console.log('PASS: DMA check renders red dma-warn banner naming the DMA on a feature match.');
+  console.log('PASS: CWD map link-out renders and carries the animal\'s coordinates.');
 }
 
-async function runDmaCheckFailSafeOnEmpty() {
+async function runNoFetchToCwdFeatureServer() {
   const agg = {
     total_in_range: 3,
     role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 2 },
     win_areas: ['10'],
-    // Real known-inside-an-Established-Area coordinate (verified against the
-    // live PGC service 2026-07-31): layer 300 nonetheless returns EMPTY
-    // features for dma_status='A' because every layer-300 record statewide
-    // is currently 'I' (Inactive). This is the exact shape that must NOT be
-    // shown as a confident "clear" banner.
     animal_lat: 40.14672851102545,
     animal_lon: -78.3180356752656,
     out_of_county: [],
     out_of_county_truncated: false,
     radius_too_broad: false,
   };
+  const calls = [];
   const { window: w2, opts } = loadDom({
     workerAgg: agg,
     data: { 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS },
-    // Real recorded live response body for this exact point (2026-07-31):
-    dmaResponse: {
-      objectIdFieldName: 'OBJECTID',
-      uniqueIdField: { name: 'OBJECTID', isSystemMaintained: true },
-      globalIdFieldName: 'GlobalID',
-      features: [],
-    },
   });
   void opts;
+  // Wrap fetch AFTER load to record every URL requested during the lookup,
+  // without disturbing the existing mock routing.
+  const realFetch = w2.fetch;
+  w2.fetch = function (url) {
+    calls.push(String(url));
+    return realFetch.apply(this, arguments);
+  };
   const doc = w2.document;
   await flush(w2);
   await flush(w2);
@@ -5500,22 +5470,16 @@ async function runDmaCheckFailSafeOnEmpty() {
   await flush(w2);
   await flush(w2);
 
-  const banner = doc.getElementById('dma-status');
-  assert.ok(banner, '#dma-status element exists');
-  assert.strictEqual(banner.style.display, 'block', 'banner shown (not silently hidden) on empty result');
-  assert.ok(banner.className.indexOf('dma-unknown') !== -1,
-    'empty result renders dma-unknown (inconclusive), got class: "' + banner.className + '"');
-  assert.ok(banner.className.indexOf('dma-clear') === -1,
-    'empty result must NEVER render dma-clear (confident negative) -- fail-safe regression');
-  assert.ok(/[Cc]ould not confirm/.test(banner.textContent || ''),
-    'inconclusive banner text says it could not confirm (got: "' + banner.textContent + '")');
-  assert.ok(!/not within/i.test(banner.textContent || ''),
-    'inconclusive banner must not assert "not within a DMA" (got: "' + banner.textContent + '")');
+  const cwdCalls = calls.filter(function (u) {
+    return u.indexOf('FeatureServer') !== -1 || u.indexOf('k8yxvICm95iIFicb') !== -1;
+  });
+  assert.strictEqual(cwdCalls.length, 0,
+    'no fetch to the CWD FeatureServer during a Tier-2 lookup (got: ' + JSON.stringify(cwdCalls) + ')');
 
-  console.log('PASS: DMA check fails SAFE (inconclusive dma-unknown) on an empty upstream result, never a confident dma-clear.');
+  console.log('PASS: no fetch/XHR is issued to the CWD FeatureServer during a lookup.');
 }
 
-async function runDmaCheckSilentOnNetworkFailure() {
+async function runNoDmaVerdictElement() {
   const agg = {
     total_in_range: 3,
     role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 2 },
@@ -5529,7 +5493,6 @@ async function runDmaCheckSilentOnNetworkFailure() {
   const { window: w2, opts } = loadDom({
     workerAgg: agg,
     data: { 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS },
-    dmaFail: true,
   });
   void opts;
   const doc = w2.document;
@@ -5545,11 +5508,12 @@ async function runDmaCheckSilentOnNetworkFailure() {
   await flush(w2);
   await flush(w2);
 
-  const banner = doc.getElementById('dma-status');
-  assert.ok(banner, '#dma-status element exists');
-  assert.strictEqual(banner.style.display, 'none', 'banner hidden entirely on network failure (unchanged silent-fail behavior)');
+  assert.strictEqual(doc.getElementById('dma-status'), null,
+    'no #dma-status verdict element exists in the rendered result');
+  assert.strictEqual(doc.querySelectorAll('.dma-warn, .dma-clear, .dma-unknown, .dma-checking').length, 0,
+    'no element anywhere in the document carries a DMA verdict class');
 
-  console.log('PASS: DMA check stays silent (hidden) on a network/fetch failure.');
+  console.log('PASS: no element claiming a DMA/CWD compliance verdict is produced.');
 }
 
 async function run() {
@@ -5634,9 +5598,9 @@ async function run() {
   await runCrossPostButton();
   await runCrossPostDistanceCheck();
   await runCrossPostCss();
-  await runDmaCheckWarnOnMatch();
-  await runDmaCheckFailSafeOnEmpty();
-  await runDmaCheckSilentOnNetworkFailure();
+  await runCwdMapLinkCarriesCoordinates();
+  await runNoFetchToCwdFeatureServer();
+  await runNoDmaVerdictElement();
   console.log('\nALL DOM TESTS PASSED (82 scenarios).');
 }
 

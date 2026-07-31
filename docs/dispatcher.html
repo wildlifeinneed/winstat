@@ -1632,46 +1632,6 @@
     @media (max-width: 640px) {
       .resource-links .btn-dma-link { min-height: 44px; }
     }
-    /* ─── Live DMA (Disease Management Area) status banner (Tier-2) ──────
-       Red alert when the animal location falls within a PA Game Commission
-       CWD Disease Management Area; green "clear" note otherwise. */
-    .dma-status {
-      margin-bottom: 12px;
-      padding: 11px 14px;
-      border-radius: 8px;
-      font-size: 13.5px;
-      line-height: 1.45;
-      overflow-wrap: anywhere;
-    }
-    .dma-status.dma-warn {
-      background: var(--red-light);
-      border: 1px solid #e6a49b;
-      border-left: 4px solid var(--red);
-      color: #7a1d14;
-      font-weight: 600;
-    }
-    .dma-status.dma-warn strong { color: #7a1d14; }
-    .dma-status.dma-clear {
-      background: var(--green-light);
-      border: 1px solid #a9d6ba;
-      border-left: 4px solid var(--green);
-      color: var(--green-deep);
-      font-size: 12.5px;
-    }
-    .dma-status.dma-checking {
-      background: #f7f9f7;
-      border: 1px dashed var(--border);
-      color: var(--text-muted);
-      font-size: 12.5px;
-      font-style: italic;
-    }
-    .dma-status.dma-unknown {
-      background: #fdf6e3;
-      border: 1px solid #e6cf8f;
-      border-left: 4px solid #b8860b;
-      color: #6b5211;
-      font-size: 12.5px;
-    }
     /* Custom DivIcon markers (no external sprite needed) */
     .t2-pin {
       display: block;
@@ -1927,13 +1887,20 @@
     <label><input type="radio" name="mode" value="address" /> By Animal Address</label>
   </div>
 
-  <!-- Resources: always-available reference links (no lookup required). -->
+  <!-- Resources: always-available reference links (no lookup required).
+       This is LOCATION CONTEXT ONLY -- a link-out to PGC's own CWD map for
+       the animal's area, updated with coordinates once an address resolves
+       (see updateCwdMapLink() in dispatcher.js). It is NOT a computed
+       compliance verdict: PGC retired the numbered DMA system 2026-06-30 and
+       publishes no machine-readable WMU-level rule-status data to replace it
+       (docs/DMA_TO_WMU_MIGRATION_SCOPE.md), so this dispatcher cannot and
+       does not claim whether CWD rules do or don't apply at any location. -->
   <div class="resource-links" aria-label="Reference links">
     <a class="btn-dma-link"
        id="dma-map-link"
-       href="https://pagame.maps.arcgis.com/apps/webappviewer/index.html?id=c9c7c8912356450fa77fc34d30b131fb&showLayers=NEW_PUBLIC_718"
+       href="https://pagame.maps.arcgis.com/apps/webappviewer/index.html?id=084308c67d524d14ad90dcb2232b0c01"
        target="_blank" rel="noopener noreferrer">
-      View PA Game Commission DMA Map
+      Check PGC CWD Map for This Area
     </a>
   </div>
 
@@ -2055,11 +2022,6 @@
 
     <section id="address-result" class="panel" style="display:none;">
       <div id="resolved-location" class="resolved-location" style="display:none;" aria-live="polite"></div>
-
-      <!-- LIVE DMA CHECK: populated by checkDmaForLocation() in dispatcher.js
-           after a Tier-2 lookup. Amber banner when the animal location falls
-           within a CWD Disease Management Area; subtle note otherwise. -->
-      <div id="dma-status" class="dma-status" style="display:none;" aria-live="polite"></div>
 
       <div class="agg-summary">
         Volunteers in range: <span class="count" id="agg-total">0</span>
