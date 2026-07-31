@@ -5516,6 +5516,141 @@ async function runNoDmaVerdictElement() {
   console.log('PASS: no element claiming a DMA/CWD compliance verdict is produced.');
 }
 
+// ── Tier 2 "Check for Cross Post" ────────────────────────────────────────
+// New control at the bottom of the Tier 2 panel (Address mode), after the
+// Volunteer Summary block. It must NOT require re-entering an address --
+// it reuses the already-resolved animal_lat/animal_lon from the Worker
+// aggregate, calling the same crossPostDistanceCheck() core Tier 1 uses.
+
+// 1) The control renders in the Tier 2 panel, positioned after #agg-actions.
+async function runTier2CrossPostRenders() {
+  const agg = Object.assign({}, WORKER_AGG, {
+    animal_lat: 40.4443, animal_lon: -79.9569, animal_county: 'Allegheny', animal_area: '10',
+  });
+  const { doc } = await driveTier2(agg, 'Allegheny');
+
+  const block = doc.getElementById('t2-cross-post-block');
+  assert.ok(block, '#t2-cross-post-block exists in the Tier 2 panel');
+  assert.notStrictEqual(block.style.display, 'none',
+    'cross-post block is visible when animal coordinates are resolved');
+
+  const btn = block.querySelector('.cross-post-btn');
+  assert.ok(btn, 'Check for Cross Post button renders inside the block');
+  assert.strictEqual(btn.textContent, 'Check for Cross Post',
+    'button label matches Tier 1\'s cross-post button label');
+
+  // Positioned AFTER the Volunteer Summary block (#agg-actions), as the last
+  // thing in the Address-mode result panel.
+  const addressResult = doc.getElementById('address-result');
+  assert.ok(addressResult, '#address-result panel exists');
+  const aggActions = doc.getElementById('agg-actions');
+  assert.ok(
+    aggActions.compareDocumentPosition(block) & 4 /* Node.DOCUMENT_POSITION_FOLLOWING */,
+    '#t2-cross-post-block comes after #agg-actions (Volunteer Summary) in DOM order');
+
+  console.log('PASS: Tier 2 "Check for Cross Post" control renders after Volunteer Summary.');
+}
+
+// 2) Clicking the button runs a search using the ALREADY-RESOLVED
+//    coordinates -- no address input is added or required for this control.
+async function runTier2CrossPostUsesResolvedCoords() {
+  const agg = Object.assign({}, WORKER_AGG, {
+    animal_lat: 40.4443, animal_lon: -79.9569, animal_county: 'Allegheny', animal_area: '10',
+  });
+  const { window: w2, doc } = await driveTier2(agg, 'Allegheny');
+
+  const block = doc.getElementById('t2-cross-post-block');
+  // The control's only interactive element is the button itself -- no
+  // address/text input anywhere inside it.
+  assert.strictEqual(block.querySelectorAll('input').length, 0,
+    'no address (or any) input inside the Tier 2 cross-post control');
+
+  const btn = block.querySelector('.cross-post-btn');
+  btn.dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+
+  const resultDiv = block.querySelector('.cross-post-result');
+  assert.ok(resultDiv, 'result div renders after clicking the button');
+  assert.notStrictEqual(resultDiv.style.display, 'none', 'result div is visible');
+  // Real geometry: Pittsburgh (40.4443,-79.9569) dispatched from Allegheny
+  // (area 10) is within 25 mi of Area 11 and Area 5 -- a genuine result
+  // computed straight from the resolved coordinates, no address prompt.
+  assert.ok(/Consider cross posting to Areas?/.test(resultDiv.textContent),
+    'result reflects a real distance-check computed from resolved coordinates (got: "' +
+    resultDiv.textContent + '")');
+
+  console.log('PASS: Tier 2 cross-post check runs against already-resolved coordinates (no address re-entry).');
+}
+
+// 3) "Found none" is rendered distinctly, using coordinates far from any
+//    other WIN area (deep in Erie county / Area 1).
+async function runTier2CrossPostFoundNone() {
+  const agg = Object.assign({}, WORKER_AGG, {
+    animal_lat: 42.0, animal_lon: -80.2, animal_county: 'Erie', animal_area: '1',
+  });
+  const { window: w2, doc } = await driveTier2(agg, 'Erie');
+
+  const block = doc.getElementById('t2-cross-post-block');
+  const btn = block.querySelector('.cross-post-btn');
+  btn.dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+
+  const resultDiv = block.querySelector('.cross-post-result');
+  assert.ok(resultDiv.className.indexOf('cross-post-neutral') !== -1,
+    '"found none" result uses the neutral style');
+  assert.ok(/No other area within \d+ mi/.test(resultDiv.textContent),
+    '"found none" message is the confident "single area post" text (got: "' +
+    resultDiv.textContent + '")');
+
+  console.log('PASS: Tier 2 cross-post "found none" renders distinctly.');
+}
+
+// 4) "Search failed" (no county map data loaded) must NOT be confused with
+//    "found none" -- distinct wording/state for an inconclusive check.
+async function runTier2CrossPostSearchFailed() {
+  const agg = Object.assign({}, WORKER_AGG, {
+    animal_lat: 40.4443, animal_lon: -79.9569, animal_county: 'Allegheny', animal_area: '10',
+  });
+  // Serve a broken pa_counties.json (no .features) so buildMap() never
+  // populates state.geojson -- crossPostDistanceCheck() explicitly detects
+  // this as a "cannot check" state, distinct from "found none".
+  const { window: w2, opts } = loadDom({
+    workerAgg: agg,
+    data: {
+      'county_win.json': COUNTY_WIN,
+      'coordinators.json': COORDINATORS,
+      'pa_counties.json': { type: 'FeatureCollection', features: [] },
+    },
+  });
+  void opts;
+  const doc = w2.document;
+  await flush(w2);
+  await flush(w2);
+  doc.getElementById('widen-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  doc.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+
+  const block = doc.getElementById('t2-cross-post-block');
+  const btn = block.querySelector('.cross-post-btn');
+  btn.dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+
+  const resultDiv = block.querySelector('.cross-post-result');
+  const text = resultDiv.textContent;
+  const isFoundNone = /No other area within \d+ mi/.test(text);
+  const isSearchFailed = /cannot check cross post|error/i.test(text);
+  assert.ok(isSearchFailed, '"search failed" state is reported (got: "' + text + '")');
+  assert.ok(!isFoundNone,
+    '"search failed" is NOT mislabeled as the confident "found none" result');
+
+  console.log('PASS: Tier 2 cross-post distinguishes "search failed" from "found none".');
+}
+
 async function run() {
   await runHelpLink();
   await runHelpViewerRenders();
@@ -5601,7 +5736,11 @@ async function run() {
   await runCwdMapLinkCarriesCoordinates();
   await runNoFetchToCwdFeatureServer();
   await runNoDmaVerdictElement();
-  console.log('\nALL DOM TESTS PASSED (82 scenarios).');
+  await runTier2CrossPostRenders();
+  await runTier2CrossPostUsesResolvedCoords();
+  await runTier2CrossPostFoundNone();
+  await runTier2CrossPostSearchFailed();
+  console.log('\nALL DOM TESTS PASSED (86 scenarios).');
 }
 
 run().then(function () {

@@ -2104,6 +2104,11 @@
 
       <div class="actions-header">Volunteer Summary</div>
       <div id="agg-actions"></div>
+
+      <!-- Tier 2 Check for Cross Post -- reuses Tier 1's crossPostDistanceCheck
+           against the ALREADY-RESOLVED animal coordinates (agg.animal_lat/lon),
+           so no address re-entry is needed here. -->
+      <div id="t2-cross-post-block" style="display:none;"></div>
     </section>
   </div><!-- /#address-mode -->
 

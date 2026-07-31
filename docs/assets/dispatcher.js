@@ -1567,6 +1567,70 @@
     });
   }
 
+  // ── Tier 2 Check for Cross Post ──────────────────────────────────────
+  // Same feature as Tier 1's renderCrossPostButton, but for the Address-mode
+  // (Tier 2) panel. By the time this renders, the dispatcher is already
+  // looking at a resolved animal location (agg.animal_lat/animal_lon, the
+  // same coordinates the "Resolved:" header and map link use) — so this
+  // control does NOT re-collect an address. It calls the SAME
+  // crossPostDistanceCheck() core Tier 1 uses, directly, with those
+  // already-resolved coordinates. This eliminates the trip back to Tier 1
+  // that a low-volunteer Tier 2 result would otherwise require.
+  //
+  // `agg` is the Worker aggregate for the current lookup; `animalArea` is the
+  // animal's own resolved WIN area (renderResolvedLocation's return value —
+  // the same value used for the coordinator line above).
+  function renderTier2CrossPostButton(agg, animalArea) {
+    var container = document.getElementById('t2-cross-post-block');
+    if (!container) return;
+
+    var hasCoords = agg && typeof agg.animal_lat === 'number' &&
+      typeof agg.animal_lon === 'number' &&
+      isFinite(agg.animal_lat) && isFinite(agg.animal_lon);
+
+    // No resolved coordinate (outside PA / unresolved) -> nothing to check
+    // against yet. Hide the control rather than show a button that can only
+    // fail.
+    if (!hasCoords) {
+      container.style.display = 'none';
+      container.innerHTML = '';
+      return;
+    }
+
+    container.innerHTML = '';
+    container.style.display = '';
+
+    var wrap = document.createElement('div');
+    wrap.className = 'cross-post-wrap';
+
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cross-post-btn';
+    btn.textContent = 'Check for Cross Post';
+    wrap.appendChild(btn);
+
+    var resultDiv = document.createElement('div');
+    resultDiv.className = 'cross-post-result';
+    resultDiv.style.display = 'none';
+    wrap.appendChild(resultDiv);
+
+    container.appendChild(wrap);
+
+    var animalCounty = (agg && typeof agg.animal_county === 'string' && agg.animal_county.trim())
+      ? agg.animal_county.trim() : '';
+    var dispatchArea = (animalArea !== null && animalArea !== undefined)
+      ? String(animalArea).trim() : '';
+
+    btn.addEventListener('click', function () {
+      resultDiv.style.display = '';
+      resultDiv.className = 'cross-post-result cross-post-neutral';
+      resultDiv.textContent = 'Checking\u2026';
+      // SAME core Tier 1 uses — called directly with the already-resolved
+      // animal coordinates, so no geocode/address step runs here.
+      crossPostDistanceCheck(agg.animal_lat, agg.animal_lon, dispatchArea, resultDiv, animalCounty);
+    });
+  }
+
   // Geocode an address via the Worker (same endpoint used for Tier 2 address
   // search — the Worker proxies the Census geocoder server-side, avoiding CORS).
   // On success, runs the cross-post distance check. When the autocomplete
@@ -1728,20 +1792,21 @@
     });
 
     // ── Container ──
-    // Place the map OUTSIDE the scrollable #rec-output panel so it sits below
-    // the scroll area as a fixed element (same pattern as the Tier-2 map which
-    // lives outside the scrollable content). Walk up from resultDiv to find the
-    // <section> that wraps #rec-output, then insert after it.
+    // Place the map OUTSIDE the scrollable panel so it sits below the scroll
+    // area as a fixed element (same pattern as the Tier-2 map which lives
+    // outside the scrollable content). Walk up from resultDiv to the nearest
+    // enclosing <section> (Tier 1: the section wrapping #rec-output; Tier 2:
+    // #address-result IS that section) and insert after it. Generic on
+    // purpose — shared by both tiers' cross-post check.
     var wrap = document.createElement('div');
     wrap.className = 'cp-map-wrap';
     var mapDiv = document.createElement('div');
     mapDiv.className = 'cp-map';
     wrap.appendChild(mapDiv);
 
-    var recOutput = document.getElementById('rec-output');
-    var sectionParent = recOutput ? recOutput.parentNode : null;
+    var sectionParent = resultDiv ? resultDiv.closest('section') : null;
     if (sectionParent && sectionParent.parentNode) {
-      // Insert after the <section> that contains #rec-output.
+      // Insert after the enclosing <section>.
       if (sectionParent.nextSibling) {
         sectionParent.parentNode.insertBefore(wrap, sectionParent.nextSibling);
       } else {
@@ -1994,8 +2059,11 @@
     var allRehabbers = [];
     var rehabSeen = {};
 
-    // Dispatch area rehabbers.
-    var recCounty = state.t1RecCountyName || '';
+    // Dispatch area rehabbers. `county` is the shared parameter threaded
+    // through from crossPostDistanceCheck (Tier 1: the By-County selection;
+    // Tier 2: the animal's resolved county) — generic on purpose so both
+    // tiers' cross-post map show rehabbers local to the dispatch county.
+    var recCounty = county || '';
     nearbyRehabbers(recCounty, animalType2).forEach(function (r) {
       var rKey = (r.rehab_name || '') + '|' + (r.county || '');
       if (!rehabSeen[rKey]) { rehabSeen[rKey] = true; allRehabbers.push(r); }
@@ -4639,6 +4707,9 @@
     renderNearestRehabbers(pickRehabberOrigin(agg, ctx));
     renderTier2Map(agg, pickRehabberOrigin(agg, ctx), ctx);
     updateCwdMapLink(agg);
+    try {
+      renderTier2CrossPostButton(agg, animalArea);
+    } catch (e) { console.warn('tier2 cross-post button error:', e); }
     $('#address-result').style.display = 'block';
   }
 
