@@ -4335,8 +4335,8 @@
                     typeof agg.animal_lon === 'number' &&
                     isFinite(agg.animal_lat) && isFinite(agg.animal_lon);
     if (!hasCoords) return;
-    link.href = 'https://pagame.maps.arcgis.com/apps/webappviewer/index.html?id=084308c67d524d14ad90dcb2232b0c01&marker=' +
-      agg.animal_lon + ',' + agg.animal_lat + '&level=12';
+    link.href = 'https://pagame.maps.arcgis.com/apps/webappviewer/index.html?id=c9c7c8912356450fa77fc34d30b131fb&marker=' +
+      agg.animal_lon + ',' + agg.animal_lat + '&level=12&showLayers=NEW_PUBLIC_718';
   }
 
   function renderAggregate(agg, ctx) {
