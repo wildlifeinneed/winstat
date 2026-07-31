@@ -2693,6 +2693,70 @@ async function main() {
     assert.ok(!Object.prototype.hasOwnProperty.call(body, 'county_source'), 'county_source absent when no fallback');
   });
 
+  // (pip8) BUG REPRO / TIER ISOLATION: a Tier-2 address search must NOT be
+  // constrained or contaminated by a lingering Tier-1 county selection. Real
+  // repro shape: dispatcher selected Monroe in Tier 1, then ran a Tier-2
+  // address search for Port Carbon (Schuylkill, area 14) WITHOUT widening --
+  // exactly what onAddressSubmit() sends (animal_county=Monroe carried as a
+  // tier1_fallback VALUE, NO exclude_county, NO win_area, NO by_county). A far
+  // (49.9 mi, well outside the 20 mi radius) Monroe volunteer must NOT appear
+  // in the qualifying-volunteer context list alongside the genuinely nearby
+  // Schuylkill volunteer -- animal_county alone must never scope/limit the
+  // Tier-2 result, only by_county=1 (which Tier 2 never sends) may.
+  const TIER_ISOLATION_COORDS = [
+    // Monroe (area 9), ~49.9 mi from Port Carbon -- outside the 20 mi radius.
+    { lat: 41.0, lon: -75.3, roles: ['C&T'], home_county: 'Monroe', win_area: '9', available: true },
+    // Schuylkill (area 14), ~0.3 mi from Port Carbon -- genuinely in range.
+    { lat: 40.70, lon: -76.17, roles: ['C&T'], home_county: 'Schuylkill', win_area: '14', available: true },
+  ];
+
+  await test('(pip8) Tier-2 address search ignores a lingering Tier-1 county (no by_county/win_area sent)', async () => {
+    const res = await handleRequest(
+      mockRequest('GET', {
+        animal_lat: 40.6968, animal_lon: -76.1664, // Port Carbon, PA (real Schuylkill coord, see pip5)
+        radius_mi: 20, context: '1',
+        animal_county: 'Monroe', // stale Tier-1 selection, carried as fallback VALUE only
+        rvs: 'no', issue: 'capture', qualify_roles: 'C&T,RVS C&T',
+      }),
+      { ResponseCtor: MockResponse, kv: mockKV(TIER_ISOLATION_COORDS), allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    // The animal resolves to its REAL county (Schuylkill/14) via PIP -- the
+    // stale Monroe value never overrides a successful polygon match.
+    assert.strictEqual(body.animal_county, 'Schuylkill', 'animal resolves to its real county, not Monroe');
+    assert.strictEqual(body.animal_area, '14', 'animal resolves to its real WIN area, not 9');
+    const counties = body.out_of_county.map((r) => r.county);
+    assert.deepStrictEqual(counties, ['Schuylkill'],
+      'ONLY the genuinely in-range Schuylkill volunteer is returned; the far ' +
+      'Monroe volunteer must NOT be pulled in by the stale animal_county (got: ' +
+      JSON.stringify(counties) + ')');
+  });
+
+  await test('(pip9) Tier-1 By-County (by_county=1) still includes the far in-county volunteer (legitimate use preserved)', async () => {
+    // Same dataset, but as a GENUINE Tier-1 By-County request: by_county=1 +
+    // win_area=9 (Monroe's own area), origin at the Monroe volunteer's own
+    // county centroid-ish point, NO exclude_county. The far Monroe volunteer
+    // must still be included (matches the by-county summary cards), proving
+    // the by_county gate isolates -- rather than removes -- the legitimate
+    // Tier-1 in-county/WIN-area inclusion behavior.
+    const res = await handleRequest(
+      mockRequest('GET', {
+        animal_lat: 41.05, animal_lon: -75.3, // near the Monroe volunteer's area
+        radius_mi: 20, context: '1',
+        animal_county: 'Monroe', win_area: '9', by_county: '1',
+        rvs: 'no', issue: 'capture', qualify_roles: 'C&T,RVS C&T',
+      }),
+      { ResponseCtor: MockResponse, kv: mockKV(TIER_ISOLATION_COORDS), allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    const counties = body.out_of_county.map((r) => r.county);
+    assert.ok(counties.includes('Monroe'),
+      'genuine Tier-1 By-County request (by_county=1) still includes the Monroe ' +
+      'volunteer regardless of distance (got: ' + JSON.stringify(counties) + ')');
+  });
+
   // --- areaCounties (county_win.js) ----------------------------------------
   await test('(county_win1) areaCounties: Area 14 contains Berks, Lebanon, Schuylkill', async () => {
     const counties = areaCounties('14');

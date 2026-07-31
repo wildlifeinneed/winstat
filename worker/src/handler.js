@@ -121,6 +121,7 @@ async function readParams(request) {
     qualify_roles: null,
     animal_county: null,
     win_area: null,
+    by_county: null,
   };
 
   let url;
@@ -706,25 +707,31 @@ async function handleRequest(request, deps) {
   if (isContextOn(params.context)) {
     // TIER 1 BY-COUNTY list vs TIER 2 address/widen list. The Tier 1 By-County
     // panel queries the county CENTROID + a default radius and supplies
-    // animal_county WITHOUT exclude_county. For that path the list must include
-    // EVERY volunteer whose home_county matches the selected county REGARDLESS of
-    // distance, so it stays in sync with the by-county summary cards (which count
-    // by home_county, not by a centroid radius) -- otherwise an in-county
-    // volunteer living beyond the radius is counted by the card but hidden from
-    // the list ("0 of 1 avail" card + "No qualified volunteers" list). Tier 2
-    // (address/widen) sends exclude_county and must NOT include-by-county.
-    const includeCounty =
-      (params.animal_county && !params.exclude_county) ? params.animal_county : null;
+    // animal_county WITHOUT exclude_county, PLUS an explicit by_county=1 flag.
+    // For that path the list must include EVERY volunteer whose home_county
+    // matches the selected county REGARDLESS of distance, so it stays in sync
+    // with the by-county summary cards (which count by home_county, not by a
+    // centroid radius) -- otherwise an in-county volunteer living beyond the
+    // radius is counted by the card but hidden from the list ("0 of 1 avail"
+    // card + "No qualified volunteers" list).
+    //
+    // by_county is REQUIRED (not just "animal_county present") because
+    // animal_county is ALSO sent by Tier 2 address/widen requests purely as a
+    // Tier-1-fallback VALUE (see the "TIER-1 FALLBACK" block above, used only
+    // when PIP finds no polygon match). Gating on animal_county alone let a
+    // stale Tier-1 county selection silently scope-in/limit a Tier-2 address
+    // search that has nothing to do with that county -- isolate the two uses:
+    // by_county is the ONLY signal for by-county list inclusion/WIN-area scope.
+    const isByCounty = isContextOn(params.by_county) && !params.exclude_county;
+    const includeCounty = (isByCounty && params.animal_county) ? params.animal_county : null;
     // TIER 1 BY-COUNTY WIN-AREA SCOPE. The By-County list must match the summary
     // cards, which aggregate the pre-computed county_capacity snapshot across the
     // selected county's WIN AREA (county/area membership) -- NOT geographic
     // proximity. Without this filter the centroid+radius query bleeds into
     // NEIGHBORING areas (e.g. an Area-13 Cumberland volunteer surfacing for an
-    // Area-12 Adams query). When win_area is supplied (Tier 1 only) the list is
-    // scoped to that WIN area; Tier 2 (address/widen) sends no win_area and is
-    // unaffected.
-    const filterWinArea =
-      (params.animal_county && !params.exclude_county) ? params.win_area : null;
+    // Area-12 Adams query). Scoped to genuine Tier 1 requests only (by_county=1);
+    // Tier 2 (address/widen) never sends by_county and is unaffected.
+    const filterWinArea = isByCounty ? params.win_area : null;
     const ctx = await findContextRowsDriving(
       coord.lat,
       coord.lon,

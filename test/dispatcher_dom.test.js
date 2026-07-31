@@ -2515,6 +2515,80 @@ async function runStaleCountyLeakSchuylkill() {
   console.log('PASS: stale-leak — prior By-County Monroe (area 9) does not persist; address resolves Schuylkill/14 in header + map.');
 }
 
+// ── BUG REPRO: a Tier-1 county selection must NOT constrain a plain Tier-2
+//    address search. Real user path: select a county in Tier 1 (NO widen
+//    click), switch to Address mode, submit an address that is NOT in that
+//    county. Today onAddressSubmit() unconditionally reads $('#county').value
+//    as tier1County and sends it as animal_county on EVERY address request —
+//    even a standalone one where excludeCounty/widenCounty is null. The Worker
+//    (worker/src/handler.js) treats `animal_county && !exclude_county` as the
+//    Tier-1 By-County signal and turns on includeCounty/filterWinArea, which
+//    (per worker/src/aggregate.js prescreenByHaversine) DROPS every volunteer
+//    outside the stale county's WIN area regardless of distance from the
+//    Tier-2 address. This asserts the actual outgoing request URL, which the
+//    DOM-only stale-leak test above never inspected.
+async function runTier1CountyDoesNotConstrainTier2AddressSearch() {
+  const agg = {
+    total_in_range: 2,
+    role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 1 },
+    win_areas: ['14'],
+    animal_county: 'Schuylkill',
+    animal_area: '14',
+    animal_geoid: '42107',
+  };
+  const aggCalls = [];
+  const { window } = loadDom({
+    workerAgg: agg,
+    aggCalls: aggCalls,
+    data: {
+      'county_win.json': { Monroe: '9', Schuylkill: '14' },
+      'coordinators.json': { '9': 'Monroe Coord', '14': 'Schuylkill Coord' },
+    },
+  });
+  const doc = window.document;
+  await flush(window);
+  await flush(window);
+
+  // 1) Tier 1: select Monroe (area 9). NO widen button click — the dispatcher
+  // simply moves on to Tier 2 next, which is the real reported repro shape.
+  const countySel = doc.getElementById('county');
+  countySel.value = 'Monroe';
+  countySel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+
+  // 2) Tier 2: manual mode toggle (NOT widenFromCounty) to Address, then submit
+  // an address in a DIFFERENT county (Schuylkill), same as the user's repro.
+  const addrRadio = doc.querySelector('input[name="mode"][value="address"]');
+  addrRadio.checked = true;
+  addrRadio.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+
+  doc.getElementById('animal-address').value = '321 2nd St, Port Carbon, PA 17965';
+  doc.getElementById('radius-mi').value = '20';
+  doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await flush(window);
+  await flush(window);
+  await flush(window);
+
+  const url = aggCalls[aggCalls.length - 1] || '';
+
+  // This is a STANDALONE Tier-2 search (no widen -> no exclude_county). The
+  // request may still carry animal_county=Monroe as an INERT tier1_fallback
+  // VALUE (only consulted server-side when PIP finds no polygon match — see
+  // the (pip6) Worker test), but it must NEVER carry win_area or by_county=1:
+  // those are the ONLY signals the Worker uses to scope/limit the volunteer
+  // list by county/WIN-area, and Tier 2 must not trigger them.
+  assert.ok(!/[?&]win_area=/.test(url),
+    'standalone Tier-2 address search must NOT send win_area from a lingering ' +
+    'Tier-1 county selection (url: ' + url + ')');
+  assert.ok(!/[?&]by_county=1(&|$)/.test(url),
+    'standalone Tier-2 address search must NOT send by_county=1 — that is the ' +
+    'ONLY signal that scopes/limits the volunteer list by county (url: ' + url + ')');
+
+  console.log('PASS: Tier-1 county (Monroe) selected without widening does not leak into a ' +
+    'Tier-2 address search — no win_area/by_county sent (url: ' + url + ').');
+}
+
 // ── Standalone Address lookup ALSO renders the PII-safe qualifying-volunteer
 //    context list (context=1 WITHOUT exclude_county). No widen flow involved.
 //    Proves: (1) the request opts into context=1 but sends NO exclude_county,
@@ -5697,6 +5771,7 @@ async function run() {
   await runAddressResolvedArea();
   await runDeconfliction();
   await runStaleCountyLeakSchuylkill();
+  await runTier1CountyDoesNotConstrainTier2AddressSearch();
   await runAddressNoHorizontalOverflowCss();
   await runTier2SingleAnimalAreaCoordinator();
   await runTier2NonConnecteamNotice();
@@ -5740,7 +5815,7 @@ async function run() {
   await runTier2CrossPostUsesResolvedCoords();
   await runTier2CrossPostFoundNone();
   await runTier2CrossPostSearchFailed();
-  console.log('\nALL DOM TESTS PASSED (86 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (87 scenarios).');
 }
 
 run().then(function () {

@@ -2567,6 +2567,12 @@
     // filters out_of_county rows to this win_area. Only Tier 1 sends it.
     if (opts && opts.tier1Area) {
       url += '&win_area=' + encodeURIComponent(opts.tier1Area);
+      // by_county=1 is the EXPLICIT, EXCLUSIVE signal that this is a genuine
+      // Tier 1 By-County request (tier1Area is only ever supplied by the two
+      // real Tier 1 call sites). Tier 2 (address/widen) never sends tier1Area,
+      // so it never sends by_county -- animal_county on a Tier 2 request stays
+      // a pure fallback VALUE and can no longer scope/limit the volunteer list.
+      url += '&by_county=1';
     }
     url = appendAggregateOpts(url, opts);
     return fetchAggregate(url);
