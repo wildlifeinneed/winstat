@@ -1909,13 +1909,19 @@
       .addTo(cpMap.layers.pin);
 
     // ── Read current animal inputs for qualification filtering ──
-    var rvsEl = document.getElementById('rvs-yes') ||
-                document.querySelector('input[name="rvs"][value="yes"]');
-    var rvs = rvsEl ? rvsEl.checked : false;
-    var issueEl = document.getElementById('issue') || $('#issue');
-    var issue = issueEl ? issueEl.value : '';
-    var animalTypeEl = document.getElementById('animal-type') || $('#animal-type');
-    var animalType = animalTypeEl ? animalTypeEl.value : '';
+    // Use the SAME shared helper (readAnimalBaseInfo) every other qualifyFn
+    // call site relies on (renderTier1Volunteers, renderContextList, the
+    // Tier 1 monitoring-count summary, etc.) instead of a direct DOM lookup.
+    // The animal inputs are a RADIO GROUP (input[name="rvs"]/input[name="issue"]),
+    // not elements with id="rvs-yes"/id="issue" -- a direct getElementById
+    // lookup for those ids always returns null, silently forcing hasBase to
+    // false and skipping qualification filtering entirely (bug: courier pins
+    // survived a capture-only map). readAnimalBaseInfo() reads the actual
+    // radio-group selectors and is the single source of truth for rvs/issue.
+    var base = readAnimalBaseInfo();
+    var rvs = !!base.rvs;
+    var issue = base.issue;
+    var animalType = base.animalType;
 
     var qualifyFn = (window.WildlifeDecision &&
                      typeof window.WildlifeDecision.qualifiesForAnimal === 'function')
@@ -2024,7 +2030,20 @@
     // monitoring vol sharing a centroid with a normal volunteer (or another
     // monitor) still lands on a distinct, visible point.
     // Deduplicated across the per-area fetch loop below by county+roles+home
-    // area (the Worker payload carries no volunteer id).
+    // area PLUS monitored_areas + first_name (the Worker payload carries no
+    // volunteer id, so this composite key is the closest available proxy for
+    // identity). county+roles+home-area ALONE is not enough: the Worker's
+    // rolesOf() normalizes roles for QUALIFICATION purposes (e.g. a volunteer
+    // declaring both 'C&T' and 'RVS' is emitted as the single combined
+    // 'RVS C&T' token, and non-qualifying roles like 'Dispatch' are dropped
+    // entirely), so two DIFFERENT volunteers who share a home county/area and
+    // both hold C&T+RVS collapse to an IDENTICAL roles array (e.g. two
+    // Allegheny/area-10 monitors both normalize to ['RVS C&T']). Using only
+    // county+area+roles as the key then silently treats the second person as
+    // a "duplicate" of the first and drops their pin entirely. monitored_areas
+    // (their own opt-in area list) and first_name (kill-switch gated, already
+    // PII-safe and already displayed in the popup) are additional signals that
+    // let two genuinely distinct people with matching roles both render.
     var monSeen = {};
     function addMonitoringVolRows(rows) {
       (rows || []).forEach(function (row) {
@@ -2035,8 +2054,12 @@
         }
         var homeCounty = row.home_county ? String(row.home_county).trim() : '';
         var homeArea = row.win_area != null ? String(row.win_area).trim() : '';
+        var monAreasKey = Array.isArray(row.monitored_areas)
+          ? row.monitored_areas.slice().sort().join(',') : '';
+        var firstNameKey = row.first_name ? String(row.first_name).trim().toLowerCase() : '';
         var dedupeKey = homeCounty + '|' + homeArea + '|' +
-          (Array.isArray(row.roles) ? row.roles.join(',') : '');
+          (Array.isArray(row.roles) ? row.roles.join(',') : '') + '|' +
+          monAreasKey + '|' + firstNameKey;
         if (monSeen[dedupeKey]) return;
         monSeen[dedupeKey] = true;
 
@@ -2088,7 +2111,9 @@
     // the target area; tier1County (animal_county) enables filterWinArea so the
     // Worker correctly filters by WIN area membership.
     var allAreaKeys = Object.keys(volAreaSet);
-    var base = readAnimalBaseInfo();
+    // `base` (rvs/issue/animalType) was already read once above via
+    // readAnimalBaseInfo() for qualification filtering; reuse it here for the
+    // Worker fetch params instead of re-reading the DOM a second time.
     var cpMapRef = cpMap; // capture reference for async callbacks
     var cw = state.countyWin || {};
     allAreaKeys.forEach(function (areaKey) {

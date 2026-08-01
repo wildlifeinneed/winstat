@@ -94,6 +94,45 @@ test('addVolRows (regular qualified volunteers) is still called for EVERY area, 
     'addVolRows(rows, areaKey) still runs unconditionally per area (unaffected by the monitoring-vol scope fix)');
 });
 
+// ── Regression: renderCrossPostMap reads rvs/issue via the SHARED helper ───
+// BUG (found while investigating a courier wrongly appearing on the map for a
+// non-RVS capture): renderCrossPostMap used to read the animal inputs with
+// `document.getElementById('rvs-yes')` / `document.getElementById('issue')`.
+// Neither id exists in dispatcher.html -- rvs/issue are a RADIO GROUP
+// (input[name="rvs"], input[name="issue"]), so the `#issue` lookup always
+// returned null, `issue` was always '', and `hasBase` was always false. That
+// silently skipped qualifyFn entirely for BOTH addVolRows and
+// addMonitoringVolRows, letting a COURIER-only volunteer's pin through on a
+// capture-only map. The fix reuses readAnimalBaseInfo() -- the SAME helper
+// every other qualifyFn call site (renderTier1Volunteers, renderContextList,
+// the Tier 1 monitoring-count summary) already relies on.
+console.log('\nRegression -- renderCrossPostMap qualification wiring (courier-on-capture-map bug):');
+test('renderCrossPostMap reads rvs/issue via the shared readAnimalBaseInfo() helper, not a dead-end getElementById("issue")/("rvs-yes") lookup', () => {
+  const fnStart = SRC.indexOf('function renderCrossPostMap(');
+  assert.ok(fnStart !== -1, 'renderCrossPostMap found');
+  const braceStart = SRC.indexOf('{', fnStart);
+  let depth = 0, i = braceStart;
+  for (; i < SRC.length; i += 1) {
+    if (SRC[i] === '{') depth += 1;
+    else if (SRC[i] === '}') { depth -= 1; if (depth === 0) break; }
+  }
+  const body = SRC.slice(braceStart + 1, i);
+  assert.ok(/var base = readAnimalBaseInfo\(\);/.test(body),
+    'renderCrossPostMap calls the shared readAnimalBaseInfo() to source rvs/issue/animalType');
+  assert.strictEqual(/getElementById\(\s*['"]issue['"]\s*\)/.test(body), false,
+    'no dead-end getElementById("issue") lookup remains (that id does not exist in dispatcher.html)');
+  assert.strictEqual(/getElementById\(\s*['"]rvs-yes['"]\s*\)/.test(body), false,
+    'no dead-end getElementById("rvs-yes") lookup remains (that id does not exist in dispatcher.html)');
+});
+test('dispatcher.html has NO element with id="issue" or id="rvs-yes" (confirms the OLD lookup was always a no-op)', () => {
+  const htmlPath = path.resolve(__dirname, '..', 'docs', 'dispatcher.html');
+  const html = fs.readFileSync(htmlPath, 'utf8');
+  assert.strictEqual(/id=["']issue["']/.test(html), false, 'no id="issue" element exists');
+  assert.strictEqual(/id=["']rvs-yes["']/.test(html), false, 'no id="rvs-yes" element exists');
+  assert.ok(/name=["']issue["']/.test(html), 'issue IS a radio group (name="issue")');
+  assert.ok(/name=["']rvs["']/.test(html), 'rvs IS a radio group (name="rvs")');
+});
+
 // ── Extraction helpers ──────────────────────────────────────────────────────
 function extractFunctionBody(src, headerRegex) {
   const m = src.match(headerRegex);
@@ -387,6 +426,170 @@ test('--amber is defined once and is distinct from every other pin/area color al
   otherColors.forEach(function (c) {
     assert.notStrictEqual(amber, c.toLowerCase(), '--amber (' + amber + ') must not collide with existing color ' + c);
   });
+});
+
+// ── Regression: dedupe key collision when the Worker NORMALIZES roles ──────
+// BUG: the dedupe key was homeCounty|homeArea|roles.join(','). The Worker's
+// rolesOf() (worker/src/aggregate.js) synthesizes a single combined
+// 'RVS C&T' token whenever a record declares BOTH separate 'C&T' and 'RVS',
+// and drops non-qualifying roles like 'Dispatch' entirely. So two DIFFERENT
+// volunteers who share a home county + home area and both hold C&T+RVS
+// produce an IDENTICAL roles array from the Worker's perspective, even though
+// their DECLARED roles differ (one may also be 'Dispatch', the other not).
+// The old key silently dropped the second person's pin as a "duplicate".
+console.log('\nRegression -- dedupe key does not collide when the WORKER normalizes two different people to the same roles array:');
+
+const { rolesOf } = require(path.resolve(__dirname, '..', 'worker', 'src', 'aggregate.js'));
+
+test('two DIFFERENT volunteers whose DECLARED roles differ (one also has Dispatch) but WORKER-NORMALIZE to the identical roles array both get pins', () => {
+  // Mirrors the real Worker pipeline: handler.js emits roles: Array.from(rolesOf(rec)).
+  const susanRaw = { roles: ['Dispatch', 'C&T', 'RVS'] };
+  const ashleyRaw = { roles: ['C&T', 'RVS'] };
+  const susanRoles = Array.from(rolesOf(susanRaw));
+  const ashleyRoles = Array.from(rolesOf(ashleyRaw));
+  assert.deepStrictEqual(susanRoles, ashleyRoles,
+    'sanity check: the Worker really does normalize these two different declared-role sets to the same array');
+
+  const h = makeHarness();
+  h.addMonitoringVolRows([
+    { roles: susanRoles, win_area: '10', home_county: 'Elk', monitored_areas: ['11', '05', '10'], first_name: 'Susan' },
+    { roles: ashleyRoles, win_area: '10', home_county: 'Elk', monitored_areas: ['06', '10', '11'], first_name: 'Ashley' },
+  ]);
+  assert.strictEqual(h.fakeL.createdMarkers.length, 2,
+    'BOTH Susan and Ashley get a pin (not silently deduped as "the same monitor")');
+  const popups = h.fakeL.createdMarkers.map(function (m) { return m.popupHtml; });
+  assert.ok(popups.some(function (p) { return /Susan/.test(p); }), 'Susan pin present');
+  assert.ok(popups.some(function (p) { return /Ashley/.test(p); }), 'Ashley pin present');
+  const [lat1, lon1] = h.fakeL.createdMarkers[0].latlng;
+  const [lat2, lon2] = h.fakeL.createdMarkers[1].latlng;
+  assert.ok(lat1 !== lat2 || lon1 !== lon2, 'the two pins land on distinct, individually clickable points');
+});
+
+test('a TRUE duplicate row (identical county+area+roles+monitored_areas+first_name) from repeated per-area fetches is still deduplicated to ONE pin', () => {
+  const h = makeHarness();
+  const row = { roles: ['C&T'], win_area: '5', home_county: 'Elk', monitored_areas: ['1'], first_name: 'Pat' };
+  h.addMonitoringVolRows([row]);
+  h.addMonitoringVolRows([row]);
+  assert.strictEqual(h.fakeL.createdMarkers.length, 1, 'true duplicate (same fetch replayed) still renders once');
+});
+
+// ── Ground-truth end-to-end scenario: Bedford / Area 11 / non-RVS capture ──
+// Exact repro supplied by the owner from the Connecteam board (see commit
+// message / issue for the source table). Exercises the REAL Worker role
+// normalization (rolesOf) + the REAL addMonitoringVolRows body together, the
+// same way production data flows, rather than hand-authored already-qualified
+// fixture rows.
+console.log('\nGround truth -- Bedford County / Area 11 / NON-RVS capture (owner Connecteam board):');
+
+function buildBedfordWorkerRows() {
+  const raw = [
+    { first_name: 'Leigh', roles: ['Dispatch', 'C&T', 'RVS'], win_area: '5', home_county: 'Butler', monitored_areas: ['11', '10', '06', '02'] },
+    { first_name: 'Sarah', roles: ['COURIER'], win_area: '6', home_county: 'Indiana', monitored_areas: ['05', '06', '11'] },
+    { first_name: 'Susan', roles: ['Dispatch', 'C&T', 'RVS'], win_area: '10', home_county: 'Allegheny', monitored_areas: ['11', '05', '10'] },
+    { first_name: 'Ashley', roles: ['C&T', 'RVS'], win_area: '10', home_county: 'Allegheny', monitored_areas: ['06', '10', '11'] },
+  ];
+  return raw.map(function (r) {
+    return {
+      first_name: r.first_name,
+      roles: Array.from(rolesOf(r)),
+      win_area: r.win_area,
+      home_county: r.home_county,
+      monitored_areas: r.monitored_areas,
+    };
+  });
+}
+
+const WildlifeDecision = require(path.resolve(__dirname, '..', 'docs', 'assets', 'decision.js'));
+
+test('non-RVS capture: EXACTLY Leigh, Susan, Ashley render (3 pins); Sarah (courier) is excluded', () => {
+  const centroids = {
+    Butler: { lat: 40.86, lon: -79.9 },
+    Allegheny: { lat: 40.44, lon: -79.99 },
+    Indiana: { lat: 40.62, lon: -79.15 },
+  };
+  const fakeL = makeFakeL();
+  const opts = {
+    qualifyFn: WildlifeDecision.qualifiesForAnimal,
+    hasBase: true,
+    rvs: false,
+    issue: 'capture',
+    perCounty: {},
+    state: { countyCentroids: centroids },
+    cpMapRef: { layers: { vols: { __group: true } } },
+    bounds: [],
+    cpVolMarkers: [],
+    fakeL: fakeL,
+  };
+  const fn = buildAddMonitoringVolRows(opts);
+
+  fn(buildBedfordWorkerRows());
+  assert.strictEqual(fakeL.createdMarkers.length, 3, 'exactly 3 pins render');
+  const names = fakeL.createdMarkers.map(function (m) {
+    const match = m.popupHtml.match(/Monitoring volunteer: (\w+)/);
+    return match ? match[1] : null;
+  });
+  assert.deepStrictEqual(names.sort(), ['Ashley', 'Leigh', 'Susan'].sort(),
+    'the 3 rendered pins are EXACTLY Leigh, Susan, Ashley: got ' + JSON.stringify(names));
+  assert.ok(names.indexOf('Sarah') === -1, 'Sarah (courier) is excluded from a capture task');
+
+  // All three must be individually clickable at DISTINCT coordinates.
+  const coordKeys = fakeL.createdMarkers.map(function (m) {
+    return m.latlng[0].toFixed(6) + ',' + m.latlng[1].toFixed(6);
+  });
+  assert.strictEqual(new Set(coordKeys).size, 3, 'all 3 pins occupy distinct, hit-testable coordinates');
+});
+
+test('RVS capture: same 3 (Leigh/Susan/Ashley) still qualify -- all hold RVS C&T -- Sarah (courier) still excluded (no overcorrection)', () => {
+  const centroids = {
+    Butler: { lat: 40.86, lon: -79.9 },
+    Allegheny: { lat: 40.44, lon: -79.99 },
+    Indiana: { lat: 40.62, lon: -79.15 },
+  };
+  const fakeL = makeFakeL();
+  const opts = {
+    qualifyFn: WildlifeDecision.qualifiesForAnimal,
+    hasBase: true,
+    rvs: true,
+    issue: 'capture',
+    perCounty: {},
+    state: { countyCentroids: centroids },
+    cpMapRef: { layers: { vols: { __group: true } } },
+    bounds: [],
+    cpVolMarkers: [],
+    fakeL: fakeL,
+  };
+  const fn = buildAddMonitoringVolRows(opts);
+  fn(buildBedfordWorkerRows());
+  assert.strictEqual(fakeL.createdMarkers.length, 3, 'RVS run: still exactly 3 (Leigh/Susan/Ashley are RVS C&T-capable)');
+  const names = fakeL.createdMarkers.map(function (m) {
+    const match = m.popupHtml.match(/Monitoring volunteer: (\w+)/);
+    return match ? match[1] : null;
+  });
+  assert.ok(names.indexOf('Sarah') === -1, 'courier Sarah still excluded on an RVS capture too');
+});
+
+test('transport issue: courier Sarah IS included (proves the filter is issue-aware, not a blanket courier ban)', () => {
+  const centroids = {
+    Butler: { lat: 40.86, lon: -79.9 },
+    Allegheny: { lat: 40.44, lon: -79.99 },
+    Indiana: { lat: 40.62, lon: -79.15 },
+  };
+  const fakeL = makeFakeL();
+  const opts = {
+    qualifyFn: WildlifeDecision.qualifiesForAnimal,
+    hasBase: true,
+    rvs: false,
+    issue: 'transport',
+    perCounty: {},
+    state: { countyCentroids: centroids },
+    cpMapRef: { layers: { vols: { __group: true } } },
+    bounds: [],
+    cpVolMarkers: [],
+    fakeL: fakeL,
+  };
+  const fn = buildAddMonitoringVolRows(opts);
+  fn(buildBedfordWorkerRows());
+  assert.strictEqual(fakeL.createdMarkers.length, 4, 'transport run: all 4 qualify (couriers are transport-eligible)');
 });
 
 console.log('\n' + '-'.repeat(40));
