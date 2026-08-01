@@ -18,6 +18,15 @@
  * `new Function`, against a mocked Leaflet (`L`) + `state.countyCentroids`, so
  * a regression in the real source is caught here.
  *
+ * OWNER'S DEFINITIVE INCLUSION RULE (overrides the earlier "wider scope is by
+ * design" conclusion): for a cross-post map whose TARGET/dispatch area is T,
+ * include a monitoring volunteer pin IFF (1) their home win_area != T, AND
+ * (2) T is present in their monitored_areas. Monitors of a SUGGESTED area
+ * (not T itself) must NOT get a pin just because that area is also shown on
+ * the map. This is enforced by gating the per-area fetch loop in
+ * renderCrossPostMap so addMonitoringVolRows is only ever invoked for the
+ * areaKey === normDispatch (target) fetch — never for suggested-area fetches.
+ *
  * Run: node test/monitoring_pins.test.js   (exit 0 = pass, 1 = fail)
  */
 
@@ -65,6 +74,24 @@ test('Tier 2 entry point (crossPostDistanceCheck) is the ONLY function that call
   assert.ok(!/function\s+renderTier2CrossPostMap/.test(SRC), 'no separate Tier-2-only map renderer exists');
   assert.ok(/crossPostDistanceCheck\(agg\.animal_lat, agg\.animal_lon, dispatchArea, resultDiv, animalCounty\);/.test(SRC),
     'Tier 2 button handler calls the SAME crossPostDistanceCheck used by Tier 1');
+});
+
+// ── Structural check: monitoring vols are scoped to the TARGET area only ───
+console.log('\nInclusion-rule gating (owner directive — no union across suggested areas):');
+test('addMonitoringVolRows is only invoked when areaKey === normDispatch (the target/dispatch area)', () => {
+  const m = SRC.match(/allAreaKeys\.forEach\(function \(areaKey\) \{[\s\S]*?\n  \}\);/);
+  assert.ok(m, 'per-area fetch loop (allAreaKeys.forEach) found');
+  const loopBody = m[0];
+  assert.ok(
+    /if\s*\(areaKey === normDispatch\)\s*\{\s*addMonitoringVolRows\(/.test(loopBody),
+    'addMonitoringVolRows call is gated by "areaKey === normDispatch": ' + loopBody
+  );
+});
+test('addVolRows (regular qualified volunteers) is still called for EVERY area, not gated (only monitoring pins are restricted)', () => {
+  const m = SRC.match(/allAreaKeys\.forEach\(function \(areaKey\) \{[\s\S]*?\n  \}\);/);
+  const loopBody = m[0];
+  assert.ok(/addVolRows\(rows, areaKey\);/.test(loopBody),
+    'addVolRows(rows, areaKey) still runs unconditionally per area (unaffected by the monitoring-vol scope fix)');
 });
 
 // ── Extraction helpers ──────────────────────────────────────────────────────
@@ -185,9 +212,18 @@ test('monitoring volunteer renders a pin with the t2-pin-monitor class (visually
   const m = h.fakeL.createdMarkers[0];
   assert.ok(m.opts.icon.opts.html.indexOf('t2-pin-monitor') !== -1,
     'marker icon HTML carries the t2-pin-monitor class: ' + m.opts.icon.opts.html);
-  // Still carries the role color class too (role + monitor ring, not JUST a color swap).
-  assert.ok(m.opts.icon.opts.html.indexOf('t2-pin-vol-ct') !== -1,
-    'marker icon HTML also carries the role color class (t2-pin-vol-ct)');
+});
+
+test('monitoring pin does NOT carry a role-color class — it gets its own solid distinct color, not role-inherited', () => {
+  const h = makeHarness();
+  h.addMonitoringVolRows([
+    { roles: ['RVS C&T'], win_area: '5', home_county: 'Elk', monitored_areas: ['1'] },
+  ]);
+  const m = h.fakeL.createdMarkers[0];
+  assert.strictEqual(m.opts.icon.opts.html.indexOf('t2-pin-vol-rvsct'), -1,
+    'marker icon HTML must NOT carry a role class (t2-pin-vol-rvsct/ct/courier): ' + m.opts.icon.opts.html);
+  assert.strictEqual(m.opts.icon.opts.html.indexOf('t2-pin-vol-ct'), -1,
+    'marker icon HTML must NOT carry the C&T role class either: ' + m.opts.icon.opts.html);
 });
 
 test('monitoring pin carries a TEXTUAL indicator (popup + title), not color alone', () => {
@@ -304,31 +340,54 @@ test('only the FIRST token of a multi-word first_name is ever shown (defense in 
   assert.strictEqual(/Wonderland/.test(m.popupHtml), false, 'second token (surname-shaped) never shown');
 });
 
-console.log('\nLegend swatch vs. rendered marker color match (Bug 2):');
+console.log('\nLegend swatch vs. rendered marker color match (Bug 2 — owner reversal):');
 
-test('legend .mlp-vol-monitor swatch has NO fixed solid background color (the real marker has none either -- it inherits role color)', () => {
+test('legend .mlp-vol-monitor swatch has a SOLID amber background (matches the marker, no longer transparent/dashed-only)', () => {
   const htmlPath = path.resolve(__dirname, '..', 'docs', 'dispatcher.html');
   const html = fs.readFileSync(htmlPath, 'utf8');
   const legendRuleMatch = html.match(/\.map-legend-panel \.mlp-vol-monitor\s*\{([^}]*)\}/);
   assert.ok(legendRuleMatch, 'legend .mlp-vol-monitor CSS rule found');
   const legendRule = legendRuleMatch[1];
-  assert.ok(/background:\s*transparent/.test(legendRule),
-    'legend swatch background is transparent (matches the marker, which has no fixed fill and takes role color): ' + legendRule);
-  assert.ok(/border-style:\s*dashed/.test(legendRule), 'legend swatch keeps the dashed ring cue');
+  assert.ok(/background:\s*var\(--amber\)/.test(legendRule),
+    'legend swatch background is the solid --amber color (matches the marker): ' + legendRule);
+  assert.strictEqual(/border-style:\s*dashed/.test(legendRule), false,
+    'legend swatch must NOT keep the dashed ring style (reverted per owner directive): ' + legendRule);
 });
 
-test('marker .t2-pin-monitor CSS rule declares NO background property (color comes from the role class, never overridden to amber)', () => {
+test('marker .t2-pin-monitor CSS rule declares its OWN solid amber background (no longer role-inherited, no dashed ring)', () => {
   const htmlPath = path.resolve(__dirname, '..', 'docs', 'dispatcher.html');
   const html = fs.readFileSync(htmlPath, 'utf8');
   const markerRuleMatch = html.match(/\.t2-pin-monitor\s*\{([^}]*)\}/);
   assert.ok(markerRuleMatch, '.t2-pin-monitor CSS rule found');
   const markerRule = markerRuleMatch[1];
-  assert.strictEqual(/background(?!-)/.test(markerRule), false,
-    '.t2-pin-monitor must not declare its own background -- it must inherit the role-color class ' +
-    '(t2-pin-vol-ct/rvsct/courier) applied alongside it, exactly like the legend swatch it is compared against: ' + markerRule);
-  assert.ok(/border-style:\s*dashed/.test(markerRule), 'marker keeps the dashed ring cue (from ad35109, must not be silently discarded)');
+  assert.ok(/background:\s*var\(--amber\)/.test(markerRule),
+    '.t2-pin-monitor declares its own solid var(--amber) background: ' + markerRule);
+  assert.strictEqual(/border-style:\s*dashed/.test(markerRule), false,
+    '.t2-pin-monitor must NOT keep the dashed ring (dropped per owner directive — solid color now carries the meaning): ' + markerRule);
 });
 
+test('marker .t2-pin-monitor and legend .mlp-vol-monitor resolve to the IDENTICAL color token (var(--amber))', () => {
+  const htmlPath = path.resolve(__dirname, '..', 'docs', 'dispatcher.html');
+  const html = fs.readFileSync(htmlPath, 'utf8');
+  const markerRule = html.match(/\.t2-pin-monitor\s*\{([^}]*)\}/)[1];
+  const legendRule = html.match(/\.map-legend-panel \.mlp-vol-monitor\s*\{([^}]*)\}/)[1];
+  const markerColor = markerRule.match(/background:\s*([^;]+);/)[1].trim();
+  const legendColor = legendRule.match(/background:\s*([^;]+);/)[1].trim();
+  assert.strictEqual(markerColor, legendColor,
+    'marker background (' + markerColor + ') and legend swatch background (' + legendColor + ') must be the same token');
+});
+
+test('--amber is defined once and is distinct from every other pin/area color already in use', () => {
+  const htmlPath = path.resolve(__dirname, '..', 'docs', 'dispatcher.html');
+  const html = fs.readFileSync(htmlPath, 'utf8');
+  const amberMatch = html.match(/--amber:\s*(#[0-9a-fA-F]{3,6});/);
+  assert.ok(amberMatch, '--amber custom property defined');
+  const amber = amberMatch[1].toLowerCase();
+  const otherColors = ['#c0392b', '#7b3fbf', '#1f7a33', '#5bbf5b', '#76b7b2', '#e41a1c', '#f781bf'];
+  otherColors.forEach(function (c) {
+    assert.notStrictEqual(amber, c.toLowerCase(), '--amber (' + amber + ') must not collide with existing color ' + c);
+  });
+});
 
 console.log('\n' + '-'.repeat(40));
 console.log('Total: ' + (passed + failed) + '  Passed: ' + passed + '  Failed: ' + failed);

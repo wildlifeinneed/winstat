@@ -1481,19 +1481,13 @@
     .map-legend-panel .mlp-vol-courier { background: #1d6fb8; border-color: #14507f; }
     .map-legend-panel .mlp-vol-ct { background: #5bbf5b; border-color: #3a8a3a; }
     .map-legend-panel .mlp-vol-rvsct { background: #1f7a33; border-color: #145222; }
-    /* Monitoring-volunteer legend dot: the REAL marker (.t2-pin-monitor) has no
-       fixed fill -- it takes the SAME role color as a normal volunteer pin
-       (RVS C&T/C&T/Courier green/blue) plus a dashed outer ring, per the
-       comment on .t2-pin-monitor below. A solid amber dot here would promise a
-       color the marker never renders. So the legend swatch mirrors the marker
-       honestly: transparent fill, dashed ring only -- the ring shape is the
-       true "monitoring" visual cue, exactly as the marker's own dashed-ring
-       styling is designed to communicate regardless of role color. */
+    /* Monitoring-volunteer legend dot: matches the REAL marker (.t2-pin-monitor)
+       exactly -- same solid amber fill, same shape/border as every other
+       volunteer pin swatch above. Monitoring pins no longer inherit role
+       color, so the legend swatch is a plain solid dot like the others. */
     .map-legend-panel .mlp-vol-monitor {
-      background: transparent;
-      border-style: dashed;
-      border-width: 2px;
-      border-color: #555;
+      background: var(--amber);
+      border-color: #9c540a;
     }
     .map-legend-panel .mlp-area-dispatch {
       background: rgba(118,183,178,0.30);
@@ -1675,16 +1669,15 @@
     .t2-pin-vol-courier { width: 14px; height: 14px; background: #1d6fb8; }
     .t2-pin-vol-ct      { width: 14px; height: 14px; background: #5bbf5b; }
     .t2-pin-vol-rvsct   { width: 14px; height: 14px; background: #1f7a33; }
-    /* Monitoring volunteers (cross-area, opted-in) get the SAME role color as
-       a normal volunteer pin PLUS a dashed outer ring — the shape difference
-       (not just color) is the at-a-glance visual cue, and the popup/legend
-       carry the "Monitoring volunteer" text label so color is never the sole
-       indicator (see mlp-vol-monitor legend entry below). */
+    /* Monitoring volunteers (cross-area, opted-in) get their OWN solid,
+       distinct color (amber) instead of inheriting role color -- same
+       shape/size/border as every other volunteer pin (.t2-pin base class
+       already gives border/box-shadow/border-radius). The color alone is not
+       the sole indicator: the popup, marker title, and legend line all say
+       "Monitoring volunteer" in text. */
     .t2-pin-monitor {
       width: 14px; height: 14px;
-      border-style: dashed;
-      border-width: 3px;
-      box-shadow: 0 1px 3px rgba(0,0,0,.4), 0 0 0 2px rgba(0,0,0,.55);
+      background: var(--amber);
     }
     .t2-pin-animal {
       width: 14px; height: 14px;

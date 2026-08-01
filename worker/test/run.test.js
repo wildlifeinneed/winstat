@@ -3068,17 +3068,26 @@ async function main() {
   });
 
   // (4d) MONITORING_AREA_VOLS -- cross-area opted-in monitors -----------------
-  // Bug investigation findings (dispatcher summary "3" vs cross-post map "15"):
-  // monitoring_area_vols is computed PER WIN AREA (filterWinArea=win_area param),
-  // scanning the FULL KV dataset for any vol whose monitored_areas includes that
-  // ONE area. It is genuinely, by design, scoped to a SINGLE area per request --
-  // the frontend's cross-post map calls this endpoint once per area (dispatch +
-  // every suggested cross-post area) and unions the results, which is why the
-  // map total is larger than the summary's single-area total. That is a
-  // labelling/scope fact, not a filtering defect: these tests pin down the
-  // ACTUAL single-area scoping behavior so a future change can't silently make
-  // it leak across areas (which would be a real regression) or silently drop
-  // the first_name delta this bug-fix pass added.
+  // monitoring_area_vols is computed PER WIN AREA (filterWinArea=win_area
+  // param), scanning the FULL KV dataset for any vol whose home area differs
+  // from that area AND whose monitored_areas includes it. It is, by design,
+  // scoped to a SINGLE area per request. The Worker side has always been
+  // correctly scoped this way.
+  //
+  // OVERRULED (owner directive, cross-post map count mismatch follow-up): the
+  // frontend's cross-post map used to call this endpoint once per area
+  // (dispatch area + EVERY suggested cross-post area) and UNION the results
+  // for display -- e.g. a vol who monitors only a suggested area (not the
+  // actual dispatch/target area) would still get a pin. The owner's definitive
+  // rule is: include a monitoring vol on the map iff (a) their home area != the
+  // TARGET dispatch area T, AND (b) T is in their monitored_areas -- nothing
+  // else. The per-suggested-area union was a real display defect, now fixed in
+  // renderCrossPostMap (docs/assets/dispatcher.js): addMonitoringVolRows is
+  // only invoked for the areaKey === normDispatch (target) fetch, never for
+  // suggested-area fetches. These worker-level tests still correctly pin down
+  // the single-area scoping behavior of THIS endpoint (unchanged, still
+  // correct) so a future change can't make the Worker itself leak across
+  // areas or silently drop the first_name delta this bug-fix pass added.
   const MONITORING_COORDS = [
     // Home area 11 (dispatch area) -- excluded from area 11's monitor list
     // (home-area vols already appear in the normal qualified count).

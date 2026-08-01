@@ -2065,7 +2065,11 @@
         if (homeArea) lines.push('Home area: ' + escapeHtml(homeArea));
         lines.push('<em>Opted in to monitor this area from outside it</em>');
 
-        var pinCls = t2VolPinClass(row.roles) + ' t2-pin-monitor';
+        // Monitoring pins get their OWN solid distinct color (.t2-pin-monitor,
+        // amber) instead of inheriting the role color — same shape/size/style
+        // as every other volunteer pin (see .t2-pin base class), just a
+        // different color. Do NOT append t2VolPinClass(row.roles) here.
+        var pinCls = 't2-pin-monitor';
         var marker = L.marker([pinLat, pinLon], {
           icon: t2DivIcon(pinCls, 14),
           title: (monFn ? monFn + ' — ' : '') + 'Monitoring volunteer' + (homeCounty ? ' (' + homeCounty + ')' : '')
@@ -2113,8 +2117,21 @@
           // area vols who opted in to this specific area. Plot them too so the
           // dispatcher sees the ONLY people who can help when county/area both
           // fail and monitoring is the qualifying tier.
-          addMonitoringVolRows(agg && Array.isArray(agg.monitoring_area_vols)
-            ? agg.monitoring_area_vols : []);
+          //
+          // SCOPE: only for the DISPATCH/TARGET area (areaKey === normDispatch),
+          // never for the suggested cross-post areas. monitoring_area_vols is
+          // scoped by the Worker to whatever tier1Area/workerArea was sent on
+          // THIS request, so looping it over every suggested area as well would
+          // union in vols who monitor a SUGGESTED area but never opted into the
+          // actual target area T — that is wrong per the owner's rule: include a
+          // monitoring vol iff their home area != T AND T is in their
+          // monitored_areas. Restricting the call here keeps the pins in sync
+          // with the single dispatch-area fetch state.t1MonitoringVols uses for
+          // the "N Qualified monitoring volunteers" summary line.
+          if (areaKey === normDispatch) {
+            addMonitoringVolRows(agg && Array.isArray(agg.monitoring_area_vols)
+              ? agg.monitoring_area_vols : []);
+          }
           // Re-render the cross-post legend with updated counts after async vols arrive.
           paintCpMapLegend(cpMapRef, wrap, cpVolMarkers, allRehabbers, suggestedSet, dispatchArea);
         })
