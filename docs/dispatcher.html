@@ -1589,6 +1589,21 @@
     .map-fs-btn:hover {
       background: var(--bg);
     }
+    /* While fullscreen, anchor the exit control to the VIEWPORT (not the map
+       container). This is the fix for the "trapped in fullscreen" bug: if the
+       map container is ever oversized/mis-measured (see the invalidateSize
+       timing fix above), an absolutely-positioned button anchored to that
+       container can be pushed off-screen along with it. `position: fixed`
+       here breaks out of the container's containing block entirely, so the
+       exit "X" always stays within the visible viewport regardless of the
+       container's actual size. Escape key is the second, container-independent
+       way out (see ensureFullscreenEsc in dispatcher.js). */
+    .map-fullscreen .map-fs-btn {
+      position: fixed;
+      top: max(10px, env(safe-area-inset-top, 0px));
+      right: max(10px, env(safe-area-inset-right, 0px));
+      z-index: 10001;
+    }
 
     /* Dimmed pin for unavailable volunteers */
     .t2-pin-unavail {

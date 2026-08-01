@@ -2168,7 +2168,44 @@
     } else if (bounds.length > 1) {
       map.fitBounds(bounds, { padding: [30, 30], maxZoom: 12 });
     }
-    map.invalidateSize();
+    // The wrap/mapDiv were just inserted into the DOM this same tick, so the
+    // container may not have its FINAL laid-out size yet (mobile browsers in
+    // particular can still be settling viewport/media-query layout). Calling
+    // invalidateSize() synchronously here caches whatever (possibly wrong,
+    // oversized) dimensions the container has right now -- Leaflet only
+    // recomputes on its own when it sees a resize/viewport event, which is
+    // exactly why a pinch gesture "fixes" it on a real device. Defer the
+    // recalculation past the current layout/paint (double rAF, with a
+    // setTimeout fallback for environments without rAF) and refit bounds so
+    // the map matches the settled container instead of a stale one.
+    scheduleMapResize(map, function () {
+      if (bounds.length === 1) {
+        map.setView(bounds[0], 11);
+      } else if (bounds.length > 1) {
+        map.fitBounds(bounds, { padding: [30, 30], maxZoom: 12 });
+      }
+    });
+  }
+
+  // Defer a Leaflet invalidateSize() (plus an optional re-fit callback) until
+  // AFTER the browser has settled layout for the container, using two
+  // animation-frame ticks (layout + paint) with a setTimeout fallback for
+  // environments without requestAnimationFrame (e.g. some test harnesses).
+  // Shared by the cross-post map init and the fullscreen enter/exit toggle so
+  // every "container size may have just changed" path recalculates the same
+  // way.
+  function scheduleMapResize(mapInstance, afterFit) {
+    if (!mapInstance) return;
+    var run = function () {
+      mapInstance.invalidateSize();
+      if (typeof afterFit === 'function') afterFit();
+    };
+    var raf = (typeof window !== 'undefined' && window.requestAnimationFrame) || null;
+    if (raf) {
+      raf(function () { raf(run); });
+    } else {
+      setTimeout(run, 60);
+    }
   }
 
   // ── Dynamic legend for the cross-post map ─────────────────────────
@@ -3964,8 +4001,9 @@
     }
     // Prevent body scroll while fullscreen.
     document.body.style.overflow = entering ? 'hidden' : '';
-    // Let the browser reflow, then tell Leaflet to recalculate.
-    setTimeout(function () { mapInstance.invalidateSize(); }, 60);
+    // Let the browser reflow (entering OR leaving fullscreen resizes the
+    // container either way), then tell Leaflet to recalculate.
+    scheduleMapResize(mapInstance);
     return function () {}; // placeholder; ESC wired once below
   }
 

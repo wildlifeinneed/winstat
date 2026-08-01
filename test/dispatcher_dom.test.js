@@ -228,6 +228,117 @@ function wait(window, ms) {
   return new Promise(function (resolve) { window.setTimeout(resolve, ms); });
 }
 
+// ── Minimal Leaflet (`L`) mock ───────────────────────────────────────────
+// jsdom has no layout engine and the real vendored Leaflet needs real canvas/
+// layout math it doesn't provide, so no test below this point loads it. This
+// mock implements just enough of the `L` surface that renderCrossPostMap /
+// ensureT2Map / paintCpMapLegend touch (see docs/assets/dispatcher.js) to run
+// end-to-end in jsdom: L.map, .setView/.fitBounds/.invalidateSize/.remove,
+// L.tileLayer/.control.scale/.layerGroup (with hasLayer/removeLayer/
+// clearLayers), L.marker/.polygon (with bindPopup/bindTooltip/getBounds/
+// zIndexOffset), and L.divIcon. Every mutating call the source makes is
+// recorded on the returned map's `_calls` array so a test can assert e.g.
+// invalidateSize was (or wasn't) called, and how many times.
+function makeLeafletMock() {
+  function chainable(obj, methods) {
+    methods.forEach(function (m) {
+      obj[m] = function () { return obj; };
+    });
+    return obj;
+  }
+  function makeLayerGroup() {
+    var layers = [];
+    var group = {
+      _layers: layers,
+      addTo: function () { return group; },
+      addLayer: function (l) { layers.push(l); return group; },
+      hasLayer: function (l) { return layers.indexOf(l) !== -1; },
+      removeLayer: function (l) {
+        var i = layers.indexOf(l);
+        if (i !== -1) layers.splice(i, 1);
+        return group;
+      },
+      clearLayers: function () { layers.length = 0; return group; },
+    };
+    return group;
+  }
+  function makeBounds() {
+    return {
+      isValid: function () { return true; },
+      getSouth: function () { return 39; },
+      getWest: function () { return -80; },
+      getNorth: function () { return 41; },
+      getEast: function () { return -78; },
+    };
+  }
+  function makeVectorOrMarker() {
+    var self = {};
+    self.addTo = function () { return self; };
+    self.bindPopup = function () { return self; };
+    self.bindTooltip = function () { return self; };
+    self.getBounds = function () { return makeBounds(); };
+    return self;
+  }
+  var L = {};
+  // Track the most-recently-created map instance (only one is ever live at a
+  // time across these scenarios) so a test can assert invalidateSize() call
+  // counts on the REAL instance the source code created and holds, without
+  // dispatcher.js needing to expose it for testing.
+  L._lastMap = null;
+  L.map = function (el /*, opts */) {
+    var map = { _calls: { invalidateSize: 0, setView: 0, fitBounds: 0, remove: 0 } };
+    map._container = el;
+    map.setView = function () { map._calls.setView++; return map; };
+    map.fitBounds = function () { map._calls.fitBounds++; return map; };
+    map.invalidateSize = function () { map._calls.invalidateSize++; return map; };
+    map.remove = function () { map._calls.remove++; return map; };
+    L._lastMap = map;
+    return map;
+  };
+  L.tileLayer = function () { return chainable({}, ['addTo']); };
+  L.control = { scale: function () { return chainable({}, ['addTo']); } };
+  L.layerGroup = makeLayerGroup;
+  L.marker = function () { return makeVectorOrMarker(); };
+  L.polygon = function () { return makeVectorOrMarker(); };
+  L.divIcon = function (opts) { return opts || {}; };
+  return L;
+}
+
+// Load the dom with a mock `L` installed BEFORE dispatcher.js runs (so
+// `typeof L === 'undefined'` guards see a usable Leaflet) and the window
+// sized to a phone-width viewport. Returns the same shape as loadDom() plus
+// the L mock as `L` for call-count assertions.
+function loadDomMobileWithLeaflet(opts, viewportWidth) {
+  opts = opts || {};
+  if (!opts.aggCalls) opts.aggCalls = [];
+  const html = fs.readFileSync(HTML_PATH, 'utf8');
+  const dom = new JSDOM(html, {
+    runScripts: 'outside-only',
+    pretendToBeVisual: true,
+    url: 'https://example.org/dispatcher.html',
+  });
+  const { window } = dom;
+  window.addEventListener('unhandledrejection', function (e) {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+  });
+  window.fetch = makeFetch('https://pa-wildlife-dispatcher.winstat.workers.dev', opts);
+
+  // Narrow (phone-width) viewport BEFORE the page scripts run, matching the
+  // real-device symptom report (a narrow screen, not desktop width).
+  Object.defineProperty(window, 'innerWidth', { value: viewportWidth || 375, configurable: true });
+  Object.defineProperty(window, 'innerHeight', { value: 667, configurable: true });
+
+  const L = makeLeafletMock();
+  window.L = L;
+
+  window.eval(fs.readFileSync(MESSAGES_JS, 'utf8'));
+  window.eval(fs.readFileSync(DECISION_JS, 'utf8'));
+  window.eval(fs.readFileSync(DISPATCHER_JS, 'utf8'));
+  window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
+
+  return { dom, window, opts, L };
+}
+
 async function runAddressMode() {
   const { window, opts: domOpts } = loadDom();
   const doc = window.document;
@@ -5725,6 +5836,224 @@ async function runTier2CrossPostSearchFailed() {
   console.log('PASS: Tier 2 cross-post distinguishes "search failed" from "found none".');
 }
 
+// ── MOBILE VIEWPORT: cross-post map sizing + fullscreen-exit-trap ────────
+// Real-device bug report: on a phone-width screen, activating the cross-post
+// map lets the container render past the viewport (Leaflet caches a stale
+// size from the container's un-settled layout at creation time; a pinch
+// gesture forces Leaflet to recompute and it "resets and is fine"). Worse,
+// once the user taps the fullscreen icon, the exit "X" was positioned
+// absolute *inside the map container* -- if that container is oversized, the
+// button can be pushed off-screen with it, trapping the user in fullscreen.
+//
+// jsdom has no real layout engine, so these scenarios can't measure actual
+// pixel overflow the way a real browser would. What they DO pin, against the
+// REAL rendered map + REAL CSS in dispatcher.html:
+//   1. The map container's own CSS never claims a fixed pixel width that
+//      could beat the viewport -- it must be width:100% (of its parent),
+//      matching the "shrinks to fit" contract a mobile viewport needs.
+//   2. The exit "X" (.map-fs-btn), while `.map-fullscreen` is active, is
+//      `position: fixed` -- i.e. anchored to the VIEWPORT, not to the (in
+//      real life possibly oversized) map container -- so it is structurally
+//      impossible for it to leave the screen regardless of container sizing.
+//   3. A resize/orientation-driven recalculation actually happens: Leaflet's
+//      invalidateSize() is called after the map mounts (not skipped), and
+//      again on entering AND leaving fullscreen -- the exact recalculation a
+//      pinch gesture was standing in for.
+//   4. Escape is wired as a second, container-independent way to exit
+//      fullscreen (does not depend on hitting the button at all).
+async function runCrossPostMapMobileSizingCss() {
+  const css = fs.readFileSync(HTML_PATH, 'utf8');
+
+  // (1) Cross-post + Tier-2 map containers are width:100% (percentage of
+  // their parent), never a fixed px width that could exceed a narrow
+  // viewport. (The height media-query override to a shorter fixed px height
+  // at <=640px is fine -- height doesn't cause horizontal overflow.)
+  assert.ok(/\.cp-map\s*\{[^}]*width\s*:\s*100%/.test(css),
+    '.cp-map must be width:100% (no fixed px width that could exceed the viewport)');
+  assert.ok(/\.t2map\s*\{[^}]*width\s*:\s*100%/.test(css),
+    '.t2map must be width:100% (no fixed px width that could exceed the viewport)');
+  assert.ok(!/\.cp-map\s*\{[^}]*width\s*:\s*\d+px/.test(css),
+    '.cp-map must NOT declare a fixed pixel width');
+  assert.ok(!/\.t2map\s*\{[^}]*width\s*:\s*\d+px/.test(css),
+    '.t2map must NOT declare a fixed pixel width');
+
+  // (2) THE TRAP FIX: while fullscreen, the exit button is anchored to the
+  // viewport (position:fixed), NOT to the map container it visually sits
+  // inside of. This is what makes it unreachable-proof even if the container
+  // is oversized.
+  const fsBtnFullscreenRule = /\.map-fullscreen\s+\.map-fs-btn\s*\{([^}]*)\}/.exec(css);
+  assert.ok(fsBtnFullscreenRule,
+    '.map-fullscreen .map-fs-btn CSS rule must exist (viewport-anchored exit control)');
+  assert.ok(/position\s*:\s*fixed/.test(fsBtnFullscreenRule[1]),
+    '.map-fullscreen .map-fs-btn must be position:fixed (anchored to the viewport, ' +
+    'immune to the map container being oversized) (got rule: "' + fsBtnFullscreenRule[1].trim() + '")');
+
+  // No ancestor of .map-fs-btn establishes a containing block (transform/
+  // filter/will-change) that would trap position:fixed inside it instead of
+  // the viewport. The fullscreen overlay chain is .map-fullscreen -> .t2map/
+  // .cp-map -> .map-fs-btn; confirm none of those rules set those properties.
+  ['\\.map-fullscreen\\s*\\{', '\\.map-fullscreen\\s+\\.t2map,?', '\\.map-fullscreen\\s+\\.cp-map\\s*\\{']
+    .forEach(function (sel) {
+      const re = new RegExp(sel + '([^}]*)\\}', 's');
+      const m = re.exec(css);
+      if (m) {
+        assert.ok(!/(?:^|[^-])transform\s*:|will-change\s*:|filter\s*:/.test(m[1]),
+          'fullscreen overlay chain must not introduce a transform/filter/will-change ' +
+          'containing block that would trap position:fixed (rule matched by /' + sel + '/: "' +
+          m[1].trim() + '")');
+      }
+    });
+
+  console.log('PASS: cross-post/Tier-2 map containers are width:100% (no fixed px), and the ' +
+    'fullscreen exit "X" is position:fixed (viewport-anchored, cannot leave the screen).');
+}
+
+// Drive the Tier 2 "Check for Cross Post" flow (reuses resolved coordinates,
+// no address re-entry) on a MOBILE-width jsdom window with the Leaflet mock
+// installed, so renderCrossPostMap() actually builds a map instance instead
+// of early-returning on `typeof L === 'undefined'`.
+async function driveTier2CrossPostMobile(agg, county, viewportWidth) {
+  const { window, doc, L } = await (async function () {
+    const loaded = loadDomMobileWithLeaflet({
+      workerAgg: agg,
+      data: { 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS },
+    }, viewportWidth);
+    const window = loaded.window;
+    const doc = window.document;
+    await flush(window);
+    await flush(window);
+
+    const countySel = doc.getElementById('county');
+    countySel.value = county;
+    countySel.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await flush(window);
+
+    doc.getElementById('widen-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+    await flush(window);
+    doc.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';
+    doc.getElementById('radius-mi').value = '50';
+    doc.getElementById('address-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+    await flush(window);
+    await flush(window);
+    await flush(window);
+
+    return { window, doc, L: loaded.L };
+  })();
+  return { window, doc, L };
+}
+
+// End-to-end (mocked Leaflet + narrow viewport): the cross-post map actually
+// mounts, invalidateSize() is called (deferred past the initial synchronous
+// render -- the exact timing fix for the "must pinch to fix" bug), and the
+// fullscreen toggle both (a) recalculates the map again and (b) swaps the
+// exit button into the viewport-anchored fullscreen state.
+async function runCrossPostMapMobileFullscreenToggle() {
+  const agg = Object.assign({}, WORKER_AGG, {
+    animal_lat: 40.4443, animal_lon: -79.9569, animal_county: 'Allegheny', animal_area: '10',
+  });
+  const { window: w2, doc, L } = await driveTier2CrossPostMobile(agg, 'Allegheny', 375);
+
+  const block = doc.getElementById('t2-cross-post-block');
+  const btn = block.querySelector('.cross-post-btn');
+  btn.dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+
+  const wrap = doc.querySelector('.cp-map-wrap');
+  assert.ok(wrap, 'cross-post map wrap renders on a mobile-width (375px) window');
+  const mapEl = wrap.querySelector('.cp-map');
+  assert.ok(mapEl, '.cp-map container renders inside the wrap');
+
+  const fsBtn = mapEl.querySelector('.map-fs-btn');
+  assert.ok(fsBtn, 'fullscreen toggle button renders on the mobile cross-post map');
+  assert.strictEqual(wrap.classList.contains('map-fullscreen'), false,
+    'map is NOT fullscreen before the button is clicked');
+
+  const mapInstance = L._lastMap;
+  assert.ok(mapInstance, 'renderCrossPostMap created a real Leaflet map instance (mock)');
+
+  // Let the deferred post-mount recalculation (rAF-then-rAF, or its
+  // setTimeout fallback) actually run before proceeding -- the exact
+  // scheduling path that replaces the old "must pinch to fix" behavior.
+  await wait(w2, 150);
+  assert.ok(mapInstance._calls.invalidateSize >= 1,
+    'invalidateSize() is called after mount (deferred past the synchronous render), ' +
+    'not skipped -- this is the recalculation a pinch gesture used to stand in for ' +
+    '(calls so far: ' + mapInstance._calls.invalidateSize + ')');
+  const invalidateSizeAfterMount = mapInstance._calls.invalidateSize;
+
+  // Enter fullscreen.
+  fsBtn.dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  assert.ok(wrap.classList.contains('map-fullscreen'), 'wrap gains .map-fullscreen on toggle');
+  assert.strictEqual(fsBtn.textContent, '\u2716', 'button becomes the "X" exit glyph in fullscreen');
+  assert.strictEqual(fsBtn.getAttribute('aria-label'), 'Exit fullscreen',
+    'button aria-label switches to "Exit fullscreen"');
+
+  await wait(w2, 150);
+  assert.ok(mapInstance._calls.invalidateSize > invalidateSizeAfterMount,
+    'invalidateSize() is called AGAIN on entering fullscreen (container size just changed)');
+  const invalidateSizeAfterEnter = mapInstance._calls.invalidateSize;
+
+  // THE TRAP CHECK: even though jsdom cannot compute real layout/bounding
+  // boxes, the fix is a STRUCTURAL one -- while .map-fullscreen is active,
+  // the button matches the viewport-anchored CSS rule (position:fixed), which
+  // is unconditional and does not depend on the container's actual computed
+  // size. Confirm the element the CSS rule targets is exactly this button
+  // (class + ancestor chain), independent of any inline/computed style jsdom
+  // can't produce.
+  assert.ok(fsBtn.classList.contains('map-fs-btn'), 'exit button carries .map-fs-btn');
+  assert.ok(fsBtn.closest('.map-fullscreen'),
+    'exit button is a descendant of the .map-fullscreen element while fullscreen is active ' +
+    '(the CSS selector .map-fullscreen .map-fs-btn{position:fixed} targets exactly this button)');
+
+  // Leave fullscreen via the SAME button (first escape route) and confirm the
+  // recalculation runs again for the resize back down.
+  fsBtn.dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  assert.strictEqual(wrap.classList.contains('map-fullscreen'), false,
+    'wrap loses .map-fullscreen after exiting');
+  assert.strictEqual(fsBtn.textContent, '\u26F6', 'button reverts to the fullscreen-enter glyph');
+
+  await wait(w2, 150);
+  assert.ok(mapInstance._calls.invalidateSize > invalidateSizeAfterEnter,
+    'invalidateSize() is called AGAIN on LEAVING fullscreen (container size changes back)');
+
+  console.log('PASS: mobile cross-post map mounts + fullscreen toggles; exit button stays ' +
+    'inside the .map-fullscreen viewport-anchored CSS target through enter/exit.');
+}
+
+// SECOND escape route: Escape key exits fullscreen without touching the
+// button at all -- so the user is never solely dependent on locating and
+// tapping a specific on-screen control to get out.
+async function runCrossPostMapMobileFullscreenEscapeKey() {
+  const agg = Object.assign({}, WORKER_AGG, {
+    animal_lat: 40.4443, animal_lon: -79.9569, animal_county: 'Allegheny', animal_area: '10',
+  });
+  const { window: w2, doc } = await driveTier2CrossPostMobile(agg, 'Allegheny', 375);
+
+  const block = doc.getElementById('t2-cross-post-block');
+  block.querySelector('.cross-post-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+
+  const wrap = doc.querySelector('.cp-map-wrap');
+  const fsBtn = wrap.querySelector('.map-fs-btn');
+  fsBtn.dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  assert.ok(wrap.classList.contains('map-fullscreen'), 'map enters fullscreen');
+
+  // Press Escape anywhere in the document -- NOT on the button.
+  doc.dispatchEvent(new w2.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await flush(w2);
+
+  assert.strictEqual(wrap.classList.contains('map-fullscreen'), false,
+    'Escape key exits fullscreen without the user needing to locate/tap the X button ' +
+    '(second, container-independent escape route)');
+  assert.strictEqual(doc.body.style.overflow, '',
+    'body scroll lock is released after Escape-driven exit');
+
+  console.log('PASS: Escape key is a second, button-independent way to exit map fullscreen.');
+}
+
 async function run() {
   await runHelpLink();
   await runHelpViewerRenders();
@@ -5815,7 +6144,10 @@ async function run() {
   await runTier2CrossPostUsesResolvedCoords();
   await runTier2CrossPostFoundNone();
   await runTier2CrossPostSearchFailed();
-  console.log('\nALL DOM TESTS PASSED (87 scenarios).');
+  await runCrossPostMapMobileSizingCss();
+  await runCrossPostMapMobileFullscreenToggle();
+  await runCrossPostMapMobileFullscreenEscapeKey();
+  console.log('\nALL DOM TESTS PASSED (90 scenarios).');
 }
 
 run().then(function () {
