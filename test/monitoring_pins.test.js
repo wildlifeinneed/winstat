@@ -271,6 +271,65 @@ test('two monitoring volunteers with the SAME home county but DIFFERENT roles bo
   assert.ok(lat1 !== lat2 || lon1 !== lon2, 'the two coincident-county monitoring pins land on DISTINCT points');
 });
 
+console.log('\naddMonitoringVolRows — first name in popup (Bug 3):');
+
+test('popup and marker title show the volunteer first name when the Worker payload carries first_name', () => {
+  const h = makeHarness();
+  h.addMonitoringVolRows([
+    { roles: ['C&T'], win_area: '5', home_county: 'Elk', monitored_areas: ['1'], first_name: 'Alice' },
+  ]);
+  const m = h.fakeL.createdMarkers[0];
+  assert.ok(/Alice/.test(m.popupHtml), 'popup includes the first name: ' + m.popupHtml);
+  assert.ok(/Alice/.test(m.opts.title), 'marker title includes the first name: ' + m.opts.title);
+  assert.ok(/Monitoring volunteer/i.test(m.popupHtml), 'popup still labels the pin type');
+});
+
+test('popup falls back gracefully (no "undefined"/crash) when first_name is absent (flag OFF upstream)', () => {
+  const h = makeHarness();
+  h.addMonitoringVolRows([
+    { roles: ['C&T'], win_area: '5', home_county: 'Elk', monitored_areas: ['1'] }, // no first_name key
+  ]);
+  const m = h.fakeL.createdMarkers[0];
+  assert.ok(/Monitoring volunteer/i.test(m.popupHtml), 'popup still renders the base label');
+  assert.strictEqual(/undefined/i.test(m.popupHtml), false, 'no literal "undefined" leaks into the popup');
+});
+
+test('only the FIRST token of a multi-word first_name is ever shown (defense in depth against a bad upstream value)', () => {
+  const h = makeHarness();
+  h.addMonitoringVolRows([
+    { roles: ['C&T'], win_area: '5', home_county: 'Elk', monitored_areas: ['1'], first_name: 'Alice Wonderland' },
+  ]);
+  const m = h.fakeL.createdMarkers[0];
+  assert.ok(/Alice/.test(m.popupHtml), 'first token shown');
+  assert.strictEqual(/Wonderland/.test(m.popupHtml), false, 'second token (surname-shaped) never shown');
+});
+
+console.log('\nLegend swatch vs. rendered marker color match (Bug 2):');
+
+test('legend .mlp-vol-monitor swatch has NO fixed solid background color (the real marker has none either -- it inherits role color)', () => {
+  const htmlPath = path.resolve(__dirname, '..', 'docs', 'dispatcher.html');
+  const html = fs.readFileSync(htmlPath, 'utf8');
+  const legendRuleMatch = html.match(/\.map-legend-panel \.mlp-vol-monitor\s*\{([^}]*)\}/);
+  assert.ok(legendRuleMatch, 'legend .mlp-vol-monitor CSS rule found');
+  const legendRule = legendRuleMatch[1];
+  assert.ok(/background:\s*transparent/.test(legendRule),
+    'legend swatch background is transparent (matches the marker, which has no fixed fill and takes role color): ' + legendRule);
+  assert.ok(/border-style:\s*dashed/.test(legendRule), 'legend swatch keeps the dashed ring cue');
+});
+
+test('marker .t2-pin-monitor CSS rule declares NO background property (color comes from the role class, never overridden to amber)', () => {
+  const htmlPath = path.resolve(__dirname, '..', 'docs', 'dispatcher.html');
+  const html = fs.readFileSync(htmlPath, 'utf8');
+  const markerRuleMatch = html.match(/\.t2-pin-monitor\s*\{([^}]*)\}/);
+  assert.ok(markerRuleMatch, '.t2-pin-monitor CSS rule found');
+  const markerRule = markerRuleMatch[1];
+  assert.strictEqual(/background(?!-)/.test(markerRule), false,
+    '.t2-pin-monitor must not declare its own background -- it must inherit the role-color class ' +
+    '(t2-pin-vol-ct/rvsct/courier) applied alongside it, exactly like the legend swatch it is compared against: ' + markerRule);
+  assert.ok(/border-style:\s*dashed/.test(markerRule), 'marker keeps the dashed ring cue (from ad35109, must not be silently discarded)');
+});
+
+
 console.log('\n' + '-'.repeat(40));
 console.log('Total: ' + (passed + failed) + '  Passed: ' + passed + '  Failed: ' + failed);
 if (failed > 0) {

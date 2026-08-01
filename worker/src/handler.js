@@ -27,6 +27,8 @@ const {
   buildTier2Response,
   normalizeWinArea,
   rolesOf,
+  recordFirstName,
+  isFirstNameFlagOn,
 } = require('./aggregate');
 const { geocodeAddress } = require('./census');
 const { autocompleteAddress, photonGeocode, looksLikeFullAddress, looksLikeIntersection, hasHouseNumberMatch, censusAutocompleteFallback } = require('./autocomplete');
@@ -772,9 +774,14 @@ async function handleRequest(request, deps) {
     // notifications for this area even though they live elsewhere. The UI uses
     // this to show a monitoring count without needing to scan the area-scoped
     // vol rows (which by definition exclude cross-area residents).
-    // PII-safe: only roles, win_area, and monitored_areas are emitted.
+    // PII-safe: only roles, win_area, monitored_areas, home_county, and
+    // (kill-switch gated) first_name are emitted -- no last name, no phone,
+    // no email, no address, no coordinates. Same SHOW_VOLUNTEER_FIRST_NAME
+    // flag and recordFirstName/firstNameToken helpers buildTier2Response uses
+    // for out_of_county rows, so a last name can never leak from here either.
     if (filterWinArea) {
       const areaNorm = normalizeWinArea(filterWinArea);
+      const showFirstName = isFirstNameFlagOn(deps.showVolunteerFirstName);
       const monVols = [];
       for (let i = 0; i < coords.length; i++) {
         const rec = coords[i];
@@ -787,12 +794,17 @@ async function handleRequest(request, deps) {
           if (normalizeWinArea(ma[j]) === areaNorm) { monitors = true; break; }
         }
         if (!monitors) continue;
-        monVols.push({
+        const monVol = {
           roles: Array.from(rolesOf(rec)),
           win_area: rec.win_area === undefined ? null : rec.win_area,
           home_county: rec.home_county || null,
           monitored_areas: ma,
-        });
+        };
+        if (showFirstName) {
+          const fn = recordFirstName(rec);
+          if (fn !== '') monVol.first_name = fn;
+        }
+        monVols.push(monVol);
       }
       tier2.monitoring_area_vols = monVols;
     }

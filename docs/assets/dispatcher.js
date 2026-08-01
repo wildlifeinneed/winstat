@@ -2017,11 +2017,12 @@
     // ── Monitoring volunteers (cross-area, opted-in) ──
     // These vols live in a DIFFERENT WIN area but opted in to be notified for
     // the dispatch/suggested area (agg.monitoring_area_vols, PII-safe: roles +
-    // win_area + home_county + monitored_areas only — no approx_lat/lon). Place
-    // them at their HOME COUNTY centroid (same fallback the county-only branch
-    // above uses) and route them through the SAME shared `perCounty` jitter/
-    // coincidence map so a monitoring vol sharing a centroid with a normal
-    // volunteer (or another monitor) still lands on a distinct, visible point.
+    // win_area + home_county + monitored_areas + kill-switch-gated first_name
+    // only — no last name, no approx_lat/lon). Place them at their HOME COUNTY
+    // centroid (same fallback the county-only branch above uses) and route
+    // them through the SAME shared `perCounty` jitter/coincidence map so a
+    // monitoring vol sharing a centroid with a normal volunteer (or another
+    // monitor) still lands on a distinct, visible point.
     // Deduplicated across the per-area fetch loop below by county+roles+home
     // area (the Worker payload carries no volunteer id).
     var monSeen = {};
@@ -2053,7 +2054,12 @@
         var pinLat = c.lat + rad * Math.cos(ang);
         var pinLon = c.lon + rad * Math.sin(ang);
 
-        var lines = ['<strong>Monitoring volunteer</strong>'];
+        // FIRST NAME ONLY — PRESENCE-DRIVEN, same contract as the normal
+        // volunteer popup above: populated only when the Worker's
+        // SHOW_VOLUNTEER_FIRST_NAME kill-switch is ON (payload carries a
+        // non-empty first_name); first token only so no last name can surface.
+        var monFn = row.first_name ? String(row.first_name).trim().split(/\s+/)[0] : '';
+        var lines = ['<strong>Monitoring volunteer' + (monFn ? ': ' + escapeHtml(monFn) : '') + '</strong>'];
         if (row.roles && row.roles.length) lines.push(escapeHtml(row.roles.join(', ')));
         if (homeCounty) lines.push('Home county: ' + escapeHtml(homeCounty));
         if (homeArea) lines.push('Home area: ' + escapeHtml(homeArea));
@@ -2062,7 +2068,7 @@
         var pinCls = t2VolPinClass(row.roles) + ' t2-pin-monitor';
         var marker = L.marker([pinLat, pinLon], {
           icon: t2DivIcon(pinCls, 14),
-          title: 'Monitoring volunteer' + (homeCounty ? ' (' + homeCounty + ')' : '')
+          title: (monFn ? monFn + ' — ' : '') + 'Monitoring volunteer' + (homeCounty ? ' (' + homeCounty + ')' : '')
         }).bindPopup(lines.join('<br>'));
         marker.addTo(cpMapRef.layers.vols);
         cpVolMarkers.push({

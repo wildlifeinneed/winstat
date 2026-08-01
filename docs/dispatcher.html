@@ -1481,13 +1481,19 @@
     .map-legend-panel .mlp-vol-courier { background: #1d6fb8; border-color: #14507f; }
     .map-legend-panel .mlp-vol-ct { background: #5bbf5b; border-color: #3a8a3a; }
     .map-legend-panel .mlp-vol-rvsct { background: #1f7a33; border-color: #145222; }
-    /* Monitoring-volunteer legend dot: same amber base + dashed ring, matching
-       the .t2-pin-monitor map marker so the legend and pins visually agree. */
+    /* Monitoring-volunteer legend dot: the REAL marker (.t2-pin-monitor) has no
+       fixed fill -- it takes the SAME role color as a normal volunteer pin
+       (RVS C&T/C&T/Courier green/blue) plus a dashed outer ring, per the
+       comment on .t2-pin-monitor below. A solid amber dot here would promise a
+       color the marker never renders. So the legend swatch mirrors the marker
+       honestly: transparent fill, dashed ring only -- the ring shape is the
+       true "monitoring" visual cue, exactly as the marker's own dashed-ring
+       styling is designed to communicate regardless of role color. */
     .map-legend-panel .mlp-vol-monitor {
-      background: var(--amber);
+      background: transparent;
       border-style: dashed;
       border-width: 2px;
-      border-color: #7a5b00;
+      border-color: #555;
     }
     .map-legend-panel .mlp-area-dispatch {
       background: rgba(118,183,178,0.30);

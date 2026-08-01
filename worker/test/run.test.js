@@ -3067,6 +3067,128 @@ async function main() {
     assert.strictEqual(ctx.rows[0].county, 'York', 'Cumberland (Area 13) excluded despite being within radius');
   });
 
+  // (4d) MONITORING_AREA_VOLS -- cross-area opted-in monitors -----------------
+  // Bug investigation findings (dispatcher summary "3" vs cross-post map "15"):
+  // monitoring_area_vols is computed PER WIN AREA (filterWinArea=win_area param),
+  // scanning the FULL KV dataset for any vol whose monitored_areas includes that
+  // ONE area. It is genuinely, by design, scoped to a SINGLE area per request --
+  // the frontend's cross-post map calls this endpoint once per area (dispatch +
+  // every suggested cross-post area) and unions the results, which is why the
+  // map total is larger than the summary's single-area total. That is a
+  // labelling/scope fact, not a filtering defect: these tests pin down the
+  // ACTUAL single-area scoping behavior so a future change can't silently make
+  // it leak across areas (which would be a real regression) or silently drop
+  // the first_name delta this bug-fix pass added.
+  const MONITORING_COORDS = [
+    // Home area 11 (dispatch area) -- excluded from area 11's monitor list
+    // (home-area vols already appear in the normal qualified count).
+    { lat: 40.02, lon: -78.50, roles: ['C&T'], home_county: 'Bedford', win_area: '11',
+      monitored_areas: ['11'], first_name: 'Homer', available: true },
+    // Monitors area 11 from home area 10 -- INCLUDED for area=11, excluded for area=7.
+    { lat: 40.44, lon: -79.99, roles: ['RVS C&T'], home_county: 'Allegheny', win_area: '10',
+      monitored_areas: ['10', '11'], first_name: 'Alice', available: true },
+    // Monitors area 7 (NOT area 11) from home area 3 -- excluded for area=11.
+    { lat: 41.20, lon: -77.55, roles: ['C&T'], home_county: 'Clinton', win_area: '3',
+      monitored_areas: ['3', '7'], first_name: 'Clint', available: true },
+    // No monitored_areas at all -- never appears in any area's monitor list.
+    { lat: 40.86, lon: -79.90, roles: ['COURIER'], home_county: 'Butler', win_area: '5',
+      monitored_areas: [], first_name: 'Ben', available: true },
+  ];
+
+  await test('(monA1) monitoring_area_vols is scoped to the SINGLE requested win_area, not the union of all monitored_areas', async () => {
+    const res = await handleRequest(
+      mockRequest('GET', {
+        animal_lat: 40.02, animal_lon: -78.50, radius_mi: 20, context: '1',
+        by_county: '1', animal_county: 'Bedford', win_area: '11',
+      }),
+      { ResponseCtor: MockResponse, kv: mockKV(MONITORING_COORDS), allowedOrigin: 'https://pages.example' }
+    );
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.ok(Array.isArray(body.monitoring_area_vols), 'monitoring_area_vols present when win_area is set');
+    assert.strictEqual(body.monitoring_area_vols.length, 1,
+      'only Alice (home area 10, monitors 11) qualifies for area=11; Homer is home-area, Clint monitors area 7 not 11, Ben has no monitored_areas');
+    assert.strictEqual(body.monitoring_area_vols[0].home_county, 'Allegheny');
+  });
+
+  await test('(monA2) monitoring_area_vols for a DIFFERENT area (7) returns a DIFFERENT single-area result, not a union', async () => {
+    const res = await handleRequest(
+      mockRequest('GET', {
+        animal_lat: 40.02, animal_lon: -78.50, radius_mi: 20, context: '1',
+        by_county: '1', animal_county: 'Bedford', win_area: '7',
+      }),
+      { ResponseCtor: MockResponse, kv: mockKV(MONITORING_COORDS), allowedOrigin: 'https://pages.example' }
+    );
+    const body = await res.json();
+    assert.strictEqual(body.monitoring_area_vols.length, 1,
+      'only Clint (home area 3, monitors 7) qualifies for area=7');
+    assert.strictEqual(body.monitoring_area_vols[0].home_county, 'Clinton');
+  });
+
+  await test('(monA3) monitoring_area_vols is ABSENT (not just empty) when win_area/by_county are not set (Tier 2 address search has no scope to compute)', async () => {
+    const res = await handleRequest(
+      mockRequest('GET', {
+        animal_lat: 40.02, animal_lon: -78.50, radius_mi: 20, context: '1',
+        animal_county: 'Bedford', // NO by_county, NO win_area
+      }),
+      { ResponseCtor: MockResponse, kv: mockKV(MONITORING_COORDS), allowedOrigin: 'https://pages.example' }
+    );
+    const body = await res.json();
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(body, 'monitoring_area_vols'), false,
+      'Tier 2 address search (no win_area) has no monitoring_area_vols key at all -- confirms Tier 2 has ' +
+      'no summary count to reconcile against; only the shared cross-post MAP path supplies one, per-area, on demand');
+  });
+
+  await test('(monA4) monitoring_area_vols carries first_name (single token) when SHOW_VOLUNTEER_FIRST_NAME is ON (default) -- Bug 3 fix', async () => {
+    const res = await handleRequest(
+      mockRequest('GET', {
+        animal_lat: 40.02, animal_lon: -78.50, radius_mi: 20, context: '1',
+        by_county: '1', animal_county: 'Bedford', win_area: '11',
+      }),
+      { ResponseCtor: MockResponse, kv: mockKV(MONITORING_COORDS), allowedOrigin: 'https://pages.example' }
+    );
+    const body = await res.json();
+    assert.strictEqual(body.monitoring_area_vols.length, 1);
+    assert.strictEqual(body.monitoring_area_vols[0].first_name, 'Alice', 'first_name present and correct');
+    assert.deepStrictEqual(
+      Object.keys(body.monitoring_area_vols[0]).sort(),
+      ['first_name', 'home_county', 'monitored_areas', 'roles', 'win_area'],
+      'monitoring_area_vols row carries ONLY roles/win_area/home_county/monitored_areas/first_name -- no PII widening'
+    );
+  });
+
+  await test('(monA5) monitoring_area_vols has NO first_name key when SHOW_VOLUNTEER_FIRST_NAME is explicitly OFF', async () => {
+    const res = await handleRequest(
+      mockRequest('GET', {
+        animal_lat: 40.02, animal_lon: -78.50, radius_mi: 20, context: '1',
+        by_county: '1', animal_county: 'Bedford', win_area: '11',
+      }),
+      { ResponseCtor: MockResponse, kv: mockKV(MONITORING_COORDS), allowedOrigin: 'https://pages.example', showVolunteerFirstName: '0' }
+    );
+    const body = await res.json();
+    assert.strictEqual(body.monitoring_area_vols.length, 1);
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(body.monitoring_area_vols[0], 'first_name'), false,
+      'flag OFF => no first_name key on monitoring_area_vols rows either');
+  });
+
+  await test('(monA6) monitoring_area_vols never leaks a last name even if upstream KV carries a legacy full "name" field', async () => {
+    const coordsWithFullName = [
+      { lat: 40.44, lon: -79.99, roles: ['RVS C&T'], home_county: 'Allegheny', win_area: '10',
+        monitored_areas: ['11'], name: 'Alice Wonderland', available: true },
+    ];
+    const res = await handleRequest(
+      mockRequest('GET', {
+        animal_lat: 40.02, animal_lon: -78.50, radius_mi: 20, context: '1',
+        by_county: '1', animal_county: 'Bedford', win_area: '11',
+      }),
+      { ResponseCtor: MockResponse, kv: mockKV(coordsWithFullName), allowedOrigin: 'https://pages.example' }
+    );
+    const body = await res.json();
+    const serialized = JSON.stringify(body);
+    assert.strictEqual(serialized.indexOf('Wonderland'), -1, 'last name must never leak via monitoring_area_vols');
+    assert.strictEqual(body.monitoring_area_vols[0].first_name, 'Alice', 'first token of legacy name field used as fallback');
+  });
+
   // (5) CORS allowlist resolution -- widened ALLOWED_ORIGIN (*.pages.dev). -----
   await test('CORS: legacy single-origin config with no request Origin -> that origin', () => {
     assert.strictEqual(
