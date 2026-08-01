@@ -9,9 +9,11 @@
     "test:dispatcher": "node test/dispatcher_dom.test.js",
     "test:flags": "node test/flags_dom.test.js",
     "test:volpins": "node test/vol_pin_coincidence.test.js",
-    "test:monitoring": "node test/monitoring_pins.test.js"
+    "test:monitoring": "node test/monitoring_pins.test.js",
+    "test:mobile-zoom": "node test/mobile_ios_zoom.playwright.js"
   },
   "devDependencies": {
-    "jsdom": "^24.1.3"
+    "jsdom": "^24.1.3",
+    "playwright": "^1.62.1"
   }
 }

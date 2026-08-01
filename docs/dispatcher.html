@@ -1718,6 +1718,20 @@
       .btn-primary { min-height: 44px; padding: 13px 22px; }
       /* County dropdown, address + radius inputs */
       select, input[type=text] { min-height: 44px; padding: 11px 12px; }
+      /* iOS WebKit (Safari, and every other iOS browser -- Apple requires
+         all of them to embed WebKit) auto-zooms the whole page when a
+         focused text input's COMPUTED font-size is under 16px. That zoom is
+         what was reported as "the frame is lost" the instant the cross-post
+         / Tier-2 animal-address input is focused, well before any map
+         exists -- a pinch gesture resets the zoom, which is exactly the
+         workaround being reported. Force every text input to >=16px on
+         phones (last in the cascade so it beats the more specific
+         .cross-post-addr rule below, which was 13.5px). Do NOT "fix" this
+         via viewport maximum-scale=1 / user-scalable=no instead -- that
+         suppresses pinch-zoom for everyone, which is worse for
+         accessibility. */
+      input[type=text],
+      .cross-post-addr { font-size: 16px; }
       /* Tier-1 widen + on-demand rehabber reveal toggles */
       .btn-widen,
       .btn-rehab-toggle { min-height: 44px; padding: 11px 16px; }

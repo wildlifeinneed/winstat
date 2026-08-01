@@ -5908,6 +5908,72 @@ async function runCrossPostMapMobileSizingCss() {
     'fullscreen exit "X" is position:fixed (viewport-anchored, cannot leave the screen).');
 }
 
+// ── MOBILE VIEWPORT: iOS WebKit zoom-on-focus (ROUND 2 root cause) ───────
+// Real-device bug report (round 2): "once I click cross post the frame is
+// lost and from there it requires a 'pinch' to get it back" -- reported on
+// DuckDuckGo/iPhone. Every iOS browser (Safari, DuckDuckGo, Chrome, Firefox,
+// Edge) is required by Apple to embed WebKit, and WebKit auto-zooms the
+// whole visual viewport when a focused <input>/<textarea> has a COMPUTED
+// font-size under 16px. That explains every symptom: it fires on FOCUS
+// (before any map exists, matching the device screenshots), and a pinch
+// gesture is the natural way a user resets pinch-to-zoom back to 1x.
+//
+// jsdom has no zoom/layout engine and cannot reproduce the zoom itself (see
+// test/mobile_ios_zoom.playwright.js for the real-browser harness), so this
+// is a CSS source-contract check, matching the style of
+// runCrossPostMapMobileSizingCss above: assert that every text input this
+// codebase renders resolves to >=16px at phone widths, by asserting the
+// LAST-in-cascade mobile override rule exists and targets every text-input
+// selector this file uses (not just relying on the earlier, smaller-font
+// base rules being absent).
+async function runMobileTextInputFontSizeNoZoom() {
+  const css = fs.readFileSync(HTML_PATH, 'utf8');
+
+  // The base (all-viewport) rule is allowed to stay under 16px -- desktop
+  // should NOT change -- but there MUST be a `max-width: 640px` media query,
+  // LATER in the cascade than the base rule and than `.cross-post-addr`,
+  // that forces text inputs back up to >=16px. Extract the mobile block
+  // containing the fix (same block the tap-target sizing fix lives in).
+  const mobileBlockMatch = /@media \(max-width:\s*640px\)\s*\{([\s\S]*?)\n\s{4}\}\n\n/g;
+  let sawFontFix = false;
+  let match;
+  while ((match = mobileBlockMatch.exec(css)) !== null) {
+    if (/input\[type=text\][^{]*\{[^}]*font-size\s*:\s*16px/.test(match[1]) ||
+        /input\[type=text\]\s*,[\s\S]{0,80}\{[^}]*font-size\s*:\s*16px/.test(match[1])) {
+      sawFontFix = true;
+    }
+  }
+  assert.ok(sawFontFix,
+    'a `@media (max-width: 640px)` block must force input[type=text] to font-size:16px ' +
+    '(prevents iOS WebKit zoom-on-focus on every text input, including #animal-address, ' +
+    '#radius-mi, and dynamically-created .cross-post-addr)');
+
+  // The fix must explicitly re-target .cross-post-addr too (it has its own,
+  // separately-declared 13.5px rule at the SAME specificity as the global
+  // `input[type="text"]` rule -- source order alone decided which one won,
+  // and it was NOT `.cross-post-addr`, which is exactly why measuring in a
+  // real browser -- not just reading the more-specific-looking selector --
+  // was necessary here).
+  const mobileFixBlock = /@media \(max-width:\s*640px\)\s*\{[\s\S]*?input\[type=text\][\s\S]{0,120}\{[^}]*font-size\s*:\s*16px[^}]*\}/.exec(css);
+  assert.ok(mobileFixBlock && /\.cross-post-addr/.test(mobileFixBlock[0]),
+    'the mobile font-size fix must explicitly include .cross-post-addr, not just ' +
+    'input[type=text] (its own same-specificity rule elsewhere would otherwise still win ' +
+    'by source order and keep it under 16px)');
+
+  // Must NOT be "fixed" via viewport maximum-scale / user-scalable=no --
+  // that suppresses pinch-zoom accessibility for every user, not just the
+  // input-focus case.
+  const viewportMeta = /<meta name="viewport" content="([^"]*)"/.exec(css);
+  assert.ok(viewportMeta, 'viewport meta tag must exist');
+  assert.ok(!/maximum-scale/.test(viewportMeta[1]) && !/user-scalable/.test(viewportMeta[1]),
+    'viewport meta must NOT add maximum-scale or user-scalable=no as a workaround ' +
+    '(that disables pinch-zoom accessibility for everyone; got: "' + viewportMeta[1] + '")');
+
+  console.log('PASS: mobile (<=640px) forces text inputs (including .cross-post-addr) to ' +
+    '>=16px font-size (prevents iOS WebKit zoom-on-focus), and the viewport meta tag was not ' +
+    'defeated with maximum-scale/user-scalable.');
+}
+
 // Drive the Tier 2 "Check for Cross Post" flow (reuses resolved coordinates,
 // no address re-entry) on a MOBILE-width jsdom window with the Leaflet mock
 // installed, so renderCrossPostMap() actually builds a map instance instead
@@ -6147,7 +6213,8 @@ async function run() {
   await runCrossPostMapMobileSizingCss();
   await runCrossPostMapMobileFullscreenToggle();
   await runCrossPostMapMobileFullscreenEscapeKey();
-  console.log('\nALL DOM TESTS PASSED (90 scenarios).');
+  await runMobileTextInputFontSizeNoZoom();
+  console.log('\nALL DOM TESTS PASSED (91 scenarios).');
 }
 
 run().then(function () {
