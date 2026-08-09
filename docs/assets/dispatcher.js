@@ -4517,7 +4517,8 @@
     //
     // QUALIFIED-ONLY pins (alignment with the list): apply the SAME
     // qualifiesForAnimal predicate renderContextList uses so the map plots the
-    // SAME volunteer set as the qualified-only list. No map-side dimming for
+    // SAME volunteer set as the qualified-only list (qualifiedVolRows below,
+    // shared with the WIN-area shading computation). No map-side dimming for
     // unavailable volunteers — every pin looks the same.
     //
     // FULL SET (map shows ALL qualified pins): the list may be CAPPED to the
@@ -4532,15 +4533,22 @@
     var volSource = (agg && Array.isArray(agg.out_of_county_all))
       ? agg.out_of_county_all
       : (agg && Array.isArray(agg.out_of_county) ? agg.out_of_county : null);
-    if (SHOW_VOLUNTEER_MARKERS && volSource) {
-      var volRows = volSource;
+    // QUALIFIED-ONLY rows, computed regardless of SHOW_VOLUNTEER_MARKERS: this
+    // set drives the WIN-area shading below (see the winAreas comment) even
+    // when the pin-rendering kill-switch is off (privacy review = hide pins,
+    // not area shading, which the SVG choropleth already shows without pins).
+    var qualifiedVolRows = [];
+    if (volSource) {
+      qualifiedVolRows = volSource;
       if (qualifyFn && hasBase) {
-        volRows = volRows.filter(function (row) {
+        qualifiedVolRows = qualifiedVolRows.filter(function (row) {
           var roleList = Array.isArray(row.roles) ? row.roles : [];
           return qualifyFn(roleList, !!ctx.rvs, ctx.issue);
         });
       }
-      volRows.forEach(function (row) {
+    }
+    if (SHOW_VOLUNTEER_MARKERS) {
+      qualifiedVolRows.forEach(function (row) {
         if (!row) return;
         // Prefer the jittered coord the Worker provides; fall back to the county
         // centroid when it is absent (older Worker / no coord).
@@ -4594,9 +4602,28 @@
                  state.selectedAnimalCoord.label)
       ? state.selectedAnimalCoord.label : '';
 
-    // WIN areas affected by this animal location (Worker returns these as area
-    // names/numbers). Drawn as county-based shaded boundaries on the map.
-    var winAreas = (agg && Array.isArray(agg.win_areas)) ? agg.win_areas.slice() : [];
+    // WIN areas to shade on the map. Deliberately NOT agg.win_areas -- that
+    // aggregate is computed over EVERY in-radius volunteer regardless of role
+    // (C&T/RVS C&T/COURIER all count) and regardless of availability, so it
+    // highlighted an area for e.g. a COURIER-only volunteer on a capture-only
+    // request (owner-reported bug: "highlight areas that house any found
+    // volunteer", not just qualified ones). Instead derive the shaded areas
+    // from qualifiedVolRows above, which is ALREADY qualified-only (same
+    // qualifiesForAnimal/qualify_roles filter the list and pins use) and is
+    // computed independent of SHOW_VOLUNTEER_MARKERS so hiding pins for a
+    // privacy review does not also blank the area shading. Available AND
+    // unavailable volunteers both count toward a highlight (availability is a
+    // DIM treatment on the pin/list, never a membership gate, matching
+    // renderContextList) -- a "no one currently available" area still needs
+    // to read as reachable, just not instantly staffed.
+    var winAreaSet = {};
+    qualifiedVolRows.forEach(function (row) {
+      var area = row && row.win_area;
+      if (area !== null && area !== undefined && String(area).trim() !== '') {
+        winAreaSet[String(area).trim()] = true;
+      }
+    });
+    var winAreas = Object.keys(winAreaSet);
 
     var payload = {
       animal: { lat: agg.animal_lat, lon: agg.animal_lon, label: label },
