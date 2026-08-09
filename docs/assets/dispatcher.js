@@ -1942,6 +1942,29 @@
     var perCounty = {};
     var cpVolMarkers = []; // {marker, available, roles} for legend counts + toggle
 
+    // IDENTITY MAP shared between addVolRows (ordinary in-range/in-area rows)
+    // and addMonitoringVolRows (cross-area opted-in monitor rows): a volunteer
+    // who is BOTH an ordinary row for this dispatch area AND a monitoring row
+    // for the SAME area must render as ONE pin, not two (see cross-post-pin
+    // diagnosis 2026-08-09). Neither Worker payload carries a volunteer id, so
+    // identity is approximated by the same composite key already used for
+    // monitoring-vs-monitoring de-duplication: home county + roles +
+    // monitored_areas + first_name. Populated by addVolRows as it places each
+    // ordinary pin; consulted by addMonitoringVolRows before drawing a new
+    // marker. Values are the marker + the lines[] array backing its popup, so
+    // addMonitoringVolRows can APPEND the monitoring opt-in text to the
+    // existing popup instead of creating a second marker.
+    var placedVolByIdentity = {};
+    function volIdentityKey(row) {
+      var homeCounty = row && row.county ? String(row.county).trim()
+        : (row && row.home_county ? String(row.home_county).trim() : '');
+      var monAreasKey = row && Array.isArray(row.monitored_areas)
+        ? row.monitored_areas.slice().sort().join(',') : '';
+      var firstNameKey = row && row.first_name ? String(row.first_name).trim().toLowerCase() : '';
+      var rolesKey = row && Array.isArray(row.roles) ? row.roles.slice().sort().join(',') : '';
+      return homeCounty + '|' + rolesKey + '|' + monAreasKey + '|' + firstNameKey;
+    }
+
     // Helper: add volunteer rows from a Worker response to the map.
     function addVolRows(rows, filterAreaKey) {
       (rows || []).forEach(function (row) {
@@ -2017,6 +2040,13 @@
         marker.addTo(cpMapRef.layers.vols);
         cpVolMarkers.push({ marker: marker, available: rowAvail, roles: Array.isArray(row.roles) ? row.roles : [] });
         bounds.push([pinLat, pinLon]);
+        // Register identity so a LATER monitoring row for this SAME person
+        // (see addMonitoringVolRows) merges into this pin's popup instead of
+        // drawing a second, mispositioned marker.
+        var ordinaryKey = volIdentityKey(row);
+        if (ordinaryKey !== '|||') {
+          placedVolByIdentity[ordinaryKey] = { marker: marker, lines: lines };
+        }
       });
     }
 
@@ -2024,11 +2054,17 @@
     // These vols live in a DIFFERENT WIN area but opted in to be notified for
     // the dispatch/suggested area (agg.monitoring_area_vols, PII-safe: roles +
     // win_area + home_county + monitored_areas + kill-switch-gated first_name
-    // only — no last name, no approx_lat/lon). Place them at their HOME COUNTY
-    // centroid (same fallback the county-only branch above uses) and route
-    // them through the SAME shared `perCounty` jitter/coincidence map so a
-    // monitoring vol sharing a centroid with a normal volunteer (or another
-    // monitor) still lands on a distinct, visible point.
+    // + approx_lat/approx_lon — no last name). approx_lat/approx_lon are the
+    // SAME ~1-mile jitterCoord() treatment the ordinary out_of_county payload
+    // already carries (worker/src/handler.js) — added to fix the cross-post
+    // map plotting a SECOND, mispositioned pin (at the coarse home-county
+    // centroid) for any monitoring vol who was ALSO an ordinary in-range row
+    // (see cross-post-pin diagnosis 2026-08-09). County centroid is now a
+    // FALLBACK ONLY for the rare row with no usable coordinate, and that
+    // fallback pin is made visibly distinct (amber ring + "(approximate —
+    // home county centroid)" in the popup/title) so it can never again be
+    // mistaken for a real location.
+    //
     // Deduplicated across the per-area fetch loop below by county+roles+home
     // area PLUS monitored_areas + first_name (the Worker payload carries no
     // volunteer id, so this composite key is the closest available proxy for
@@ -2044,6 +2080,14 @@
     // (their own opt-in area list) and first_name (kill-switch gated, already
     // PII-safe and already displayed in the popup) are additional signals that
     // let two genuinely distinct people with matching roles both render.
+    //
+    // ONE VOLUNTEER = ONE PIN: before drawing anything, check placedVolByIdentity
+    // (populated by addVolRows above) using the SAME composite key shape. If
+    // this monitoring row's person already has an ordinary pin on the map,
+    // APPEND the monitoring opt-in line to that pin's existing popup instead
+    // of creating a second marker — the dispatcher still sees "opted in to
+    // monitor this area from outside it, home county X, home area Y", just on
+    // the one correct (jittered-coord) pin instead of a duplicate.
     var monSeen = {};
     function addMonitoringVolRows(rows) {
       (rows || []).forEach(function (row) {
@@ -2063,39 +2107,87 @@
         if (monSeen[dedupeKey]) return;
         monSeen[dedupeKey] = true;
 
-        var c = homeCounty && state.countyCentroids && state.countyCentroids[homeCounty];
-        if (!c || !isFinite(c.lat) || !isFinite(c.lon)) return;
-
-        // Same golden-angle jitter + coincidence backstop as the county-only
-        // branch above, keyed into the SAME shared perCounty map so monitoring
-        // pins and normal volunteer pins never silently overlap each other.
-        var key = homeCounty || (c.lat + ',' + c.lon);
-        var n = perCounty[key] || 0;
-        perCounty[key] = n + 1;
-        var ang = n * 2.399;
-        var rad = n === 0 ? 0 : 0.012 + 0.006 * n;
-        var pinLat = c.lat + rad * Math.cos(ang);
-        var pinLon = c.lon + rad * Math.sin(ang);
-
         // FIRST NAME ONLY — PRESENCE-DRIVEN, same contract as the normal
         // volunteer popup above: populated only when the Worker's
         // SHOW_VOLUNTEER_FIRST_NAME kill-switch is ON (payload carries a
         // non-empty first_name); first token only so no last name can surface.
         var monFn = row.first_name ? String(row.first_name).trim().split(/\s+/)[0] : '';
+        var monitorLine = '<em>Opted in to monitor this area from outside it</em>';
+
+        // ONE VOLUNTEER = ONE PIN: if this same person already has an
+        // ordinary (jittered-coord) pin from addVolRows, merge into it rather
+        // than drawing a duplicate marker at the county centroid.
+        var identityKey = volIdentityKey({
+          county: homeCounty, roles: row.roles,
+          monitored_areas: row.monitored_areas, first_name: row.first_name
+        });
+        var existing = identityKey !== '|||' ? placedVolByIdentity[identityKey] : null;
+        if (existing) {
+          existing.lines.push(monitorLine);
+          if (homeArea) existing.lines.push('Home area: ' + escapeHtml(homeArea));
+          existing.marker.bindPopup(existing.lines.join('<br>'));
+          return;
+        }
+
+        // Prefer the SAME ~1-mile jittered coordinate the ordinary path uses
+        // (now present on this payload too). Only fall back to the coarse
+        // home-county centroid when a row genuinely has no usable coordinate.
+        var pinLat, pinLon, isCentroidFallback;
+        if (typeof row.approx_lat === 'number' && isFinite(row.approx_lat) &&
+            typeof row.approx_lon === 'number' && isFinite(row.approx_lon)) {
+          pinLat = row.approx_lat;
+          pinLon = row.approx_lon;
+          isCentroidFallback = false;
+          // Same coincidence backstop the jittered branch above uses, keyed
+          // into the SAME shared perCounty map.
+          var jkey = 'j:' + pinLat.toFixed(5) + ',' + pinLon.toFixed(5);
+          var jn = perCounty[jkey] || 0;
+          perCounty[jkey] = jn + 1;
+          if (jn > 0) {
+            var jang = jn * 2.399;
+            var jrad = 0.004 + 0.002 * jn;
+            pinLat = pinLat + jrad * Math.cos(jang);
+            pinLon = pinLon + jrad * Math.sin(jang);
+          }
+        } else {
+          var c = homeCounty && state.countyCentroids && state.countyCentroids[homeCounty];
+          if (!c || !isFinite(c.lat) || !isFinite(c.lon)) return;
+          isCentroidFallback = true;
+          // Same golden-angle jitter + coincidence backstop as the
+          // county-only branch above, keyed into the SAME shared perCounty
+          // map so monitoring pins and normal volunteer pins never silently
+          // overlap each other.
+          var key = homeCounty || (c.lat + ',' + c.lon);
+          var n = perCounty[key] || 0;
+          perCounty[key] = n + 1;
+          var ang = n * 2.399;
+          var rad = n === 0 ? 0 : 0.012 + 0.006 * n;
+          pinLat = c.lat + rad * Math.cos(ang);
+          pinLon = c.lon + rad * Math.sin(ang);
+        }
+
         var lines = ['<strong>Monitoring volunteer' + (monFn ? ': ' + escapeHtml(monFn) : '') + '</strong>'];
         if (row.roles && row.roles.length) lines.push(escapeHtml(row.roles.join(', ')));
         if (homeCounty) lines.push('Home county: ' + escapeHtml(homeCounty));
         if (homeArea) lines.push('Home area: ' + escapeHtml(homeArea));
-        lines.push('<em>Opted in to monitor this area from outside it</em>');
+        lines.push(monitorLine);
+        // VISIBLE FALLBACK SIGNAL: a centroid-placed pin must never be
+        // mistaken for a real location. State it explicitly in the popup and
+        // title whenever no jittered coordinate was available.
+        if (isCentroidFallback) {
+          lines.push('<em>Position approximate — home county centroid, no precise location on file</em>');
+        }
 
         // Monitoring pins get their OWN solid distinct color (.t2-pin-monitor,
         // amber) instead of inheriting the role color — same shape/size/style
         // as every other volunteer pin (see .t2-pin base class), just a
         // different color. Do NOT append t2VolPinClass(row.roles) here.
-        var pinCls = 't2-pin-monitor';
+        var pinCls = 't2-pin-monitor' + (isCentroidFallback ? ' t2-pin-approx' : '');
         var marker = L.marker([pinLat, pinLon], {
           icon: t2DivIcon(pinCls, 14),
-          title: (monFn ? monFn + ' — ' : '') + 'Monitoring volunteer' + (homeCounty ? ' (' + homeCounty + ')' : '')
+          title: (monFn ? monFn + ' — ' : '') + 'Monitoring volunteer' +
+            (homeCounty ? ' (' + homeCounty + ')' : '') +
+            (isCentroidFallback ? ' [approximate: county centroid]' : '')
         }).bindPopup(lines.join('<br>'));
         marker.addTo(cpMapRef.layers.vols);
         cpVolMarkers.push({
@@ -2103,6 +2195,9 @@
           roles: Array.isArray(row.roles) ? row.roles : [], monitoring: true
         });
         bounds.push([pinLat, pinLon]);
+        if (identityKey !== '|||') {
+          placedVolByIdentity[identityKey] = { marker: marker, lines: lines };
+        }
       });
     }
 
@@ -2126,6 +2221,19 @@
         }
       });
 
+      // NOTE on the radius_mi argument here (RADIUS_DEFAULT, 20mi): this call
+      // ALWAYS sends tier1Area, which makes fetchAggregateByCoord also set
+      // by_county=1 (see appendAggregateOpts above). On the Worker,
+      // by_county=1 + win_area makes prescreenByHaversine use AREA membership
+      // as the sole gate (worker/src/aggregate.js prescreenByHaversine, the
+      // `areaNorm !== ''` branch) and skip the radius comparison entirely --
+      // so radius_mi is READ but NEVER CONSULTED on this call path today.
+      // Deliberately left as RADIUS_DEFAULT (not the dispatcher's real search
+      // radius) to avoid changing behavior on a call path that doesn't use it;
+      // documented here (rather than silently left as a foot-gun) so a future
+      // refactor that ever drops/bypasses by_county here does not silently
+      // truncate results to 20mi. If that ever happens, pass the actual
+      // dispatch search radius instead.
       fetchAggregateByCoord(lat, lon, RADIUS_DEFAULT,
         { context: true, base: base, tier1Area: workerArea, tier1County: county || null })
         .then(function (agg) {

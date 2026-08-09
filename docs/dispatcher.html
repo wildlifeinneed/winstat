@@ -1679,6 +1679,17 @@
       width: 14px; height: 14px;
       background: var(--amber);
     }
+    /* Centroid-fallback signal: a monitoring row with no usable jittered
+       coordinate falls back to its home-county centroid. That pin must never
+       be mistaken for a real location, so it gets a visibly distinct dashed
+       ring ON TOP of the normal monitor color -- the popup/title also state
+       "approximate" in text (see addMonitoringVolRows, dispatcher.js). This
+       is a rare fallback path; most monitoring rows now carry approx_lat/lon
+       from the Worker and never use this class. */
+    .t2-pin-approx {
+      outline: 2px dashed #fff;
+      outline-offset: 1px;
+    }
     .t2-pin-animal {
       width: 14px; height: 14px;
       background: var(--red);

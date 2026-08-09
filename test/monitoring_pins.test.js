@@ -160,6 +160,12 @@ const t2VolPinClass = new Function('roles', T2_VOL_PIN_CLASS_BODY);
 
 const T2_DIV_ICON_BODY = extractFunctionBody(SRC, /function t2DivIcon\(cls, size\)\s*\{/);
 
+// volIdentityKey (shared between addVolRows and addMonitoringVolRows for the
+// ONE-VOLUNTEER-ONE-PIN merge) -- extracted verbatim so a regression in the
+// real identity-key logic is caught here too.
+const VOL_IDENTITY_KEY_BODY = extractFunctionBody(SRC, /function volIdentityKey\(row\)\s*\{/);
+const volIdentityKey = new Function('row', VOL_IDENTITY_KEY_BODY);
+
 // The SHIPPED addMonitoringVolRows body (verbatim from dispatcher.js).
 const ADD_MONITORING_VOL_ROWS_BODY = extractFunctionBody(SRC, /function addMonitoringVolRows\(rows\)\s*\{/);
 
@@ -204,13 +210,14 @@ function buildAddMonitoringVolRows(opts) {
     'var cpMapRef = opts.cpMapRef;\n' +
     'var bounds = opts.bounds;\n' +
     'var cpVolMarkers = opts.cpVolMarkers;\n' +
+    'var placedVolByIdentity = opts.placedVolByIdentity;\n' +
     'return function addMonitoringVolRows(rows) {\n' +
     ADD_MONITORING_VOL_ROWS_BODY +
     '\n};';
 
-  return new Function('L', 'escapeHtml', 't2VolPinClass', 't2DivIcon', 'opts',
+  return new Function('L', 'escapeHtml', 't2VolPinClass', 't2DivIcon', 'volIdentityKey', 'opts',
     fnBody)(
-    L, escapeHtml, t2VolPinClass, t2DivIconWrapped, opts);
+    L, escapeHtml, t2VolPinClass, t2DivIconWrapped, volIdentityKey, opts);
 }
 
 // ── Test fixtures ────────────────────────────────────────────────────────
@@ -224,6 +231,7 @@ function makeHarness(overrides) {
   const bounds = [];
   const cpVolMarkers = [];
   const perCounty = (overrides && overrides.perCounty) || {};
+  const placedVolByIdentity = (overrides && overrides.placedVolByIdentity) || {};
   const opts = {
     qualifyFn: (overrides && overrides.qualifyFn) || null,
     hasBase: !!(overrides && overrides.hasBase),
@@ -234,10 +242,11 @@ function makeHarness(overrides) {
     cpMapRef: { layers: { vols: { __group: true } } },
     bounds: bounds,
     cpVolMarkers: cpVolMarkers,
+    placedVolByIdentity: placedVolByIdentity,
     fakeL: fakeL,
   };
   const addMonitoringVolRows = buildAddMonitoringVolRows(opts);
-  return { addMonitoringVolRows, fakeL, bounds, cpVolMarkers, perCounty };
+  return { addMonitoringVolRows, fakeL, bounds, cpVolMarkers, perCounty, placedVolByIdentity };
 }
 
 console.log('\naddMonitoringVolRows — rendering:');
@@ -311,6 +320,80 @@ test('duplicate monitoring rows (same county+area+roles) across multiple area fe
   h.addMonitoringVolRows([row]);
   h.addMonitoringVolRows([row]); // simulates a second per-area fetch returning the same monitor
   assert.strictEqual(h.fakeL.createdMarkers.length, 1, 'duplicate monitoring vol only renders once');
+});
+
+console.log('\naddMonitoringVolRows — approx_lat/lon coordinate + centroid fallback signal (cross-post-pin-diagnosis fix):');
+
+test('a monitoring row WITH approx_lat/approx_lon renders at that jittered coordinate, NOT the county centroid', () => {
+  const h = makeHarness();
+  h.addMonitoringVolRows([
+    { roles: ['C&T'], win_area: '5', home_county: 'Elk', monitored_areas: ['1'],
+      approx_lat: 41.55, approx_lon: -78.61 },
+  ]);
+  assert.strictEqual(h.fakeL.createdMarkers.length, 1);
+  const [pinLat, pinLon] = h.fakeL.createdMarkers[0].latlng;
+  assert.strictEqual(pinLat, 41.55, 'pin uses the jittered approx_lat, not the Elk centroid (41.4)');
+  assert.strictEqual(pinLon, -78.61, 'pin uses the jittered approx_lon, not the Elk centroid (-78.7)');
+  const m = h.fakeL.createdMarkers[0];
+  assert.strictEqual(/approximate/i.test(m.popupHtml), false,
+    'a real jittered coordinate must NOT carry the "approximate" fallback disclaimer');
+  assert.strictEqual(m.opts.icon.opts.html.indexOf('t2-pin-approx'), -1,
+    'a real jittered coordinate must NOT carry the approx-fallback CSS class');
+});
+
+test('a monitoring row with NO approx_lat/lon still falls back to the county centroid, but VISIBLY marked as approximate', () => {
+  const h = makeHarness();
+  h.addMonitoringVolRows([
+    { roles: ['C&T'], win_area: '5', home_county: 'Elk', monitored_areas: ['1'] }, // no approx_lat/lon
+  ]);
+  assert.strictEqual(h.fakeL.createdMarkers.length, 1, 'centroid fallback still renders a pin');
+  const m = h.fakeL.createdMarkers[0];
+  assert.ok(/approximate/i.test(m.popupHtml),
+    'popup explicitly states the position is approximate: ' + m.popupHtml);
+  assert.ok(/approximate/i.test(m.opts.title),
+    'marker title explicitly states the position is approximate: ' + m.opts.title);
+  assert.ok(m.opts.icon.opts.html.indexOf('t2-pin-approx') !== -1,
+    'marker icon carries the t2-pin-approx CSS class (visibly distinct ring): ' + m.opts.icon.opts.html);
+});
+
+console.log('\naddMonitoringVolRows — ONE VOLUNTEER = ONE PIN merge with an existing ordinary pin:');
+
+test('a monitoring row whose identity matches an already-placed ordinary pin MERGES into it (no second marker)', () => {
+  // Simulate addVolRows having already placed Julie's ordinary (jittered)
+  // pin before addMonitoringVolRows runs (mirrors the real call order in
+  // renderCrossPostMap: addVolRows(rows, areaKey) then addMonitoringVolRows).
+  const ordinaryLines = ['<strong>Julie</strong>', 'RVS C&T', 'County: Blair'];
+  const ordinaryMarker = {
+    popupHtml: null,
+    bindPopup: function (html) { this.popupHtml = html; return this; },
+  };
+  ordinaryMarker.bindPopup(ordinaryLines.join('<br>'));
+  const identityKey = 'Blair|RVS C&T|1|julie';
+  const placedVolByIdentity = {};
+  placedVolByIdentity[identityKey] = { marker: ordinaryMarker, lines: ordinaryLines };
+
+  const h = makeHarness({ placedVolByIdentity: placedVolByIdentity });
+  h.addMonitoringVolRows([
+    { roles: ['RVS C&T'], win_area: '7', home_county: 'Blair', monitored_areas: ['1'], first_name: 'Julie',
+      approx_lat: 40.81, approx_lon: -78.39 },
+  ]);
+  assert.strictEqual(h.fakeL.createdMarkers.length, 0,
+    'NO second marker is created for a person who already has an ordinary pin');
+  assert.ok(/Opted in to monitor this area from outside it/.test(ordinaryMarker.popupHtml),
+    'the EXISTING ordinary pin popup is updated to carry the monitoring opt-in text: ' + ordinaryMarker.popupHtml);
+  assert.ok(/Home area: 7/.test(ordinaryMarker.popupHtml),
+    'the existing pin popup also carries the home-area monitoring detail: ' + ordinaryMarker.popupHtml);
+  assert.ok(/Julie/.test(ordinaryMarker.popupHtml), 'original ordinary-pin content (name) is preserved');
+});
+
+test('a monitoring row whose identity does NOT match any placed ordinary pin still renders its own pin', () => {
+  const h = makeHarness({ placedVolByIdentity: {} });
+  h.addMonitoringVolRows([
+    { roles: ['C&T'], win_area: '5', home_county: 'Elk', monitored_areas: ['1'], first_name: 'Someone',
+      approx_lat: 41.41, approx_lon: -78.69 },
+  ]);
+  assert.strictEqual(h.fakeL.createdMarkers.length, 1,
+    'a monitoring-only volunteer (no ordinary pin on the map) still gets exactly one pin');
 });
 
 console.log('\naddMonitoringVolRows — coincidence with a regular volunteer pin:');
@@ -518,6 +601,7 @@ test('non-RVS capture: EXACTLY Leigh, Susan, Ashley render (3 pins); Sarah (cour
     cpMapRef: { layers: { vols: { __group: true } } },
     bounds: [],
     cpVolMarkers: [],
+    placedVolByIdentity: {},
     fakeL: fakeL,
   };
   const fn = buildAddMonitoringVolRows(opts);
@@ -556,6 +640,7 @@ test('RVS capture: same 3 (Leigh/Susan/Ashley) still qualify -- all hold RVS C&T
     cpMapRef: { layers: { vols: { __group: true } } },
     bounds: [],
     cpVolMarkers: [],
+    placedVolByIdentity: {},
     fakeL: fakeL,
   };
   const fn = buildAddMonitoringVolRows(opts);
@@ -585,6 +670,7 @@ test('transport issue: courier Sarah IS included (proves the filter is issue-awa
     cpMapRef: { layers: { vols: { __group: true } } },
     bounds: [],
     cpVolMarkers: [],
+    placedVolByIdentity: {},
     fakeL: fakeL,
   };
   const fn = buildAddMonitoringVolRows(opts);

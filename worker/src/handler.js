@@ -29,6 +29,10 @@ const {
   rolesOf,
   recordFirstName,
   isFirstNameFlagOn,
+  buildAddrGroups,
+  jitterCoord,
+  jitterSeed,
+  addrSlotInfo,
 } = require('./aggregate');
 const { geocodeAddress } = require('./census');
 const { autocompleteAddress, photonGeocode, looksLikeFullAddress, looksLikeIntersection, hasHouseNumberMatch, censusAutocompleteFallback } = require('./autocomplete');
@@ -774,14 +778,26 @@ async function handleRequest(request, deps) {
     // notifications for this area even though they live elsewhere. The UI uses
     // this to show a monitoring count without needing to scan the area-scoped
     // vol rows (which by definition exclude cross-area residents).
-    // PII-safe: only roles, win_area, monitored_areas, home_county, and
-    // (kill-switch gated) first_name are emitted -- no last name, no phone,
-    // no email, no address, no coordinates. Same SHOW_VOLUNTEER_FIRST_NAME
-    // flag and recordFirstName/firstNameToken helpers buildTier2Response uses
-    // for out_of_county rows, so a last name can never leak from here either.
+    // PII-safe: only roles, win_area, monitored_areas, home_county,
+    // (kill-switch gated) first_name, and approx_lat/approx_lon are emitted --
+    // no last name, no phone, no email, no address, no precise coordinate.
+    // Same SHOW_VOLUNTEER_FIRST_NAME flag and recordFirstName/firstNameToken
+    // helpers buildTier2Response uses for out_of_county rows, so a last name
+    // can never leak from here either. approx_lat/approx_lon are the SAME
+    // ~1-mile deterministic jitterCoord() treatment the ordinary out_of_county
+    // path already applies (worker/src/aggregate.js findContextRowsDriving) --
+    // reused here, not a new precision level, so the privacy contract is
+    // unchanged. Previously this object had no coordinate at all, which forced
+    // the frontend to fall back to the coarse home-county centroid for every
+    // monitoring row (see dispatcher.js addMonitoringVolRows) -- that produced
+    // a second, mispositioned pin for any volunteer who was ALSO a normal
+    // in-range row. addrGroups is built over the SAME full `coords` dataset
+    // used for the ordinary jittered pins so same-address bearing sectors stay
+    // consistent between the two payloads for the same person.
     if (filterWinArea) {
       const areaNorm = normalizeWinArea(filterWinArea);
       const showFirstName = isFirstNameFlagOn(deps.showVolunteerFirstName);
+      const monAddrGroups = buildAddrGroups(coords);
       const monVols = [];
       for (let i = 0; i < coords.length; i++) {
         const rec = coords[i];
@@ -794,11 +810,14 @@ async function handleRequest(request, deps) {
           if (normalizeWinArea(ma[j]) === areaNorm) { monitors = true; break; }
         }
         if (!monitors) continue;
+        const approx = jitterCoord(rec.lat, rec.lon, jitterSeed(rec), addrSlotInfo(rec, monAddrGroups));
         const monVol = {
           roles: Array.from(rolesOf(rec)),
           win_area: rec.win_area === undefined ? null : rec.win_area,
           home_county: rec.home_county || null,
           monitored_areas: ma,
+          approx_lat: approx ? approx.lat : null,
+          approx_lon: approx ? approx.lon : null,
         };
         if (showFirstName) {
           const fn = recordFirstName(rec);

@@ -3161,8 +3161,10 @@ async function main() {
     assert.strictEqual(body.monitoring_area_vols[0].first_name, 'Alice', 'first_name present and correct');
     assert.deepStrictEqual(
       Object.keys(body.monitoring_area_vols[0]).sort(),
-      ['first_name', 'home_county', 'monitored_areas', 'roles', 'win_area'],
-      'monitoring_area_vols row carries ONLY roles/win_area/home_county/monitored_areas/first_name -- no PII widening'
+      ['approx_lat', 'approx_lon', 'first_name', 'home_county', 'monitored_areas', 'roles', 'win_area'],
+      'monitoring_area_vols row carries ONLY roles/win_area/home_county/monitored_areas/first_name/' +
+      'approx_lat/approx_lon -- approx_lat/lon are the SAME ~1-mile jitterCoord() treatment the ordinary ' +
+      'out_of_county path already emits (cross-post-pin-diagnosis fix), not a PII widening'
     );
   });
 
@@ -3196,6 +3198,44 @@ async function main() {
     const serialized = JSON.stringify(body);
     assert.strictEqual(serialized.indexOf('Wonderland'), -1, 'last name must never leak via monitoring_area_vols');
     assert.strictEqual(body.monitoring_area_vols[0].first_name, 'Alice', 'first token of legacy name field used as fallback');
+  });
+
+  await test('(monA7) monitoring_area_vols carries a real approx_lat/approx_lon (cross-post-pin-diagnosis fix) -- ' +
+    'a finite point within the same [0.5,1]mi jitter band as the ordinary out_of_county payload, not null/absent', async () => {
+    const res = await handleRequest(
+      mockRequest('GET', {
+        animal_lat: 40.02, animal_lon: -78.50, radius_mi: 20, context: '1',
+        by_county: '1', animal_county: 'Bedford', win_area: '11',
+      }),
+      { ResponseCtor: MockResponse, kv: mockKV(MONITORING_COORDS), allowedOrigin: 'https://pages.example' }
+    );
+    const body = await res.json();
+    assert.strictEqual(body.monitoring_area_vols.length, 1);
+    const alice = body.monitoring_area_vols[0];
+    assert.ok(Number.isFinite(alice.approx_lat), 'approx_lat is a real finite number, not null (was null pre-fix)');
+    assert.ok(Number.isFinite(alice.approx_lon), 'approx_lon is a real finite number, not null (was null pre-fix)');
+    const aliceRec = MONITORING_COORDS.find((r) => r.first_name === 'Alice');
+    assert.notStrictEqual(alice.approx_lat, aliceRec.lat, 'exact lat never leaves the server');
+    assert.notStrictEqual(alice.approx_lon, aliceRec.lon, 'exact lon never leaves the server');
+    const d = haversineMi(aliceRec.lat, aliceRec.lon, alice.approx_lat, alice.approx_lon);
+    assert.ok(d >= 0.5 - 0.02 && d <= 1.0 + 0.02,
+      'approx_lat/lon sit in the SAME [0.5,1]mi jitter band the ordinary out_of_county path uses, got ' + d);
+    // Deterministic: same record -> same jittered point every call (matches
+    // the ordinary path's determinism, needed so a volunteer's pin does not
+    // move between page loads / requests).
+    const res2 = await handleRequest(
+      mockRequest('GET', {
+        animal_lat: 40.02, animal_lon: -78.50, radius_mi: 20, context: '1',
+        by_county: '1', animal_county: 'Bedford', win_area: '11',
+      }),
+      { ResponseCtor: MockResponse, kv: mockKV(MONITORING_COORDS), allowedOrigin: 'https://pages.example' }
+    );
+    const body2 = await res2.json();
+    assert.deepStrictEqual(
+      { lat: body2.monitoring_area_vols[0].approx_lat, lon: body2.monitoring_area_vols[0].approx_lon },
+      { lat: alice.approx_lat, lon: alice.approx_lon },
+      'jittered coordinate is deterministic across repeated requests for the same record'
+    );
   });
 
   // (5) CORS allowlist resolution -- widened ALLOWED_ORIGIN (*.pages.dev). -----
