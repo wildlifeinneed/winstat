@@ -5158,7 +5158,13 @@
       countyBreakdownEl.textContent = '';
       countyBreakdownEl.style.display = 'none';
     }
-    var oocArr = (agg && Array.isArray(agg.out_of_county)) ? agg.out_of_county : [];
+    // COUNT SOURCE for the fallback path below: out_of_county_all (full,
+    // never-truncated) so this per-role county breakdown can't under-report
+    // on overflow either. Falls back further to out_of_county for very old
+    // Worker responses that omit out_of_county_all (never truncated then).
+    var oocArr = (agg && Array.isArray(agg.out_of_county_all))
+      ? agg.out_of_county_all
+      : ((agg && Array.isArray(agg.out_of_county)) ? agg.out_of_county : []);
     var countyByRole = (agg && agg.county_by_role && typeof agg.county_by_role === 'object') ? agg.county_by_role : null;
     ['C&T', 'RVS C&T', 'COURIER'].forEach(function (bucket) {
       var card = document.querySelector('.cap-card[data-bucket="' + bucket + '"]');
@@ -5171,7 +5177,7 @@
         // regardless of qualification. Fixes breakdown when ooc is qualified-only.
         roleCountyCounts = countyByRole[bucket];
       } else {
-        // Fallback: derive from ooc rows (backward compat with older Worker responses).
+        // Fallback: derive from oocArr rows (backward compat with older Worker responses).
         roleCountyCounts = {};
         oocArr.forEach(function (row) {
           if (!row) return;
@@ -5224,7 +5230,21 @@
     var qualifyFn = (window.WildlifeDecision &&
                      typeof window.WildlifeDecision.qualifiesForAnimal === 'function')
       ? window.WildlifeDecision.qualifiesForAnimal : null;
-    var ooc = (agg && Array.isArray(agg.out_of_county)) ? agg.out_of_county : null;
+    // COUNT SOURCE: use the Worker's FULL, never-truncated out_of_county_all so
+    // every count shown here (qualified/backup/non-Connecteam) always matches
+    // the number of pins on the map. out_of_county (possibly capped to the
+    // nearest OVERFLOW_NEAREST on overflow) drives ONLY the on-screen LIST
+    // further down (renderContextList) -- never a count. Fall back to
+    // out_of_county for older/cached Worker responses that omit
+    // out_of_county_all so the dispatcher never sees a crash or a fabricated
+    // zero; those older responses were never truncated anyway, so the
+    // fallback is exact, not an approximation.
+    var ooc = (agg && Array.isArray(agg.out_of_county_all))
+      ? agg.out_of_county_all
+      : ((agg && Array.isArray(agg.out_of_county)) ? agg.out_of_county : null);
+    var oocListTruncated = !!(agg && (agg.radius_too_broad || agg.out_of_county_truncated) &&
+      Array.isArray(agg.out_of_county_all));
+    var oocShownCount = (agg && Array.isArray(agg.out_of_county)) ? agg.out_of_county.length : 0;
     var leniencyHandled = false;
     // leniencyRan: true when the qualifyFn block actually executed (ooc + issue present).
     // leniencyQualifiedCount: qualifiedCount captured after the block for the outer banner check.
@@ -5266,12 +5286,20 @@
         var qAreaTxt = qAreaList.length
           ? fmt(T2.areaClause, { areas: qAreaList.map(escapeHtml).join(', ') })
           : '';
+        // TRUNCATION CAVEAT: stated AT THE COUNT (not only in the collapsed
+        // context-list panel) so a dispatcher reading just this line still
+        // learns the list below is capped while the count/map are complete.
+        var qTruncTxt = oocListTruncated
+          ? fmt(T2.qualifiedHelpersTruncatedNote, { shown: oocShownCount, count: qualifiedCount })
+          : '';
         actions.push(actionLine('go', '→', fmt(T2.qualifiedHelpers, {
           count: qualifiedCount, areaClause: qAreaTxt, radius: ctx.radius
-        })));
+        }) + qTruncTxt));
         // NON-CONNECTEAM NOTICE: inform the dispatcher that some qualified
         // volunteers are not on the Connecteam app and must be reached by
         // text/phone instead. Blue/teal 'info' tone — NOT a warning.
+        // Counted from the SAME full qualifiedRows set above (out_of_county_all-
+        // derived), so this also always matches the map, not just the capped list.
         var nonCtCount = qualifiedRows.filter(function (r) {
           return r.connecteam_user === false;
         }).length;
@@ -5322,6 +5350,12 @@
         var bAreaTxt = bAreaList.length
           ? fmt(T2.areaClause, { areas: bAreaList.map(escapeHtml).join(', ') })
           : '';
+        // Same truncation caveat as the qualified-count line above: backupCount
+        // is also computed from the full out_of_county_all set, so it always
+        // matches the map; the on-screen LIST may still be capped.
+        var bTruncTxt = oocListTruncated
+          ? fmt(T2.qualifiedHelpersTruncatedNote, { shown: oocShownCount, count: backupCount })
+          : '';
         actions.push(actionLine('escalate', '!', fmt(T2.backupHelpers, {
           role: escapeHtml(needLabel),
           radius: ctx.radius,
@@ -5329,7 +5363,7 @@
           areaClause: bAreaTxt,
           gapClause: (needRvs ? T2.backupGapRvs : T2.backupGapOther),
           phone: escapeHtml(PGC_PHONE)
-        })));
+        }) + bTruncTxt));
         leniencyHandled = true;
       }
     }

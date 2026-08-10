@@ -379,6 +379,12 @@
       // LENIENT recommendation — qualified volunteers in range.
       // {count}, {areaClause} (computed, may be empty), {radius}.
       qualifiedHelpers: 'Qualified volunteers: <strong>{count}</strong>  {areaClause}  within {radius} mi.',
+      // Truncation caveat appended directly after qualifiedHelpers (same line,
+      // NOT the collapsed context-list panel) when the list below is capped to
+      // the nearest few on overflow. {count} = the FULL qualified count (same
+      // number as qualifiedHelpers above); {shown} = how many are listed below.
+      // All {count} are on the map regardless of the list cap.
+      qualifiedHelpersTruncatedNote: ' \u2014 showing nearest {shown} below; all {count} are on the map.',
       // Low-capacity warning shown when qualifiedCount > 0 but <= threshold.
       // {count} = qualified count, {phone} = PGC phone.
       lowCapacityWarning: 'Low capacity: only {count} qualified \u2014 consider calling PA Game Commission: {phone} or cross posting.',

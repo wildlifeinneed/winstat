@@ -4,7 +4,7 @@
   "private": true,
   "description": "Test-only harness for the served dispatcher UI (docs/). NOT shipped to GitHub Pages.",
   "scripts": {
-    "test": "node test/decision.test.js && node test/dispatcher_dom.test.js && node test/flags_dom.test.js && node test/vol_pin_coincidence.test.js && node test/monitoring_pins.test.js && node test/tier2_win_area_qualification.test.js && node test/cross_post_county_guard.test.js && node test/tier2_search_radius_circle.test.js && node test/tier2_base_layers.test.js",
+    "test": "node test/decision.test.js && node test/dispatcher_dom.test.js && node test/flags_dom.test.js && node test/vol_pin_coincidence.test.js && node test/monitoring_pins.test.js && node test/tier2_win_area_qualification.test.js && node test/cross_post_county_guard.test.js && node test/tier2_search_radius_circle.test.js && node test/tier2_base_layers.test.js && node test/tier2_qualified_count_matches_pins.test.js",
     "test:decision": "node test/decision.test.js",
     "test:dispatcher": "node test/dispatcher_dom.test.js",
     "test:flags": "node test/flags_dom.test.js",
@@ -14,6 +14,7 @@
     "test:cross-post-county-guard": "node test/cross_post_county_guard.test.js",
     "test:tier2-radius-circle": "node test/tier2_search_radius_circle.test.js",
     "test:tier2-base-layers": "node test/tier2_base_layers.test.js",
+    "test:tier2-qualified-count-matches-pins": "node test/tier2_qualified_count_matches_pins.test.js",
     "test:mobile-zoom": "node test/mobile_ios_zoom.playwright.js",
     "test:monitoring-browser": "node test/monitoring_pins_browser_verify.playwright.js"
   },
