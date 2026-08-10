@@ -2013,10 +2013,7 @@
     // ── Leaflet instance ──
     var map = L.map(mapDiv, { scrollWheelZoom: true, attributionControl: true })
       .setView([lat, lon], 9);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 18,
-      attribution: '© OpenStreetMap contributors'
-    }).addTo(map);
+    setupBaseLayers(map);
     L.control.scale({ imperial: true, metric: false }).addTo(map);
     cpMap.instance = map;
     cpMap.layers = {
@@ -4384,8 +4381,90 @@
     return function () {}; // placeholder; ESC wired once below
   }
 
-  // One-time global ESC listener (handles whichever map is currently fullscreen).
+  // Selectable base layers (owner request: "toggles for various layers like
+  // terrain, driving, etc. sometimes it is hard to find towns and roads").
+  // All three providers are free, key-free, and require no signup -- a hard
+  // constraint for this static GitHub Pages site with no secret storage:
+  //   - Standard: the pre-existing OpenStreetMap "Carto" tiles (UNCHANGED
+  //     default). https://tile.openstreetmap.org, OSMF tile usage policy.
+  //   - Terrain: OpenTopoMap -- topographic/contour style, free, no key.
+  //     https://opentopomap.org, tile usage per opentopomap.org/about#faq.
+  //   - Roads / Labels: the OpenStreetMap "Humanitarian" (HOT) style, hosted
+  //     by OpenStreetMap France, free, no key. Chosen over Esri World Street
+  //     Map (its ToS requires an ArcGIS Online plan for programmatic reuse
+  //     even though many hobby projects hotlink it without a key -- too
+  //     ambiguous for a licensing obligation) and over CyclOSM (a
+  //     cycling-specific style, not a general roads/place-name style). HOT's
+  //     rendering keeps roads and place labels legible in rural areas, which
+  //     is the operational need here.
+  // Each layer's `attribution` string is REQUIRED by its provider's terms
+  // and is rendered by Leaflet's built-in attribution control -- do not
+  // remove it when switching layers.
+  var BASE_LAYER_STORAGE_KEY = 'dispatcherMapBaseLayer';
+  function createBaseLayers() {
+    var m = (MSG && MSG.mapBaseLayers) || {};
+    var layers = {};
+    layers[m.standard || 'Standard'] = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+      attribution: '© OpenStreetMap contributors'
+    });
+    layers[m.terrain || 'Terrain'] = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+      maxZoom: 17,
+      attribution: 'Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap (CC-BY-SA)'
+    });
+    layers[m.roads || 'Roads / Labels'] = L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap contributors, Tiles style by Humanitarian OpenStreetMap Team hosted by OpenStreetMap France'
+    });
+    return layers;
+  }
+
+  // Read the remembered base-layer choice (by display name) from
+  // localStorage. Falls back silently (returns null) if unavailable
+  // (private browsing, storage disabled, etc.) or unset.
+  function getRememberedBaseLayerName() {
+    try {
+      return window.localStorage ? window.localStorage.getItem(BASE_LAYER_STORAGE_KEY) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function rememberBaseLayerName(name) {
+    try {
+      if (window.localStorage) window.localStorage.setItem(BASE_LAYER_STORAGE_KEY, name);
+    } catch (e) {
+      // ignore (private browsing / storage disabled)
+    }
+  }
+
+  // Wire selectable base layers onto a Leaflet map: creates the tile layers,
+  // activates the remembered choice (or Standard/OSM as the default), adds
+  // L.control.layers, and persists future selections to localStorage so the
+  // choice survives a map rebuild between lookups (t2map/cpMap are torn down
+  // and recreated between renders -- see destroyCrossPostMap / ensureT2Map).
+  function setupBaseLayers(map) {
+    var layers = createBaseLayers();
+    var names = Object.keys(layers);
+    var remembered = getRememberedBaseLayerName();
+    var activeName = (remembered && layers[remembered]) ? remembered : names[0];
+    layers[activeName].addTo(map);
+    // Positioned topleft (Leaflet auto-stacks it under the zoom control in
+    // that same corner) to avoid the fullscreen button, which is a plain
+    // absolutely-positioned DOM element pinned to the map's top-right corner
+    // (see addFullscreenBtn / .map-fs-btn) -- Leaflet's own topright corner
+    // would collide with it, and the layer control must never overlap the
+    // fullscreen button, the zoom control, or the legend (legend sits below
+    // the map entirely, so it is unaffected either way).
+    var control = L.control.layers(layers, null, { collapsed: true, position: 'topleft' }).addTo(map);
+    map.on('baselayerchange', function (e) {
+      rememberBaseLayerName(e.name);
+    });
+    return control;
+  }
+
   var _fsEscBound = false;
+  // One-time global ESC listener (handles whichever map is currently fullscreen).
   function ensureFullscreenEsc() {
     if (_fsEscBound) return;
     _fsEscBound = true;
@@ -4429,10 +4508,7 @@
     if (!el) return false;
     var map = L.map(el, { scrollWheelZoom: true, attributionControl: true })
       .setView([40.9, -77.6], 7); // PA center fallback before data binds
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 18,
-      attribution: '© OpenStreetMap contributors'
-    }).addTo(map);
+    setupBaseLayers(map);
     L.control.scale({ imperial: true, metric: false }).addTo(map);
     t2map.instance = map;
     t2map.layers = {

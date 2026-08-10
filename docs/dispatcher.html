@@ -1499,17 +1499,13 @@
       border: 2px solid #e41a1c;
       border-radius: 3px;
     }
-    /* Target WIN area (Tier-2 Leaflet map only): the area containing the
-       animal address, always highlighted regardless of qualified-volunteer
-       presence (owner directive). Dashed BLACK border distinguishes "this is
-       where the animal is" from the solid-bordered .mlp-area-dispatch ("has
-       qualified volunteers") swatch above -- a different visual language
-       than the unrelated .t2-pin-approx dashed-ring PIN signal (35afc29's
-       centroid-fallback marker), which stays untouched. */
-    .map-legend-panel .mlp-area-target {
+    /* Search-radius reference circle swatch: thin dashed grey ring, no fill,
+       matching the actual L.circle styling in drawSearchRadiusCircle -- a
+       reference line, not a highlight. */
+    .map-legend-panel .mlp-radius-circle {
       background: transparent;
-      border: 2px dashed #111111;
-      border-radius: 3px;
+      border: 2px dashed #555555;
+      border-radius: 50%;
     }
     .map-legend-panel .mlp-count {
       font-size: 11px;
@@ -1724,13 +1720,6 @@
       white-space: nowrap;
     }
     .leaflet-tooltip.t2-area-label::before { display: none; }
-    /* Target-area label (the WIN area containing the animal address) gets a
-       bolder, dark-bordered chip so its "(target)" suffix reads as a
-       distinct fact from the plain qualified-area label above. */
-    .leaflet-tooltip.t2-area-label-target {
-      color: #111111;
-      border: 1px dashed #111111;
-    }
     @media (max-width: 640px) {
       .t2map { height: 280px; }
       .btn-t2map-toggle { min-height: 44px; }

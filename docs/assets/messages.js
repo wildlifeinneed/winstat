@@ -509,6 +509,25 @@
       resolvedSpread: 'Volunteers in range span {areaWord} <strong>{areas}</strong>.'
     },
 
+    // ── Tier-2 map search-radius circle (dispatcher.js drawSearchRadiusCircle) ──
+    // Legend label for the reference circle showing the live search radius
+    // used for the query. {radius} = the ACTUAL radius (miles) in effect for
+    // this lookup, substituted at render time -- never a hardcoded number.
+    mapRadiusCircle: {
+      legendLabel: 'Search radius ({radius} mi)'
+    },
+
+    // ── Tier-2 / cross-post map base layer control (dispatcher.js
+    // setupBaseLayers/createBaseLayers) ─────────────────────────────────────
+    // Display names for the selectable L.control.layers base layers.
+    // "Standard" is the existing OpenStreetMap tile set and stays the
+    // default. See createBaseLayers() for the tile providers + attribution.
+    mapBaseLayers: {
+      standard: 'Standard',
+      terrain: 'Terrain',
+      roads: 'Roads / Labels'
+    },
+
     // ── Stale-results flag (dispatcher.js) ─────────────────────────────────
     // Shown when a relevant animal-input (RVS toggle or Issue/C&T selection)
     // changes AFTER a result is already on screen. Approach B: we do NOT

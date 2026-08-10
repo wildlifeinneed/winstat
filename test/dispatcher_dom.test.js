@@ -292,11 +292,12 @@ function makeLeafletMock() {
     map.fitBounds = function () { map._calls.fitBounds++; return map; };
     map.invalidateSize = function () { map._calls.invalidateSize++; return map; };
     map.remove = function () { map._calls.remove++; return map; };
+    map.on = function () { return map; };
     L._lastMap = map;
     return map;
   };
   L.tileLayer = function () { return chainable({}, ['addTo']); };
-  L.control = { scale: function () { return chainable({}, ['addTo']); } };
+  L.control = { scale: function () { return chainable({}, ['addTo']); }, layers: function () { return chainable({}, ['addTo']); } };
   L.layerGroup = makeLayerGroup;
   L.marker = function () { return makeVectorOrMarker(); };
   L.polygon = function () { return makeVectorOrMarker(); };
