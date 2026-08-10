@@ -146,6 +146,9 @@
   var WORKER_URL = 'https://pa-wildlife-dispatcher.winstat.workers.dev';
   var RADIUS_DEFAULT = 20;
   var RADIUS_MAX = 100;
+  // Miles -> metres conversion for Leaflet's L.circle (which takes a TRUE
+  // geographic radius in metres, unlike L.circleMarker's fixed pixel radius).
+  var MI_TO_METERS = 1609.344;
   // Address autocomplete (typeahead) tuning. The Worker proxies a GENERIC
   // public address provider (Photon) server-side via ?autocomplete=&limit= and
   // returns { suggestions: [{label, lat?, lon?}] }. NO PII ever reaches here.
@@ -4435,6 +4438,10 @@
     t2map.layers = {
       // WIN-area boundaries sit UNDER the markers so pins stay clickable.
       winArea: L.layerGroup().addTo(map),
+      // Search-radius reference circle: painted after winArea (on top of the
+      // area shading) but BEFORE every marker layer below, so its z-order
+      // stays under every pin and it can never intercept a marker click.
+      radius: L.layerGroup().addTo(map),
       animal: L.layerGroup().addTo(map),
       rehab: L.layerGroup().addTo(map),
       // === VOLUNTEER MARKERS START (layer) ===
@@ -4445,6 +4452,38 @@
     var t2body = document.getElementById('t2map-body');
     addFullscreenBtn(el, t2body, map);
     return true;
+  }
+
+  // Draw the TRUE geographic search-radius reference circle on the Tier-2
+  // map, centred on the animal location marker. Uses L.circle (a real
+  // geographic-radius primitive defined in METRES) rather than
+  // L.circleMarker (a FIXED PIXEL radius that would only look correct at one
+  // zoom level and be wrong at every other). radiusMi is the ACTUAL search
+  // radius used for this query (ctx.radius, read live from the radius
+  // input) -- never a hardcoded 20/25 constant.
+  //
+  // Styling is deliberately thin/unobtrusive with no fill: this is a
+  // reference line ("here is the extent we searched"), not a highlight, and
+  // must never visually compete with the WIN-area shading or obscure pins.
+  // It is added to t2map.layers.radius, which sits UNDER every marker layer
+  // (see ensureT2Map) so it can never intercept a click intended for a pin.
+  // Non-interactive: no tooltip/popup/click handler.
+  function drawSearchRadiusCircle(lat, lon, radiusMi) {
+    if (!t2map.instance || !t2map.layers || !t2map.layers.radius) return null;
+    t2map.layers.radius.clearLayers();
+    if (!isFinite(lat) || !isFinite(lon)) return null;
+    var mi = Number(radiusMi);
+    if (!isFinite(mi) || mi <= 0) return null;
+    var circle = L.circle([lat, lon], {
+      radius: mi * MI_TO_METERS,
+      color: '#555555',
+      weight: 1.5,
+      opacity: 0.6,
+      fill: false,
+      dashArray: '4, 5',
+      interactive: false
+    }).addTo(t2map.layers.radius);
+    return circle;
   }
 
   // Apply the latest payload to the (already-created) map: clear old markers,
@@ -4476,6 +4515,19 @@
     }
     var areaPts = drawWinAreaBoundaries(payload.winAreas, payload.targetArea);
     if (areaPts.length) bounds = bounds.concat(areaPts);
+
+    // ── Search-radius reference circle ──
+    // Centred on the animal marker, radius = the LIVE search radius used for
+    // this query (payload.radiusMi, sourced from ctx.radius). Deliberately
+    // EXCLUDED from `bounds`: at a 20-100mi radius the circle's extent is
+    // usually far larger than the qualified volunteers/areas actually
+    // returned, so including it would zoom the default view out much
+    // further than useful. The circle is still fully visible once the
+    // marker/area-driven view is set, since fitBounds already comfortably
+    // contains the animal location it is centred on.
+    if (payload.animal && isFinite(payload.animal.lat) && isFinite(payload.animal.lon)) {
+      drawSearchRadiusCircle(payload.animal.lat, payload.animal.lon, payload.radiusMi);
+    }
 
     // ── Animal location (most prominent) ──
     var a = payload.animal;
@@ -4875,7 +4927,11 @@
       rehabbers: rehabPool,
       volunteers: volunteers,
       winAreas: winAreas,
-      targetArea: targetArea
+      targetArea: targetArea,
+      // Live search radius (miles) used for THIS query, sourced straight
+      // from ctx.radius (never a hardcoded constant) -- drives the search
+      // radius reference circle + its legend entry.
+      radiusMi: (ctx && ctx.radius) ? Number(ctx.radius) : null
     };
 
     t2map.pending = payload;
