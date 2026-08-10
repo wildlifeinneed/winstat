@@ -4273,8 +4273,19 @@
   // even when it holds zero qualified (or zero total) volunteers -- edge
   // case 2. When targetArea is ALSO in `areas` it is drawn exactly ONCE
   // (this function keys polygons by area id, so there is no way for the same
-  // area to be pushed twice) but picks up the target's dashed-border styling
-  // ON TOP of its normal qualified fill -- edge case 4, no double-render.
+  // area to be pushed twice) -- edge case 4, no double-render.
+  //
+  // NOTE: fc18d94 originally gave the target area its own dashed-black
+  // border + "(target)" label suffix + legend entry to visually distinguish
+  // it from a plain qualified area. The owner reviewed the live map and
+  // rejected that ("why did you change the area lines to dotted" / "dont
+  // need (target) tag") -- when the target area is the ONLY area shown, the
+  // whole map read as dashed, and the red animal-location pin already tells
+  // the dispatcher which area contains the animal, so the extra visual
+  // distinction was redundant. The target area now renders with the exact
+  // same solid styling as every other highlighted area; only the
+  // union/always-drawn BEHAVIOR below is target-specific (unchanged, locked
+  // owner rule).
   // Returns an array of [lat,lon] bound points so the caller can include the
   // shaded regions in fitBounds.
   function drawWinAreaBoundaries(areas, targetArea) {
@@ -4318,38 +4329,33 @@
 
     Object.keys(byArea).forEach(function (area) {
       var color = areaColor(area);
+      // `isTarget` is still computed -- the target area was unioned into
+      // `wanted` above so it always draws, even with zero volunteers (locked
+      // owner behavior, unchanged) -- but it no longer selects a different
+      // style. See the drawWinAreaBoundaries header comment for why the
+      // dashed/"(target)" treatment was removed.
       var isTarget = !!(targetKey && area === targetKey);
       var poly = L.polygon(byArea[area].latlngs, {
         // Boundary lines use a darkened version of the area's fill so each
         // border reads as a strong, high-contrast line against the interior.
         // The thicker weight makes it obvious where one WIN area ends and the
         // next begins -- critical when an animal sits right on the line
-        // between two areas that both need alerting.
-        //
-        // TARGET area (where the animal address geocoded) gets its OWN
-        // visually-distinct treatment -- a heavier, DASHED black border --
-        // layered on top of the normal qualified-volunteer fill/border so
-        // the map keeps communicating two separate facts at once: "this is
-        // where the animal is" (dashed black) vs. "these areas have people
-        // who can help" (solid, role-colored). This is a DIFFERENT visual
-        // language than .t2-pin-approx's white dashed OUTLINE (35afc29's
-        // centroid-fallback signal for a volunteer PIN) so the two meanings
-        // are never confused.
-        color: isTarget ? '#111111' : darkenColor(color, 0.45),
-        weight: isTarget ? 4 : 3,
+        // between two areas that both need alerting. Same styling for every
+        // highlighted area, target or not.
+        color: darkenColor(color, 0.45),
+        weight: 3,
         opacity: 1,
-        dashArray: isTarget ? '8, 6' : null,
         // Semi-transparent fill so the map tiles underneath remain visible
         // while the saturated hues stay clearly distinguishable.
         fillColor: color,
         fillOpacity: 0.30,
         interactive: false
       }).addTo(t2map.layers.winArea);
-      var labelText = 'WIN Area ' + escapeHtml(area) + (isTarget ? ' (target)' : '');
+      var labelText = 'WIN Area ' + escapeHtml(area);
       poly.bindTooltip(labelText, {
         permanent: true,
         direction: 'center',
-        className: 't2-area-label' + (isTarget ? ' t2-area-label-target' : '')
+        className: 't2-area-label'
       });
       var b = poly.getBounds();
       if (b && b.isValid()) {
@@ -4755,7 +4761,12 @@
       else { counts.courier++; if (avail) counts.courierAvail++; }
     });
     var rehabCount = (payload.rehabbers || []).length;
-    var hasAreas = !!(payload.winAreas && payload.winAreas.length);
+    // Includes targetArea: since the target area now renders with the exact
+    // same styling as a qualified area (see drawWinAreaBoundaries), a single
+    // "WIN service area" legend entry must appear whenever ANY polygon is on
+    // the map -- including the target-only case (e.g. zero qualified
+    // volunteers) where winAreas is empty but targetArea is still drawn.
+    var hasAreas = !!((payload.winAreas && payload.winAreas.length) || payload.targetArea);
 
     var html = '<div class="mlp-title">Legend — showing qualified volunteers</div>';
     html += '<div class="mlp-items">';
@@ -4779,15 +4790,6 @@
     }
     if (hasAreas) {
       html += '<span class="mlp-item"><span class="mlp-dot mlp-area-dispatch"></span>WIN service area</span>';
-    }
-    // Target WIN area (owner directive: the area containing the animal
-    // address always highlights). Sibling legend entry to "WIN service
-    // area" above so the map explains the two separate facts: "these areas
-    // have qualified volunteers" vs. "this is where the animal is" -- own
-    // dashed-black swatch, distinct from .mlp-area-dispatch's solid border
-    // AND from the unrelated centroid-fallback pin signal (35afc29).
-    if (payload.targetArea) {
-      html += '<span class="mlp-item"><span class="mlp-dot mlp-area-target"></span>Target area (animal location)</span>';
     }
     html += '</div>';
 

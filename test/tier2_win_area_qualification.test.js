@@ -283,17 +283,17 @@ function extractDrawWinAreaBoundaries() {
 
 function runDrawWinAreaBoundaries(areas, targetArea, geojsonFeatures) {
   const body = extractDrawWinAreaBoundaries();
-  const drawnPolys = []; // { area, options, tooltipText, tooltipClass }
+  const drawnPolys = []; // { area, isTarget, options, tooltipText, tooltipClass }
 
   // Minimal Leaflet mock: L.polygon(...) returns a chainable poly object.
   const L = {
     polygon: function (latlngs, options) {
       var poly = {
-        _options: options,
+        options: options,
         addTo: function () { return poly; },
         bindTooltip: function (text, opts) {
-          poly._tooltipText = text;
-          poly._tooltipClass = opts && opts.className;
+          poly.tooltipText = text;
+          poly.tooltipClass = opts && opts.className;
           return poly;
         },
         getBounds: function () {
@@ -321,11 +321,19 @@ function runDrawWinAreaBoundaries(areas, targetArea, geojsonFeatures) {
     'var darkenColor = opts.darkenColor;\n' +
     'var escapeHtml = opts.escapeHtml;\n' +
     'var __capturedPolys = opts.__capturedPolys;\n' +
-    // Re-derive byArea + push into __capturedPolys right where the real
-    // code calls poly.bindTooltip, by wrapping L.polygon to record isTarget.
+    // Capture a record referencing the REAL poly object returned by
+    // L.polygon (assigned right after the call), so options/tooltip set via
+    // later chained calls (bindTooltip) are visible on the same record the
+    // test inspects -- not a snapshot taken before those calls ran.
     body.replace(
       'var poly = L.polygon(byArea[area].latlngs, {',
-      '__capturedPolys.push({ area: area, isTarget: isTarget });\n      var poly = L.polygon(byArea[area].latlngs, {'
+      'var __rec = { area: area, isTarget: isTarget };\n      __capturedPolys.push(__rec);\n      var poly = L.polygon(byArea[area].latlngs, {'
+    ).replace(
+      '}).addTo(t2map.layers.winArea);',
+      '}).addTo(t2map.layers.winArea);\n      __rec.options = poly.options;'
+    ).replace(
+      "className: 't2-area-label'\n      });",
+      "className: 't2-area-label'\n      });\n      __rec.tooltipText = poly.tooltipText;\n      __rec.tooltipClass = poly.tooltipClass;"
     );
 
   const runner = new Function('opts', fnBody);
@@ -341,7 +349,7 @@ function fakeAreaFeature(area) {
   return { type: 'Feature', properties: { win_area: area }, geometry: { type: 'Polygon', coordinates: [[[0, 0], [0, 1], [1, 1], [0, 0]]] } };
 }
 
-console.log('\ndrawWinAreaBoundaries -- union + no double-render + distinct target styling:');
+console.log('\ndrawWinAreaBoundaries -- union + no double-render (fc18d94 behavior, styling reverted):');
 
 test('target area with ZERO qualified volunteers still gets drawn (union)', () => {
   const geo = [fakeAreaFeature('5'), fakeAreaFeature('99')];
@@ -366,15 +374,29 @@ test('null targetArea (address outside every polygon) draws only the qualified a
   assert.ok(drawnPolys.every((p) => p.isTarget === false), 'no polygon should be flagged isTarget when targetArea is null');
 });
 
-test('target-area polygon gets a visually DISTINCT style (dashed black border) from a plain qualified area', () => {
+// Owner rejected the fc18d94 dashed-black/"(target)" treatment on the live
+// map ("why did you change the area lines to dotted" / "dont need (target)
+// tag"): when the target area was the only area shown, the whole map read as
+// dashed, and the animal pin already identifies the target area, making the
+// extra visual distinction redundant. This test locks the REVERTED contract:
+// the target polygon must render with the EXACT SAME style object as a plain
+// qualified polygon (no color/weight/dashArray difference), while `isTarget`
+// itself is still computed (verified above) so the ALWAYS-HIGHLIGHT behavior
+// is untouched.
+test('target-area polygon renders with the SAME style as a plain qualified area (fc18d94 dashed/target styling reverted)', () => {
   const geo = [fakeAreaFeature('5'), fakeAreaFeature('11')];
   const { drawnPolys } = runDrawWinAreaBoundaries(['5'], '11', geo);
   const target = drawnPolys.find((p) => p.area === '11');
   const plain = drawnPolys.find((p) => p.area === '5');
   assert.ok(target, 'target polygon captured');
   assert.ok(plain, 'plain qualified polygon captured');
-  assert.strictEqual(target.isTarget, true);
+  assert.strictEqual(target.isTarget, true, 'isTarget flag itself is still computed (union/always-highlight behavior unchanged)');
   assert.strictEqual(plain.isTarget, false);
+  assert.strictEqual(target.options.color, plain.options.color, 'target and plain areas must share the same border color');
+  assert.strictEqual(target.options.weight, plain.options.weight, 'target and plain areas must share the same border weight');
+  assert.strictEqual(target.options.dashArray, undefined, 'target polygon must NOT have a dashArray (no dashed border)');
+  assert.strictEqual(target.tooltipText, 'WIN Area 11', 'target label must NOT carry a "(target)" suffix');
+  assert.strictEqual(target.tooltipClass, 't2-area-label', 'target tooltip must use the plain t2-area-label class, no target-specific class');
 });
 
 test('empty areas + null targetArea draws nothing (no stray polygons)', () => {
