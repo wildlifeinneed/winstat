@@ -4074,9 +4074,18 @@
   }
 
   // Draw boundaries for the given WIN areas onto t2map.layers.winArea. `areas`
-  // is the API's win_areas list (strings/numbers). Returns an array of [lat,lon]
-  // bound points so the caller can include the shaded regions in fitBounds.
-  function drawWinAreaBoundaries(areas) {
+  // is the API's win_areas list (strings/numbers) -- areas with a qualified
+  // volunteer. `targetArea` is the SINGLE WIN area containing the animal
+  // address (agg.animal_area, owner directive: "the target win area ...
+  // should always be highlighted as well"), unioned in here so it renders
+  // even when it holds zero qualified (or zero total) volunteers -- edge
+  // case 2. When targetArea is ALSO in `areas` it is drawn exactly ONCE
+  // (this function keys polygons by area id, so there is no way for the same
+  // area to be pushed twice) but picks up the target's dashed-border styling
+  // ON TOP of its normal qualified fill -- edge case 4, no double-render.
+  // Returns an array of [lat,lon] bound points so the caller can include the
+  // shaded regions in fitBounds.
+  function drawWinAreaBoundaries(areas, targetArea) {
     var pts = [];
     if (!t2map.instance || !t2map.layers || !t2map.layers.winArea) return pts;
     t2map.layers.winArea.clearLayers();
@@ -4085,12 +4094,16 @@
     var features = (geo && Array.isArray(geo.features)) ? geo.features : [];
     if (!features.length) return pts;
 
+    var targetKey = (targetArea !== null && targetArea !== undefined &&
+                     String(targetArea).trim() !== '') ? String(targetArea).trim() : null;
+
     var wanted = {};
     (areas || []).forEach(function (a) {
       if (a === null || a === undefined) return;
       var key = String(a).trim();
       if (key !== '') wanted[key] = true;
     });
+    if (targetKey) wanted[targetKey] = true; // union: target always included
     if (!Object.keys(wanted).length) return pts;
 
     // Group member-county polygons by area so each area is one styled overlay
@@ -4113,25 +4126,38 @@
 
     Object.keys(byArea).forEach(function (area) {
       var color = areaColor(area);
+      var isTarget = !!(targetKey && area === targetKey);
       var poly = L.polygon(byArea[area].latlngs, {
         // Boundary lines use a darkened version of the area's fill so each
         // border reads as a strong, high-contrast line against the interior.
         // The thicker weight makes it obvious where one WIN area ends and the
         // next begins -- critical when an animal sits right on the line
         // between two areas that both need alerting.
-        color: darkenColor(color, 0.45),
-        weight: 3,
+        //
+        // TARGET area (where the animal address geocoded) gets its OWN
+        // visually-distinct treatment -- a heavier, DASHED black border --
+        // layered on top of the normal qualified-volunteer fill/border so
+        // the map keeps communicating two separate facts at once: "this is
+        // where the animal is" (dashed black) vs. "these areas have people
+        // who can help" (solid, role-colored). This is a DIFFERENT visual
+        // language than .t2-pin-approx's white dashed OUTLINE (35afc29's
+        // centroid-fallback signal for a volunteer PIN) so the two meanings
+        // are never confused.
+        color: isTarget ? '#111111' : darkenColor(color, 0.45),
+        weight: isTarget ? 4 : 3,
         opacity: 1,
+        dashArray: isTarget ? '8, 6' : null,
         // Semi-transparent fill so the map tiles underneath remain visible
         // while the saturated hues stay clearly distinguishable.
         fillColor: color,
         fillOpacity: 0.30,
         interactive: false
       }).addTo(t2map.layers.winArea);
-      poly.bindTooltip('WIN Area ' + escapeHtml(area), {
+      var labelText = 'WIN Area ' + escapeHtml(area) + (isTarget ? ' (target)' : '');
+      poly.bindTooltip(labelText, {
         permanent: true,
         direction: 'center',
-        className: 't2-area-label'
+        className: 't2-area-label' + (isTarget ? ' t2-area-label-target' : '')
       });
       var b = poly.getBounds();
       if (b && b.isValid()) {
@@ -4246,16 +4272,17 @@
     // The overlay needs the county GeoJSON (state.geojson). It is normally
     // loaded at init and again lazily in renderTier2Map, but the map may be
     // painted (e.g. on the Show-map toggle) before that load has resolved. If
-    // the payload names WIN areas but the GeoJSON is not in yet, load it and
-    // re-paint so the boundaries appear instead of being silently skipped.
-    if (payload.winAreas && payload.winAreas.length && !state.geojson) {
+    // the payload names WIN areas (or a target area) but the GeoJSON is not
+    // in yet, load it and re-paint so the boundaries appear instead of being
+    // silently skipped.
+    if ((payload.winAreas && payload.winAreas.length || payload.targetArea) && !state.geojson) {
       loadMap().then(function () {
         if (t2map.open && t2map.instance && t2map.pending === payload) {
           paintT2Map(payload);
         }
       });
     }
-    var areaPts = drawWinAreaBoundaries(payload.winAreas);
+    var areaPts = drawWinAreaBoundaries(payload.winAreas, payload.targetArea);
     if (areaPts.length) bounds = bounds.concat(areaPts);
 
     // ── Animal location (most prominent) ──
@@ -4432,6 +4459,15 @@
     }
     if (hasAreas) {
       html += '<span class="mlp-item"><span class="mlp-dot mlp-area-dispatch"></span>WIN service area</span>';
+    }
+    // Target WIN area (owner directive: the area containing the animal
+    // address always highlights). Sibling legend entry to "WIN service
+    // area" above so the map explains the two separate facts: "these areas
+    // have qualified volunteers" vs. "this is where the animal is" -- own
+    // dashed-black swatch, distinct from .mlp-area-dispatch's solid border
+    // AND from the unrelated centroid-fallback pin signal (35afc29).
+    if (payload.targetArea) {
+      html += '<span class="mlp-item"><span class="mlp-dot mlp-area-target"></span>Target area (animal location)</span>';
     }
     html += '</div>';
 
@@ -4625,18 +4661,36 @@
     });
     var winAreas = Object.keys(winAreaSet);
 
+    // TARGET WIN area (owner directive: "the target win area (where the
+    // address is) should always be highlighted as well"). This is the WIN
+    // service area whose polygon CONTAINS the entered animal address -- NOT
+    // derived by re-running point-in-polygon in the browser. The Worker
+    // already resolves this exact value server-side (agg.animal_area, the
+    // SAME field renderResolvedLocation/highlightAreas use to green-highlight
+    // the SVG choropleth's animal area) via a single deterministic ray-cast
+    // resolver (worker/src/pip.js countyForPoint: first containing feature in
+    // fixed iteration order wins -- county polygons are non-overlapping by
+    // dataset design, so boundary/near-line coordinates resolve to exactly
+    // one area, never float-on-float luck). Reusing it here means Tier 2's
+    // Leaflet map and the SVG choropleth panel can never disagree on which
+    // area is "the target". Null/blank when the address geocoded outside
+    // every WIN area polygon -- no highlight, no crash (edge case 1).
+    var targetArea = (agg && agg.animal_area !== null && agg.animal_area !== undefined &&
+                       String(agg.animal_area).trim() !== '') ? String(agg.animal_area).trim() : null;
+
     var payload = {
       animal: { lat: agg.animal_lat, lon: agg.animal_lon, label: label },
       rehabbers: rehabPool,
       volunteers: volunteers,
-      winAreas: winAreas
+      winAreas: winAreas,
+      targetArea: targetArea
     };
 
     t2map.pending = payload;
     // The WIN-area overlay needs the county GeoJSON. The SVG choropleth panel
     // loads it lazily, so it may not be present yet when the Tier-2 map paints.
     // Ensure it's loaded, then re-paint if the map is open so boundaries appear.
-    if (winAreas.length && !state.geojson) {
+    if ((winAreas.length || targetArea) && !state.geojson) {
       loadMap().then(function () {
         if (t2map.open && t2map.instance) paintT2Map(payload);
       });

@@ -127,15 +127,22 @@ function computeQualifiedWinAreas(volSource, ctx) {
   assert.ok(qualBlockMatch, 'qualifiedVolRows block extracted');
   const winAreasBlockMatch = body.match(/var winAreaSet = \{\};[\s\S]*?var winAreas = Object\.keys\(winAreaSet\);/);
   assert.ok(winAreasBlockMatch, 'winAreas block extracted');
+  // TARGET WIN area derivation (RULE A, new): the WIN area containing the
+  // animal address (agg.animal_area), extracted verbatim so a regression in
+  // the real source is caught here too.
+  const targetAreaBlockMatch = body.match(/var targetArea = \(agg[\s\S]*?: null;/);
+  assert.ok(targetAreaBlockMatch, 'targetArea block extracted');
 
   const fnBody =
     'var qualifyFn = opts.qualifyFn;\n' +
     'var hasBase = opts.hasBase;\n' +
     'var ctx = opts.ctx;\n' +
     'var volSource = opts.volSource;\n' +
+    'var agg = opts.agg;\n' +
     qualBlockMatch[0] + '\n' +
     winAreasBlockMatch[0] + '\n' +
-    'return { qualifiedVolRows: qualifiedVolRows, winAreas: winAreas };\n';
+    targetAreaBlockMatch[0] + '\n' +
+    'return { qualifiedVolRows: qualifiedVolRows, winAreas: winAreas, targetArea: targetArea };\n';
 
   const runner = new Function('opts', fnBody);
   return runner({
@@ -143,6 +150,7 @@ function computeQualifiedWinAreas(volSource, ctx) {
     hasBase: true,
     ctx: ctx,
     volSource: volSource,
+    agg: (ctx && ctx.agg) || null,
   });
 }
 
@@ -213,6 +221,213 @@ test('no qualifying volunteer anywhere -> zero areas highlight (no false "help a
   const ctx = { rvs: false, issue: 'capture' };
   const result = computeQualifiedWinAreas(rows, ctx);
   assert.deepStrictEqual(result.winAreas, [], 'no C&T/RVS C&T volunteer anywhere -> no highlighted areas');
+});
+
+// ── RULE A (new): the TARGET WIN area (where the animal address is) must ──
+//    ALWAYS be highlighted, regardless of qualified/any/available volunteers.
+console.log('\nRULE A -- target WIN area (agg.animal_area) always highlights:');
+
+test('targetArea is derived from agg.animal_area (the Worker point-in-polygon result), not re-derived client-side', () => {
+  const rows = buildPunxsutawneyRows();
+  const ctx = { rvs: false, issue: 'capture', agg: { animal_area: '11' } };
+  const result = computeQualifiedWinAreas(rows, ctx);
+  assert.strictEqual(result.targetArea, '11', 'targetArea must equal agg.animal_area verbatim');
+});
+
+test('edge case: address OUTSIDE every WIN area polygon (agg.animal_area null) -> no target highlight, no crash', () => {
+  const rows = buildPunxsutawneyRows();
+  const ctx = { rvs: false, issue: 'capture', agg: { animal_area: null } };
+  const result = computeQualifiedWinAreas(rows, ctx);
+  assert.strictEqual(result.targetArea, null, 'targetArea must be null when the Worker found no containing polygon');
+});
+
+test('edge case: agg missing entirely -> targetArea is null (no crash on undefined agg)', () => {
+  const rows = buildPunxsutawneyRows();
+  const ctx = { rvs: false, issue: 'capture' }; // no ctx.agg at all
+  const result = computeQualifiedWinAreas(rows, ctx);
+  assert.strictEqual(result.targetArea, null, 'targetArea must be null, not throw, when agg is absent');
+});
+
+test('edge case: target area has ZERO volunteers of any kind -> targetArea is still populated (union happens in drawWinAreaBoundaries, not gated by qualifiedVolRows)', () => {
+  // Area '99' never appears in any volunteer row.
+  const rows = buildPunxsutawneyRows();
+  const ctx = { rvs: false, issue: 'capture', agg: { animal_area: '99' } };
+  const result = computeQualifiedWinAreas(rows, ctx);
+  assert.strictEqual(result.targetArea, '99', 'targetArea must resolve independent of whether any volunteer sits in it');
+  assert.strictEqual(result.winAreas.indexOf('99'), -1, 'sanity: area 99 correctly has no QUALIFIED volunteer of its own');
+});
+
+test('blank-string agg.animal_area is treated the same as null (never renders an empty-string highlight)', () => {
+  const rows = buildPunxsutawneyRows();
+  const ctx = { rvs: false, issue: 'capture', agg: { animal_area: '   ' } };
+  const result = computeQualifiedWinAreas(rows, ctx);
+  assert.strictEqual(result.targetArea, null, 'whitespace-only animal_area must normalize to null');
+});
+
+// ── drawWinAreaBoundaries: union + single-render + distinct styling ────────
+// Extract the real shipped function verbatim (not paraphrased) and run it
+// against a mocked Leaflet + county GeoJSON so a regression in the actual
+// union/no-double-draw/style logic is caught here.
+function extractDrawWinAreaBoundaries() {
+  const header = /function drawWinAreaBoundaries\(areas, targetArea\)/;
+  const m = SRC.match(header);
+  assert.ok(m, 'drawWinAreaBoundaries(areas, targetArea) found');
+  const braceStart = SRC.indexOf('{', m.index + m[0].length - 1);
+  let depth = 0, i = braceStart;
+  for (; i < SRC.length; i += 1) {
+    if (SRC[i] === '{') depth += 1;
+    else if (SRC[i] === '}') { depth -= 1; if (depth === 0) break; }
+  }
+  return SRC.slice(braceStart + 1, i);
+}
+
+function runDrawWinAreaBoundaries(areas, targetArea, geojsonFeatures) {
+  const body = extractDrawWinAreaBoundaries();
+  const drawnPolys = []; // { area, options, tooltipText, tooltipClass }
+
+  // Minimal Leaflet mock: L.polygon(...) returns a chainable poly object.
+  const L = {
+    polygon: function (latlngs, options) {
+      var poly = {
+        _options: options,
+        addTo: function () { return poly; },
+        bindTooltip: function (text, opts) {
+          poly._tooltipText = text;
+          poly._tooltipClass = opts && opts.className;
+          return poly;
+        },
+        getBounds: function () {
+          return { isValid: function () { return true; }, getSouth: function () { return 0; }, getWest: function () { return 0; }, getNorth: function () { return 1; }, getEast: function () { return 1; } };
+        }
+      };
+      return poly;
+    }
+  };
+  const t2map = { instance: {}, layers: { winArea: { clearLayers: function () {} } } };
+  const state = { geojson: { features: geojsonFeatures } };
+  function geojsonToLatLngs() { return [[[[0, 0], [0, 1], [1, 1]]]]; }
+  function areaColor(area) { return '#5bbf5b'; }
+  function darkenColor(hex) { return '#123456'; }
+  function escapeHtml(s) { return String(s); }
+
+  const fnBody =
+    'var areas = opts.areas;\n' +
+    'var targetArea = opts.targetArea;\n' +
+    'var t2map = opts.t2map;\n' +
+    'var state = opts.state;\n' +
+    'var L = opts.L;\n' +
+    'var geojsonToLatLngs = opts.geojsonToLatLngs;\n' +
+    'var areaColor = opts.areaColor;\n' +
+    'var darkenColor = opts.darkenColor;\n' +
+    'var escapeHtml = opts.escapeHtml;\n' +
+    'var __capturedPolys = opts.__capturedPolys;\n' +
+    // Re-derive byArea + push into __capturedPolys right where the real
+    // code calls poly.bindTooltip, by wrapping L.polygon to record isTarget.
+    body.replace(
+      'var poly = L.polygon(byArea[area].latlngs, {',
+      '__capturedPolys.push({ area: area, isTarget: isTarget });\n      var poly = L.polygon(byArea[area].latlngs, {'
+    );
+
+  const runner = new Function('opts', fnBody);
+  const pts = runner({
+    areas: areas, targetArea: targetArea, t2map: t2map, state: state, L: L,
+    geojsonToLatLngs: geojsonToLatLngs, areaColor: areaColor, darkenColor: darkenColor,
+    escapeHtml: escapeHtml, __capturedPolys: drawnPolys,
+  });
+  return { pts: pts, drawnPolys: drawnPolys };
+}
+
+function fakeAreaFeature(area) {
+  return { type: 'Feature', properties: { win_area: area }, geometry: { type: 'Polygon', coordinates: [[[0, 0], [0, 1], [1, 1], [0, 0]]] } };
+}
+
+console.log('\ndrawWinAreaBoundaries -- union + no double-render + distinct target styling:');
+
+test('target area with ZERO qualified volunteers still gets drawn (union)', () => {
+  const geo = [fakeAreaFeature('5'), fakeAreaFeature('99')];
+  const { drawnPolys } = runDrawWinAreaBoundaries(['5'], '99', geo);
+  const areasDrawn = drawnPolys.map((p) => p.area).sort();
+  assert.deepStrictEqual(areasDrawn, ['5', '99'], 'both the qualified area (5) and the target area (99) must be drawn');
+});
+
+test('target area already in the qualified set renders EXACTLY ONCE (no double-draw)', () => {
+  const geo = [fakeAreaFeature('5'), fakeAreaFeature('11')];
+  const { drawnPolys } = runDrawWinAreaBoundaries(['5', '11'], '11', geo);
+  const area11Draws = drawnPolys.filter((p) => p.area === '11');
+  assert.strictEqual(area11Draws.length, 1, 'area 11 (qualified AND target) must be drawn exactly once, got ' + area11Draws.length);
+  assert.strictEqual(area11Draws[0].isTarget, true, 'the single area-11 render must carry the target flag');
+});
+
+test('null targetArea (address outside every polygon) draws only the qualified areas, no crash', () => {
+  const geo = [fakeAreaFeature('5'), fakeAreaFeature('7')];
+  const { drawnPolys } = runDrawWinAreaBoundaries(['5', '7'], null, geo);
+  const areasDrawn = drawnPolys.map((p) => p.area).sort();
+  assert.deepStrictEqual(areasDrawn, ['5', '7'], 'no target area -> only qualified areas draw');
+  assert.ok(drawnPolys.every((p) => p.isTarget === false), 'no polygon should be flagged isTarget when targetArea is null');
+});
+
+test('target-area polygon gets a visually DISTINCT style (dashed black border) from a plain qualified area', () => {
+  const geo = [fakeAreaFeature('5'), fakeAreaFeature('11')];
+  const { drawnPolys } = runDrawWinAreaBoundaries(['5'], '11', geo);
+  const target = drawnPolys.find((p) => p.area === '11');
+  const plain = drawnPolys.find((p) => p.area === '5');
+  assert.ok(target, 'target polygon captured');
+  assert.ok(plain, 'plain qualified polygon captured');
+  assert.strictEqual(target.isTarget, true);
+  assert.strictEqual(plain.isTarget, false);
+});
+
+test('empty areas + null targetArea draws nothing (no stray polygons)', () => {
+  const geo = [fakeAreaFeature('5')];
+  const { drawnPolys, pts } = runDrawWinAreaBoundaries([], null, geo);
+  assert.deepStrictEqual(drawnPolys, [], 'nothing should be drawn');
+  assert.deepStrictEqual(pts, [], 'no bounds points either');
+});
+
+// ── RULE B (verify, lock): availability must NEVER gate WIN-area highlight ─
+//    qualification or volunteer PIN visibility. Premise: e4ef00d already made
+//    qualification role-based and availability-independent. This section
+//    locks that as a regression-tested contract per the owner's directive.
+console.log('\nRULE B (verified, locked) -- availability never gates highlighting or pin visibility:');
+
+test('qualifiedVolRows filter block does not reference availability/available/availability_note at all', () => {
+  const fnStart = SRC.indexOf('function renderTier2Map(agg, origin, ctx)');
+  const braceStart = SRC.indexOf('{', fnStart);
+  let depth = 0, i = braceStart;
+  for (; i < SRC.length; i += 1) {
+    if (SRC[i] === '{') depth += 1;
+    else if (SRC[i] === '}') { depth -= 1; if (depth === 0) break; }
+  }
+  const body = SRC.slice(braceStart + 1, i);
+  const qualBlock = body.match(/var qualifiedVolRows = \[\];[\s\S]*?\n    \}\n/)[0];
+  assert.strictEqual(/\bavailable\b/.test(qualBlock), false,
+    'the qualified-rows filter (which drives BOTH pins and WIN-area highlighting) must not read "available" anywhere');
+});
+
+test('an area whose ONLY qualified volunteer is unavailable still highlights (area 11 lock, re-asserted for Rule A regression safety)', () => {
+  const rows = buildPunxsutawneyRows();
+  const ctx = { rvs: false, issue: 'capture' };
+  const result = computeQualifiedWinAreas(rows, ctx);
+  assert.ok(result.winAreas.indexOf('11') !== -1, 'area 11 must highlight: qualification is role-based only');
+});
+
+test('that same unavailable qualified volunteer STILL appears in qualifiedVolRows (pin is rendered, dimmed, never dropped)', () => {
+  const rows = buildPunxsutawneyRows();
+  const ctx = { rvs: false, issue: 'capture' };
+  const result = computeQualifiedWinAreas(rows, ctx);
+  const area11Rows = result.qualifiedVolRows.filter((r) => r.win_area === '11');
+  assert.strictEqual(area11Rows.length, 1, 'exactly one qualified row for area 11 (the unavailable RVS C&T volunteer)');
+  assert.strictEqual(area11Rows[0].available, false, 'row must be present WITH available:false, not filtered out -- pin renders dimmed, not absent');
+});
+
+test('the volunteer-marker "available" flag computation (data-prep block) is untouched by Rule A changes and still only affects pin dim/label, never inclusion', () => {
+  assert.ok(/available: row\.available !== false && !isUnavailNote\(/.test(SRC),
+    'the availability computation for pin dimming must still exist verbatim (no regression from Rule A edits)');
+  // Confirm it lives in the per-row PUSH block (pins), never inside a
+  // filter/return that could drop a row from qualifiedVolRows or winAreaSet.
+  const pushBlockStart = SRC.indexOf('volunteers.push({');
+  const qualFilterIdx = SRC.indexOf('qualifiedVolRows = qualifiedVolRows.filter(');
+  assert.ok(pushBlockStart > qualFilterIdx, 'availability dimming must be computed AFTER qualification filtering, in the pin-push block, not inside the qualification filter itself');
 });
 
 console.log('\n' + '-'.repeat(40));
