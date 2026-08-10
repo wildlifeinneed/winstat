@@ -4559,10 +4559,9 @@
     var circle = L.circle([lat, lon], {
       radius: mi * MI_TO_METERS,
       color: '#555555',
-      weight: 1.5,
+      weight: 1,
       opacity: 0.6,
       fill: false,
-      dashArray: '4, 5',
       interactive: false
     }).addTo(t2map.layers.radius);
     return circle;
