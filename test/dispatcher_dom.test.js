@@ -1309,9 +1309,9 @@ async function runTier2LenientBackup() {
 
   const actions = doc.getElementById('agg-actions').textContent || '';
   assert.ok(/backup/i.test(actions),
-    'recommendation surfaces nearby helpers as BACKUP (got: "' + actions + '")');
-  assert.ok(/Nearby backup helpers:\s*2/.test(actions),
-    'backup line uses the heading pattern "Nearby backup helpers: N" (got: "' + actions + '")');
+    'recommendation surfaces nearby volunteers as BACKUP (got: "' + actions + '")');
+  assert.ok(/Nearby backup volunteers:\s*2/.test(actions),
+    'backup line uses the heading pattern "Nearby backup volunteers: N" (got: "' + actions + '")');
   assert.ok(!/\(s\)/.test(actions),
     'no "(s)" pluralization in the backup recommendation (got: "' + actions + '")');
   assert.ok(/No qualified/i.test(actions) && /RVS C&T/.test(actions),

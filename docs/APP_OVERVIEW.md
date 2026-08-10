@@ -100,7 +100,7 @@ maximum 100). The app then shows:
   directly).
 - The same three **capacity cards** (C&T / RVS C&T / Courier), counted within range.
 - **WIN areas covered** — which WIN regions fall inside the radius.
-- An optional **out-of-county helpers** list — nearby volunteers just outside the
+- An optional **out-of-county volunteers** list — nearby volunteers just outside the
   animal's own county, each tagged **Qualified** or **Not qualified** for *this*
   specific animal, nearest first.
 - **Recommended Actions** — informational and directive lines (volunteers found,

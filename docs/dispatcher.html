@@ -1266,7 +1266,7 @@
       cursor: default;
     }
     /* Dynamic highlight states. When ANY area is highlighted the map dims the
-       rest; "animal area" gets a strong green outline, "helper areas" get an
+       rest; "animal area" gets a strong green outline, "volunteer areas" get an
        amber outline. */
     .map-svg.dimmed .county-path { fill-opacity: 0.28; }
     .map-svg.dimmed .county-path.hl-helper {
@@ -2208,7 +2208,7 @@
           Show qualified volunteers
         </button>
         <div id="ctx-content" style="display:none;">
-          <div class="ctx-header" id="ctx-header">Out-of-county helpers</div>
+          <div class="ctx-header" id="ctx-header">Out-of-county volunteers</div>
           <div id="ctx-notice" class="ctx-notice" style="display:none;"></div>
           <div id="ctx-empty" class="ctx-empty" style="display:none;"></div>
           <ul id="ctx-list" class="ctx-list"></ul>
@@ -2233,7 +2233,7 @@
         </button>
         <div id="t2map-body" class="t2map-body" hidden>
           <div id="t2map" class="t2map" role="application"
-               aria-label="Map of the animal location and nearby helpers"></div>
+               aria-label="Map of the animal location and nearby volunteers"></div>
           <div id="t2map-unavailable" class="t2map-unavailable" style="display:none;"></div>
           <!-- Legend is built dynamically by paintT2MapLegend() with counts + availability toggle -->
           <div id="t2map-legend-panel" class="map-legend-panel" style="display:none;" aria-label="Map legend"></div>
@@ -2275,7 +2275,7 @@
       <div class="map-legend" id="map-legend" aria-label="WIN area legend"></div>
       <p class="map-note">
         Each county is shaded by its WIN area. When a dispatch is in progress the
-        animal's area is outlined in green and any out-of-county helper areas in amber.
+        animal's area is outlined in green and any out-of-county volunteer areas in amber.
       </p>
     </div>
   </details>

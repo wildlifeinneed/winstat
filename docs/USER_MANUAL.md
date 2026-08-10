@@ -198,7 +198,7 @@ results** (not filtered out) and labeled with a notice:
 
 ### Qualified volunteer list
 
-The helper list in address mode shows **qualified volunteers only** for the animal
+The volunteer list in address mode shows **qualified volunteers only** for the animal
 you described. Each line may show:
 
 - role badges
@@ -215,7 +215,7 @@ tell you to narrow the radius for a complete list.
 
 ### Driving distances
 
-When available, the tool uses **real driving distance and travel time** for helpers
+When available, the tool uses **real driving distance and travel time** for volunteers
 and rehabbers.
 
 You may see either:

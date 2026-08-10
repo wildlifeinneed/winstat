@@ -376,7 +376,7 @@
       winVolunteersFound: 'WIN volunteers found: <strong>{count}</strong> (WIN {areaWord} <strong>{areas}</strong>).',
       // INFORMATIONAL coordinator line per in-range area. {area}, {name}.
       areaCoordinatorListed: 'Area {area} Coordinator: <strong>{name}</strong>.',
-      // LENIENT recommendation — qualified helpers in range.
+      // LENIENT recommendation — qualified volunteers in range.
       // {count}, {areaClause} (computed, may be empty), {radius}.
       qualifiedHelpers: 'Qualified volunteers: <strong>{count}</strong>  {areaClause}  within {radius} mi.',
       // Low-capacity warning shown when qualifiedCount > 0 but <= threshold.
@@ -388,10 +388,10 @@
       // The "; WIN areas: ..." clause appended to the qualified/backup lines.
       // {areas} = sorted area list.
       areaClause: '; WIN areas: <strong>{areas}</strong>',
-      // LENIENT recommendation — no qualified helper; surface backups.
+      // LENIENT recommendation — no qualified volunteer; surface backups.
       // {role} = needed role label, {radius}, {count}, {areaClause} (computed),
       // {gapClause} (one of the two below), {phone}.
-      backupHelpers: 'No qualified <strong>{role}</strong> within {radius} mi. Nearby backup helpers: <strong>{count}</strong>{areaClause} could assist as <strong>backup</strong>{gapClause}{phone}.',
+      backupHelpers: 'No qualified <strong>{role}</strong> within {radius} mi. Nearby backup volunteers: <strong>{count}</strong>{areaClause} could assist as <strong>backup</strong>{gapClause}{phone}.',
       backupGapRvs: ' (e.g. help with transport) — call <strong>PA Game Commission</strong> for the RVS capture: ',
       backupGapOther: ' — confirm capability, or call <strong>PA Game Commission</strong>: ',
       // Needed-role labels for the backup gap statement.
@@ -444,14 +444,14 @@
       // {beyond} = a parenthetical clause naming any extra rows LISTED beyond
       // the radius (computed in code; empty when none, so the heading stays
       // clean and the count is never misleading).
-      ctxHeaderBeyond: 'Out-of-county helpers within {radius} mi (beyond {county}): {count}{beyond}',
+      ctxHeaderBeyond: 'Out-of-county volunteers within {radius} mi (beyond {county}): {count}{beyond}',
       // Standalone Address lookup (no county excluded). {radius} = radius;
       // {count} = volunteers WITHIN the radius; {beyond} = parenthetical clause
       // for any extra rows listed beyond the radius.
       ctxHeader: 'Qualified volunteers within {radius} mi: {count}{beyond}',
       // Parenthetical appended to the headers above when one or more LISTED
       // rows fall BEYOND the radius, so the within-radius "{count}" is honest
-      // while still acknowledging the extra reachable-but-farther helpers.
+      // while still acknowledging the extra reachable-but-farther volunteers.
       // {beyondCount} = how many listed rows are beyond the radius.
       ctxHeaderBeyondNote: ' (+{beyondCount} beyond)',
       // Tier 1 (By-County) qualified-volunteer list header + empty state.
