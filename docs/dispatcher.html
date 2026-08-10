@@ -1489,6 +1489,26 @@
       background: var(--amber);
       border-color: #9c540a;
     }
+    /* Unavailable-volunteer legend swatch: same white "X" mark used on the
+       real map pins (see .t2-pin-unavail::after), on a neutral grey dot since
+       this swatch represents the flag itself, not any one role's color. */
+    .map-legend-panel .mlp-unavail {
+      position: relative;
+      background: #8a8a8a;
+      border-color: #5a5a5a;
+    }
+    .map-legend-panel .mlp-unavail::after {
+      content: '\2715';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 9px;
+      font-weight: 700;
+      line-height: 1;
+      color: #fff;
+      text-shadow: 0 0 2px rgba(0,0,0,.85);
+    }
     .map-legend-panel .mlp-area-dispatch {
       background: rgba(118,183,178,0.30);
       border: 2px solid #76b7b2;
@@ -1613,9 +1633,29 @@
       z-index: 10001;
     }
 
-    /* Dimmed pin for unavailable volunteers */
+    /* Unavailable-volunteer pin: FULL CONTRAST, same size/color as the
+       matching available pin (role color is preserved — see t2VolPinClass),
+       plus a solid white "X" drawn on top so the flag does not depend on
+       color at all. This replaces the old opacity-dimmed treatment, which
+       made unavailable pins hard to spot against the OSM basemap. The pin
+       needs `position: relative` so the "X" (an absolutely-positioned
+       pseudo-element) can be centered over it without adding markup. */
     .t2-pin-unavail {
-      opacity: 0.35;
+      position: relative;
+      overflow: visible;
+    }
+    .t2-pin-unavail::after {
+      content: '\2715'; /* ✕ multiplication-X, reads clearly at small sizes */
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1;
+      color: #fff;
+      text-shadow: 0 0 2px rgba(0,0,0,.85), 0 0 1px rgba(0,0,0,.85);
+      pointer-events: none;
     }
     .t2map-note {
       font-size: 11.5px;

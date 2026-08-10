@@ -2609,6 +2609,14 @@
       html += '<span class="mlp-item"><span class="mlp-dot mlp-vol-monitor"></span>Monitoring volunteers <span class="mlp-count">(' +
         monCount + ')</span></span>';
     }
+    var hasUnavail = (volMarkers || []).some(function (e) { return !e.available; });
+    // Marked-unavailable legend swatch: explains the white-X-on-pin flag in
+    // plain words. Shown only when at least one unavailable volunteer is on
+    // this map (same gating as the toggle below), right next to the role
+    // swatches it modifies.
+    if (hasUnavail) {
+      html += '<span class="mlp-item"><span class="mlp-dot mlp-unavail"></span>Marked unavailable — still contactable</span>';
+    }
     // Area highlighting
     html += '<span class="mlp-item"><span class="mlp-dot mlp-area-dispatch"></span>Dispatch area</span>';
     if (hasSuggested) {
@@ -2616,8 +2624,6 @@
     }
     html += '</div>';
 
-    // Availability toggle
-    var hasUnavail = (volMarkers || []).some(function (e) { return !e.available; });
     if (hasUnavail) {
       html += '<hr class="mlp-sep">';
       html += '<label class="mlp-toggle"><input type="checkbox" class="cp-avail-toggle" checked> Include unavailable</label>';
@@ -4766,6 +4772,7 @@
     // the map -- including the target-only case (e.g. zero qualified
     // volunteers) where winAreas is empty but targetArea is still drawn.
     var hasAreas = !!((payload.winAreas && payload.winAreas.length) || payload.targetArea);
+    var hasUnavail = vols.some(function (v) { return v && !v.available; });
 
     var html = '<div class="mlp-title">Legend — showing qualified volunteers</div>';
     html += '<div class="mlp-items">';
@@ -4786,6 +4793,12 @@
         html += '<span class="mlp-item"><span class="mlp-dot mlp-vol-courier"></span>Courier <span class="mlp-count">' +
           counts.courier + ' (' + counts.courierAvail + ' avail)</span></span>';
       }
+      // Marked-unavailable legend swatch: explains the white-X-on-pin flag in
+      // plain words. Shown only when at least one unavailable volunteer is on
+      // this map (same gating as the toggle below).
+      if (hasUnavail) {
+        html += '<span class="mlp-item"><span class="mlp-dot mlp-unavail"></span>Marked unavailable — still contactable</span>';
+      }
     }
     if (hasAreas) {
       html += '<span class="mlp-item"><span class="mlp-dot mlp-area-dispatch"></span>WIN service area</span>';
@@ -4793,7 +4806,6 @@
     html += '</div>';
 
     // Availability toggle (only when there are unavailable volunteers)
-    var hasUnavail = vols.some(function (v) { return v && !v.available; });
     if (SHOW_VOLUNTEER_MARKERS && hasUnavail) {
       html += '<hr class="mlp-sep">';
       html += '<label class="mlp-toggle"><input type="checkbox" id="t2-avail-toggle" checked> Include unavailable</label>';
