@@ -4,13 +4,14 @@
   "private": true,
   "description": "Test-only harness for the served dispatcher UI (docs/). NOT shipped to GitHub Pages.",
   "scripts": {
-    "test": "node test/decision.test.js && node test/dispatcher_dom.test.js && node test/flags_dom.test.js && node test/vol_pin_coincidence.test.js && node test/monitoring_pins.test.js && node test/tier2_win_area_qualification.test.js",
+    "test": "node test/decision.test.js && node test/dispatcher_dom.test.js && node test/flags_dom.test.js && node test/vol_pin_coincidence.test.js && node test/monitoring_pins.test.js && node test/tier2_win_area_qualification.test.js && node test/cross_post_county_guard.test.js",
     "test:decision": "node test/decision.test.js",
     "test:dispatcher": "node test/dispatcher_dom.test.js",
     "test:flags": "node test/flags_dom.test.js",
     "test:volpins": "node test/vol_pin_coincidence.test.js",
     "test:monitoring": "node test/monitoring_pins.test.js",
     "test:tier2-winareas": "node test/tier2_win_area_qualification.test.js",
+    "test:cross-post-county-guard": "node test/cross_post_county_guard.test.js",
     "test:mobile-zoom": "node test/mobile_ios_zoom.playwright.js",
     "test:monitoring-browser": "node test/monitoring_pins_browser_verify.playwright.js"
   },

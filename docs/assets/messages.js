@@ -70,6 +70,42 @@
       cross_post_radius_mi: 25
     },
 
+    // ── Cross-post ADDRESS/COUNTY sanity check (Tier 1 "Check for Cross
+    //    Post" flow, dispatcher.js crossPostGeocode/crossPostCountyGuard) ───
+    // The cross-post address is a MORE PRECISE location for the SAME animal
+    // whose county the dispatcher already selected in Tier 1, so it should
+    // normally resolve inside that county. When the geocoded address's
+    // county differs from the Tier 1 selection, this is almost always a
+    // data-entry error (wrong town, missing county, autocomplete picking the
+    // wrong same-named place), so a blocking confirmation is shown BEFORE the
+    // cross-post area suggestions/map are computed.
+    countyMismatch: {
+      // Dialog title.
+      title: 'Address is not in the target county',
+      // Body line. {selectedCounty} = Tier 1's selected county display name
+      // (e.g. "Bedford County"); {address} = the raw text the dispatcher
+      // typed/selected; {geocodedCounty} = the county the address geocoded
+      // into (display name, e.g. "Northampton County", or a PA-unresolved
+      // fallback phrase when the point fell outside every PA county).
+      body: 'You selected {selectedCounty}, but "{address}" is in {geocodedCounty}.',
+      // Appended after `body` ONLY when a distance was cheap to compute.
+      // {miles} = rounded straight-line miles between the geocoded point and
+      // the selected county's centroid.
+      distanceNote: ' (about {miles} miles away)',
+      // Shown when the geocoded point falls outside every PA county polygon
+      // (edge case 2) — used in place of "{geocodedCounty} County" so the
+      // dialog never prints "undefined County".
+      outsidePaFallback: 'not in Pennsylvania',
+      reason: 'This is usually a typo in the address.',
+      cancelBtn: 'Cancel',
+      proceedBtn: 'Use this address anyway',
+      // Persistent inline warning kept next to the suggestion banner after
+      // the dispatcher chooses "Use this address anyway", so the screen never
+      // silently looks authoritative once an out-of-county address is in play.
+      // {selectedCounty}, {geocodedCounty} as above.
+      persistentWarning: '\u26a0 Address county ({geocodedCounty}) does not match the selected {selectedCounty} \u2014 used anyway.'
+    },
+
     // ── TIER 1 decision-engine wording (decision.js) ───────────────────────
     // action labels: shown as the headline of a recommendation.
     tier1Actions: {

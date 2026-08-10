@@ -1633,9 +1633,12 @@
 
   // Geocode an address via the Worker (same endpoint used for Tier 2 address
   // search — the Worker proxies the Census geocoder server-side, avoiding CORS).
-  // On success, runs the cross-post distance check. When the autocomplete
-  // already resolved a coordinate (selectedCoord), skip the geocode and use
-  // those coords directly.
+  // On success, runs the county sanity guard (see crossPostCountyGuard) and
+  // then the cross-post distance check. When the autocomplete already
+  // resolved a coordinate (selectedCoord), skip the Census geocode call but
+  // still ask the Worker to resolve the county for that coordinate (a plain
+  // animal_lat/animal_lon request, no address re-lookup) so the guard has the
+  // same authoritative, PIP-derived county in both paths.
   function crossPostGeocode(address, dispatchArea, resultDiv, selectedCoord, county) {
     try {
       // If the autocomplete already resolved coordinates, use them directly
@@ -1643,7 +1646,10 @@
       if (selectedCoord && typeof selectedCoord.lat === 'number' &&
           typeof selectedCoord.lon === 'number' &&
           isFinite(selectedCoord.lat) && isFinite(selectedCoord.lon)) {
-        crossPostDistanceCheck(selectedCoord.lat, selectedCoord.lon, dispatchArea, resultDiv, county);
+        var lat0 = selectedCoord.lat, lon0 = selectedCoord.lon;
+        resolveCountyForCoord(lat0, lon0).then(function (geocodedCounty) {
+          crossPostCountyGuard(address, lat0, lon0, geocodedCounty, dispatchArea, resultDiv, county);
+        });
         return;
       }
       var url = WORKER_URL + '?address=' + encodeURIComponent(address) + '&radius_mi=1';
@@ -1654,7 +1660,9 @@
         var lat = data && data.animal_lat;
         var lon = data && data.animal_lon;
         if (lat == null || lon == null) throw new Error('no_coords');
-        crossPostDistanceCheck(lat, lon, dispatchArea, resultDiv, county);
+        var geocodedCounty = (data && typeof data.animal_county === 'string' && data.animal_county.trim())
+          ? data.animal_county.trim() : null;
+        crossPostCountyGuard(address, lat, lon, geocodedCounty, dispatchArea, resultDiv, county);
       }).catch(function () {
         resultDiv.className = 'cross-post-result cross-post-neutral';
         resultDiv.textContent = 'Could not geocode that address. Try a full street + city + state + ZIP.';
@@ -1665,6 +1673,190 @@
       resultDiv.textContent = 'Cross-post check error.';
       destroyCrossPostMap();
     }
+  }
+
+  // Best-effort Worker lookup of the PIP-resolved county for an already-known
+  // coordinate (the autocomplete fast-path skips the Census geocode, but the
+  // county guard still needs an authoritative county for that point). Passing
+  // animal_lat/animal_lon (no address) makes the Worker resolve via the same
+  // point-in-polygon logic without re-geocoding. Resolves to null on ANY
+  // failure (network error, non-200, missing county) — the guard treats null
+  // as "unknown, do not block" per edge case 3.
+  function resolveCountyForCoord(lat, lon) {
+    try {
+      var url = WORKER_URL + '?animal_lat=' + encodeURIComponent(lat) +
+        '&animal_lon=' + encodeURIComponent(lon) + '&radius_mi=1';
+      return fetch(url).then(function (resp) {
+        if (!resp.ok) return null;
+        return resp.json();
+      }).then(function (data) {
+        return (data && typeof data.animal_county === 'string' && data.animal_county.trim())
+          ? data.animal_county.trim() : null;
+      }).catch(function () { return null; });
+    } catch (e) {
+      return Promise.resolve(null);
+    }
+  }
+
+  // Normalize a county name for comparison: trim, collapse whitespace, drop a
+  // trailing " County" suffix, lowercase. Prevents a false mismatch on
+  // formatting differences alone (e.g. "bedford" vs "Bedford County").
+  function normalizeCountyName(name) {
+    if (typeof name !== 'string') return '';
+    return name.trim().replace(/\s+county\s*$/i, '').replace(/\s+/g, ' ').trim().toLowerCase();
+  }
+
+  // ── Cross-post ADDRESS/COUNTY sanity guard ─────────────────────────────
+  // Runs AFTER the address geocodes successfully but BEFORE the cross-post
+  // area suggestions/map are computed (crossPostDistanceCheck). Compares the
+  // geocoded address's COUNTY (not WIN area — see messages.js countyMismatch
+  // comment) against the Tier 1 SELECTED county. On a mismatch, shows a
+  // blocking confirmation; Cancel aborts the cross-post computation entirely,
+  // "Use this address anyway" proceeds and leaves a persistent inline warning.
+  function crossPostCountyGuard(address, lat, lon, geocodedCounty, dispatchArea, resultDiv, county) {
+    var selectedCounty = (typeof county === 'string' && county.trim()) ? county.trim() : '';
+
+    // Edge case 4: no Tier 1 county selected yet -> nothing to compare
+    // against, proceed without the dialog.
+    // Edge case 3: county cannot be resolved from the geocode result
+    // (null/empty) -> do NOT block; treat as unknown and proceed silently.
+    if (!selectedCounty || !geocodedCounty) {
+      crossPostDistanceCheck(lat, lon, dispatchArea, resultDiv, county);
+      return;
+    }
+
+    if (normalizeCountyName(selectedCounty) === normalizeCountyName(geocodedCounty)) {
+      // On match: no dialog, no change whatsoever to current behavior.
+      crossPostDistanceCheck(lat, lon, dispatchArea, resultDiv, county);
+      return;
+    }
+
+    // Mismatch. Compute an optional distance-away note (cheap: county
+    // centroids are already loaded client-side for the map).
+    var miles = null;
+    var selCentroid = state.countyCentroids && state.countyCentroids[selectedCounty];
+    if (selCentroid && typeof selCentroid.lat === 'number' && typeof selCentroid.lon === 'number') {
+      miles = Math.round(haversineMiles(lat, lon, selCentroid.lat, selCentroid.lon));
+    }
+
+    showCountyMismatchDialog({
+      selectedCounty: selectedCounty,
+      geocodedCounty: geocodedCounty,
+      address: address,
+      miles: miles,
+      onCancel: function () {
+        // Abort entirely. Do NOT render suggestions or the map. Leave the
+        // address box populated (untouched here) so the dispatcher can fix it.
+        resultDiv.style.display = '';
+        resultDiv.className = 'cross-post-result cross-post-neutral';
+        resultDiv.textContent = 'Cross-post check cancelled.';
+        destroyCrossPostMap();
+      },
+      onProceed: function () {
+        crossPostDistanceCheck(lat, lon, dispatchArea, resultDiv, county);
+        appendCountyMismatchWarning(resultDiv, selectedCounty, geocodedCounty);
+      }
+    });
+  }
+
+  // Appends a persistent inline warning banner next to the cross-post
+  // suggestion result so the screen never later looks authoritative once the
+  // dispatcher chose to proceed with an out-of-county address.
+  function appendCountyMismatchWarning(resultDiv, selectedCounty, geocodedCounty) {
+    if (!resultDiv || !resultDiv.parentNode) return;
+    var existing = resultDiv.parentNode.querySelector('.cross-post-county-warning');
+    if (existing) existing.remove();
+    var warn = document.createElement('div');
+    warn.className = 'cross-post-county-warning';
+    warn.textContent = fmt(MSG.countyMismatch.persistentWarning, {
+      selectedCounty: selectedCounty,
+      geocodedCounty: geocodedCounty
+    });
+    resultDiv.parentNode.insertBefore(warn, resultDiv.nextSibling);
+  }
+
+  // Blocking confirmation dialog for the county-mismatch guard. Minimal
+  // hand-rolled modal (no existing modal component in this codebase) —
+  // overlay + panel, default focus on Cancel (the safer action), Escape acts
+  // as Cancel, click-outside does nothing (must be an explicit choice).
+  function showCountyMismatchDialog(opts) {
+    var M = MSG.countyMismatch;
+    var geocodedLabel = opts.geocodedCounty
+      ? opts.geocodedCounty + ' County'
+      : M.outsidePaFallback;
+    var selectedLabel = opts.selectedCounty + ' County';
+    var bodyText = fmt(M.body, {
+      selectedCounty: selectedLabel,
+      address: opts.address,
+      geocodedCounty: geocodedLabel
+    });
+    if (typeof opts.miles === 'number' && isFinite(opts.miles)) {
+      bodyText += fmt(M.distanceNote, { miles: opts.miles });
+    }
+
+    var overlay = document.createElement('div');
+    overlay.className = 'county-mismatch-overlay';
+
+    var panel = document.createElement('div');
+    panel.className = 'county-mismatch-panel';
+    panel.setAttribute('role', 'alertdialog');
+    panel.setAttribute('aria-modal', 'true');
+    panel.setAttribute('aria-labelledby', 'county-mismatch-title');
+    panel.setAttribute('aria-describedby', 'county-mismatch-body');
+
+    var title = document.createElement('div');
+    title.className = 'county-mismatch-title';
+    title.id = 'county-mismatch-title';
+    title.textContent = M.title;
+    panel.appendChild(title);
+
+    var body = document.createElement('div');
+    body.className = 'county-mismatch-body';
+    body.id = 'county-mismatch-body';
+    body.textContent = bodyText;
+    panel.appendChild(body);
+
+    var reason = document.createElement('div');
+    reason.className = 'county-mismatch-reason';
+    reason.textContent = M.reason;
+    panel.appendChild(reason);
+
+    var btnRow = document.createElement('div');
+    btnRow.className = 'county-mismatch-actions';
+
+    var cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'county-mismatch-cancel-btn';
+    cancelBtn.textContent = M.cancelBtn;
+
+    var proceedBtn = document.createElement('button');
+    proceedBtn.type = 'button';
+    proceedBtn.className = 'county-mismatch-proceed-btn';
+    proceedBtn.textContent = M.proceedBtn;
+
+    btnRow.appendChild(cancelBtn);
+    btnRow.appendChild(proceedBtn);
+    panel.appendChild(btnRow);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    function close(action) {
+      document.removeEventListener('keydown', onKeydown, true);
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      if (action === 'proceed') opts.onProceed();
+      else opts.onCancel();
+    }
+
+    function onKeydown(e) {
+      if (e.key === 'Escape') { e.preventDefault(); close('cancel'); }
+    }
+
+    cancelBtn.addEventListener('click', function () { close('cancel'); });
+    proceedBtn.addEventListener('click', function () { close('proceed'); });
+    document.addEventListener('keydown', onKeydown, true);
+
+    // Default focus on Cancel — the safer action.
+    cancelBtn.focus();
   }
 
   // Compute distance from the animal lat/lon to the NEAREST EDGE (polygon
