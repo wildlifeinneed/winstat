@@ -1422,10 +1422,10 @@ async function runTier2LenientPrefersQualified() {
   };
   const { doc } = await driveTier2(agg, 'Allegheny', { rvs: true, issue: 'capture' });
   const actions = doc.getElementById('agg-actions').textContent || '';
-  assert.ok(/qualified helper/i.test(actions),
+  assert.ok(/qualified volunteer/i.test(actions),
     'recommendation prefers the qualified helper (got: "' + actions + '")');
-  assert.ok(/Qualified helpers:\s*1/.test(actions),
-    'qualified line uses the heading pattern "Qualified helpers: N" (got: "' + actions + '")');
+  assert.ok(/Qualified volunteers:\s*1/.test(actions),
+    'qualified line uses the heading pattern "Qualified volunteers: N" (got: "' + actions + '")');
   assert.ok(!/\(s\)/.test(actions),
     'no "(s)" pluralization in the qualified recommendation (got: "' + actions + '")');
   assert.ok(!/backup/i.test(actions),
@@ -1436,7 +1436,7 @@ async function runTier2LenientPrefersQualified() {
 
 // ── R2 (low-cap): LOW CAPACITY warning banner in Tier-2 RECOMMENDED ACTIONS.
 //    When qualifiedCount > 0 AND qualifiedCount <= threshold the banner appears
-//    BETWEEN the "Qualified helpers" line and the coordinator line.
+//    BETWEEN the "Qualified volunteers" line and the coordinator line.
 //    It must NOT appear when qualifiedCount = 0 (backup path) or > threshold.
 async function runTier2LowCapacityWarning() {
   // ── Case 1: qualifiedCount = 1, RVS capture (threshold ct_rvs_capture_min_available = 1)
@@ -1475,7 +1475,7 @@ async function runTier2LowCapacityWarning() {
   assert.strictEqual(warningEls1.length, 1,
     'low-capacity banner uses orange/escalate tone (! icon)');
   // Banner must appear AFTER the qualifiedHelpers line and BEFORE the coordinator.
-  const qualIdx = actionLines1.findIndex(function (t) { return /Qualified helpers:/i.test(t); });
+  const qualIdx = actionLines1.findIndex(function (t) { return /Qualified volunteers:/i.test(t); });
   const lowCapIdx = actionLines1.findIndex(function (t) { return /Low capacity/i.test(t); });
   const coordIdx = actionLines1.findIndex(function (t) { return /Coordinator:/i.test(t); });
   assert.ok(qualIdx !== -1, 'qualifiedHelpers line present');
@@ -3226,7 +3226,7 @@ async function runTier2NonConnecteamNotice() {
     'non-Connecteam notice uses .info (blue) tone');
 
   // Placement: notice AFTER qualifiedHelpers and BEFORE any low-cap / coordinator.
-  const qualIdx = actionLines.findIndex(function (t) { return /Qualified helpers:/i.test(t); });
+  const qualIdx = actionLines.findIndex(function (t) { return /Qualified volunteers:/i.test(t); });
   const noticeIdx = actionLines.findIndex(function (t) { return /not on Connecteam/i.test(t); });
   const lowCapIdx = actionLines.findIndex(function (t) { return /Low capacity/i.test(t); });
   const coordIdx = actionLines.findIndex(function (t) { return /Coordinator:/i.test(t); });

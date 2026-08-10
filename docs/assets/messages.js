@@ -378,7 +378,7 @@
       areaCoordinatorListed: 'Area {area} Coordinator: <strong>{name}</strong>.',
       // LENIENT recommendation — qualified helpers in range.
       // {count}, {areaClause} (computed, may be empty), {radius}.
-      qualifiedHelpers: 'Qualified helpers: <strong>{count}</strong>  {areaClause}  within {radius} mi.',
+      qualifiedHelpers: 'Qualified volunteers: <strong>{count}</strong>  {areaClause}  within {radius} mi.',
       // Low-capacity warning shown when qualifiedCount > 0 but <= threshold.
       // {count} = qualified count, {phone} = PGC phone.
       lowCapacityWarning: 'Low capacity: only {count} qualified \u2014 consider calling PA Game Commission: {phone} or cross posting.',
