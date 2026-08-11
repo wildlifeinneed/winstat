@@ -53,6 +53,20 @@ const GEOJSON_PATH = path.join(DOCS, 'data', 'pa_counties.json');
 // projection sanity check (Erie top-left, Philadelphia bottom-right) is real.
 const PA_GEOJSON = JSON.parse(fs.readFileSync(GEOJSON_PATH, 'utf8'));
 
+// Real committed CWD zone snapshots (see docs/data/CWD_ZONES_REFRESH.md).
+// Loaded once here so the CWD zone-check tests exercise the ACTUAL vendored
+// geometry (the 8-record last-in-effect DMA set, DMA 5 kept separate, and the
+// current Established Area), not a hand-rolled fixture that could drift from
+// what ships.
+const CWD_DMA_ORIGINAL = JSON.parse(fs.readFileSync(path.join(DOCS, 'data', 'cwd_dma_original.json'), 'utf8'));
+const CWD_DMA5 = JSON.parse(fs.readFileSync(path.join(DOCS, 'data', 'cwd_dma5_historical.json'), 'utf8'));
+const CWD_ESTABLISHED_AREA = JSON.parse(fs.readFileSync(path.join(DOCS, 'data', 'cwd_established_area.json'), 'utf8'));
+const CWD_ZONE_DATA_ROUTES = {
+  'cwd_dma_original.json': CWD_DMA_ORIGINAL,
+  'cwd_dma5_historical.json': CWD_DMA5,
+  'cwd_established_area.json': CWD_ESTABLISHED_AREA,
+};
+
 // Real committed county -> WIN-area map (all 67 counties). Used by the OPTIONS
 // panel tests, whose neighboring-area computation needs the full area map (not
 // the 3-county COUNTY_WIN fixture) so Allegheny's bordering areas (5 + 11) are
@@ -5569,16 +5583,26 @@ async function runCrossPostCss() {
   console.log('PASS: cross-post CSS classes present in dispatcher.html.');
 }
 
-// ── CWD location-context link-out -- replaces the removed DMA check ───────
-// The automated DMA/CWD determination has been removed entirely (PGC retired
-// the numbered DMA system 2026-06-30; see docs/DMA_TO_WMU_MIGRATION_SCOPE.md).
-// This pins the NEW contract:
-//   1. The link-out (#dma-map-link) renders and its href carries the animal's
-//      resolved coordinates, so it lands on the relevant area.
-//   2. No fetch/XHR is issued to the CWD FeatureServer during a Tier-2 lookup.
-//   3. No element in the rendered result claims a DMA/CWD compliance verdict
-//      (no #dma-status element, no dma-warn/dma-clear/dma-unknown class
-//      anywhere in the document after a lookup).
+// ── CWD location-context link-out (fallback) + restored zone check ────────
+// The automated DMA/CWD determination was removed in commit 3d4a9ce (PGC
+// officially retired the numbered DMA system 2026-06-30; see
+// docs/DMA_TO_WMU_MIGRATION_SCOPE.md), then RESTORED after the owner
+// confirmed PGC field staff and the state dispatch office are still
+// enforcing the retired DMA boundaries on the ground (see the "2026-08
+// addendum" at the top of that doc, and docs/data/CWD_ZONES_REFRESH.md).
+// This pins the CURRENT contract:
+//   1. The link-out (#dma-map-link) renders and its href carries the
+//      animal's resolved coordinates, ALWAYS -- it is the fail-loud
+//      fallback and stays present even when the automated check succeeds.
+//   2. No fetch/XHR is issued to the LIVE CWD FeatureServer during a lookup
+//      -- the zone check only ever fetches this site's OWN vendored JSON
+//      (docs/data/cwd_*.json), never services1.arcgis.com.
+//   3. #cwd-zone-status DOES now render a verdict (this is an intentional
+//      reversal of the old "no DMA verdict element" contract) -- but every
+//      branch must be traceable to a specific, named reason (a DMA number,
+//      "near" a boundary, the Established Area, or an explicit "confirm
+//      with PGC" for a clean miss) and the failure path must say the check
+//      could not be performed rather than rendering any clear/neither text.
 async function runCwdMapLinkCarriesCoordinates() {
   const agg = {
     total_in_range: 3,
@@ -5665,17 +5689,177 @@ async function runNoFetchToCwdFeatureServer() {
   console.log('PASS: no fetch/XHR is issued to the CWD FeatureServer during a lookup.');
 }
 
-async function runNoDmaVerdictElement() {
+// ── CWD zone check: inside an original (retired-but-still-enforced) DMA ───
+// Coordinate verified directly against the vendored geometry (see
+// docs/data/CWD_ZONES_REFRESH.md): a COMFORTABLY interior point in DMA 2
+// (~37.7 mi from the nearest boundary vertex/segment -- deliberately far
+// from the vertex-adjacent fragility zone), which also happens to fall
+// inside the current Established Area (the two footprints genuinely
+// overlap here; this is real geography, not a test artifact -- the entire
+// Established Area sits inside the retired DMA 2 footprint).
+async function runCwdZoneInsideOriginalDma() {
   const agg = {
     total_in_range: 3,
     role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 2 },
     win_areas: ['10'],
-    animal_lat: 40.14672851102545,
-    animal_lon: -78.3180356752656,
+    animal_lat: 40.2687,
+    animal_lon: -78.2168,
     out_of_county: [],
     out_of_county_truncated: false,
     radius_too_broad: false,
   };
+  const { window: w2, opts } = loadDom({
+    workerAgg: agg,
+    data: Object.assign({ 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS }, CWD_ZONE_DATA_ROUTES),
+  });
+  void opts;
+  const doc = w2.document;
+  await flush(w2);
+  await flush(w2);
+  doc.getElementById('widen-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  doc.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+
+  const el = doc.getElementById('cwd-zone-status');
+  assert.ok(el, '#cwd-zone-status element exists');
+  assert.notStrictEqual(el.style.display, 'none', 'zone status is visible after a resolved lookup');
+  assert.ok(el.className.indexOf('cwd-zone-hit') !== -1, 'zone status carries the "hit" state class');
+  assert.ok(el.textContent.indexOf('DMA 2') !== -1,
+    'names DMA 2 specifically (got: "' + el.textContent + '")');
+  assert.ok(/still.*(enforc|refus)/i.test(el.textContent) || /refused/i.test(el.textContent),
+    'copy conveys PGC field staff/state office are still enforcing this boundary');
+  assert.ok(el.textContent.indexOf('Established Area') !== -1,
+    'ALSO reports the current Established Area separately (real overlap at this point)');
+  assert.strictEqual(doc.getElementById('dma-map-link').style.display, '',
+    '#dma-map-link fallback link stays present alongside a successful check');
+
+  console.log('PASS: CWD zone check reports "inside DMA 2" + Established Area for a comfortably-interior DMA 2 point.');
+}
+
+// ── CWD zone check: not inside DMA or Established Area, and NOT near a
+//    boundary (Philadelphia -- 43+ mi from the nearest DMA, 143+ mi from the
+//    Established Area). Must render an explicit non-green "confirm with
+//    PGC" message, never a bare/implicit all-clear.
+async function runCwdZoneInsideNeither() {
+  const agg = {
+    total_in_range: 3,
+    role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 2 },
+    win_areas: ['10'],
+    animal_lat: 39.9526,
+    animal_lon: -75.1652,
+    out_of_county: [],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { window: w2, opts } = loadDom({
+    workerAgg: agg,
+    data: Object.assign({ 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS }, CWD_ZONE_DATA_ROUTES),
+  });
+  void opts;
+  const doc = w2.document;
+  await flush(w2);
+  await flush(w2);
+  doc.getElementById('widen-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  doc.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+
+  const el = doc.getElementById('cwd-zone-status');
+  assert.ok(el, '#cwd-zone-status element exists');
+  assert.ok(el.className.indexOf('cwd-zone-clear') !== -1, 'zone status carries the "clear" state class (NOT "hit")');
+  assert.ok(el.className.indexOf('cwd-zone-failed') === -1, 'zone status is NOT the failed-check state');
+  assert.ok(/not inside/i.test(el.textContent) && /confirm/i.test(el.textContent),
+    'copy explicitly says not inside either zone AND to confirm with PGC (got: "' + el.textContent + '")');
+  assert.ok(!/\bclear\b/i.test(el.textContent) && !/\bsafe\b/i.test(el.textContent) && !/\ball[- ]clear\b/i.test(el.textContent),
+    'copy never uses "clear"/"safe"/"all-clear" wording for a bare miss (got: "' + el.textContent + '")');
+
+  console.log('PASS: CWD zone check for a point far outside every zone renders an explicit non-green "confirm with PGC" message.');
+}
+
+// ── CWD zone check: near-boundary proximity band ──────────────────────────
+// Coordinate verified directly against the vendored geometry: outside every
+// original DMA and outside the Established Area, but ~0.31 mi from DMA 6's
+// boundary (well inside the 2-mile CWD_NEAR_BOUNDARY_MI band) and not near
+// any OTHER zone. Must render "near DMA 6 -- treat as inside", never a
+// clean miss -- this is the requirement that a wrong "not inside" near a
+// real boundary is the dangerous case this feature exists to prevent.
+async function runCwdZoneNearBoundary() {
+  const agg = {
+    total_in_range: 3,
+    role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 2 },
+    win_areas: ['10'],
+    animal_lat: 41.3526301,
+    animal_lon: -78.5926250,
+    out_of_county: [],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { window: w2, opts } = loadDom({
+    workerAgg: agg,
+    data: Object.assign({ 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS }, CWD_ZONE_DATA_ROUTES),
+  });
+  void opts;
+  const doc = w2.document;
+  await flush(w2);
+  await flush(w2);
+  doc.getElementById('widen-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  doc.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+
+  const el = doc.getElementById('cwd-zone-status');
+  assert.ok(el, '#cwd-zone-status element exists');
+  assert.ok(el.className.indexOf('cwd-zone-hit') !== -1,
+    'near-boundary result carries the "hit" state class, NOT "clear" (got className: "' + el.className + '")');
+  assert.ok(el.textContent.indexOf('DMA 6') !== -1,
+    'names DMA 6 specifically as the nearby boundary (got: "' + el.textContent + '")');
+  assert.ok(/just outside/i.test(el.textContent) && /treat.*inside/i.test(el.textContent),
+    'copy says "just outside" AND "treat as inside" (got: "' + el.textContent + '")');
+  assert.ok(!/not inside any original DMA/i.test(el.textContent),
+    'does NOT use the clean-miss "not inside any original DMA" wording for a near-boundary hit');
+
+  console.log('PASS: CWD zone check reports a near-boundary point (~0.31 mi outside DMA 6) as "near DMA 6 -- treat as inside", not a clean miss.');
+}
+
+// ── CWD zone check: fail LOUD, never fail clear ───────────────────────────
+// Simulates the vendored zone data being unreachable/garbage (the default
+// fetch mock behavior for any data/*.json path NOT explicitly overridden --
+// it resolves an empty {} body with no .features array, exactly like a
+// malformed/garbage response). Must render "could not be performed" and
+// keep #dma-map-link visible; must NEVER render "not inside"/"clear" text.
+async function runCwdZoneCheckFailsLoud() {
+  const agg = {
+    total_in_range: 3,
+    role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 2 },
+    win_areas: ['10'],
+    animal_lat: 40.2687,
+    animal_lon: -78.2168,
+    out_of_county: [],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  // Deliberately OMIT the CWD_ZONE_DATA_ROUTES override: the mock's default
+  // fallback for any unmatched data/*.json path returns `{}` (see makeFetch),
+  // which cwdIsValidFeatureCollection() must reject (no .features array).
   const { window: w2, opts } = loadDom({
     workerAgg: agg,
     data: { 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS },
@@ -5693,14 +5877,83 @@ async function runNoDmaVerdictElement() {
   await flush(w2);
   await flush(w2);
   await flush(w2);
+  await flush(w2);
 
-  assert.strictEqual(doc.getElementById('dma-status'), null,
-    'no #dma-status verdict element exists in the rendered result');
-  assert.strictEqual(doc.querySelectorAll('.dma-warn, .dma-clear, .dma-unknown, .dma-checking').length, 0,
-    'no element anywhere in the document carries a DMA verdict class');
+  const el = doc.getElementById('cwd-zone-status');
+  assert.ok(el, '#cwd-zone-status element exists');
+  assert.notStrictEqual(el.style.display, 'none', 'failed-check status is still shown to the dispatcher, not hidden');
+  assert.ok(el.className.indexOf('cwd-zone-failed') !== -1,
+    'zone status carries the "failed" state class (got className: "' + el.className + '")');
+  assert.ok(/could not/i.test(el.textContent),
+    'copy says the check could not be performed (got: "' + el.textContent + '")');
+  assert.ok(!/not inside any original DMA/i.test(el.textContent),
+    'NEVER falls through to the "not inside" clean-miss wording on a data-load failure');
+  assert.ok(!/\bclear\b/i.test(el.textContent),
+    'NEVER uses "clear" wording on a data-load failure');
 
-  console.log('PASS: no element claiming a DMA/CWD compliance verdict is produced.');
+  const link = doc.getElementById('dma-map-link');
+  assert.ok(link, '#dma-map-link fallback link exists');
+  assert.notStrictEqual(link.style.display, 'none', 'fallback PGC map link-out stays visible when the automated check fails');
+  assert.ok(link.href.indexOf(String(agg.animal_lon)) !== -1 && link.href.indexOf(String(agg.animal_lat)) !== -1,
+    'fallback link still carries the resolved coordinates even though the zone check failed');
+
+  console.log('PASS: CWD zone check fails LOUD ("could not be performed") on bad/garbage zone data, never falls through to "not inside", and keeps the PGC map fallback link visible.');
 }
+
+// ── CWD zone check: matches the 8-record last-in-effect set, not the
+//    37-record version history -- a DMA 2 hit is reported ONCE. ───────────
+async function runCwdZoneUsesLastInEffectSetOnly() {
+  assert.strictEqual(CWD_DMA_ORIGINAL.features.length, 8,
+    'vendored cwd_dma_original.json contains exactly the 8 last-in-effect records, not the 37-record version history');
+  const dmaNumbers = CWD_DMA_ORIGINAL.features.map(function (f) { return f.properties.dma; }).sort(function (a, b) { return a - b; });
+  assert.deepStrictEqual(dmaNumbers, [2, 3, 4, 6, 7, 8, 9, 10],
+    'vendored DMA set is exactly {2,3,4,6,7,8,9,10} (got: ' + JSON.stringify(dmaNumbers) + ')');
+  const dma2Records = CWD_DMA_ORIGINAL.features.filter(function (f) { return f.properties.dma === 2; });
+  assert.strictEqual(dma2Records.length, 1,
+    'exactly ONE DMA 2 record in the vendored file (no overlapping version-history duplicates)');
+  assert.strictEqual(CWD_DMA5.features.length, 1, 'DMA 5 historical file has exactly 1 feature, kept separate');
+  assert.strictEqual(CWD_DMA5.features[0].properties.dma, 5, 'the separate file is DMA 5');
+
+  // End-to-end: the DMA-2-interior point (same as runCwdZoneInsideOriginalDma)
+  // must report DMA 2 ONCE in the rendered text, not repeated/duplicated --
+  // proving the render path also only ever sees the 8-record set.
+  const agg = {
+    total_in_range: 3,
+    role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 2 },
+    win_areas: ['10'],
+    animal_lat: 40.2687,
+    animal_lon: -78.2168,
+    out_of_county: [],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { window: w2, opts } = loadDom({
+    workerAgg: agg,
+    data: Object.assign({ 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS }, CWD_ZONE_DATA_ROUTES),
+  });
+  void opts;
+  const doc = w2.document;
+  await flush(w2);
+  await flush(w2);
+  doc.getElementById('widen-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  doc.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+
+  const el = doc.getElementById('cwd-zone-status');
+  const dma2Mentions = (el.textContent.match(/DMA 2\b/g) || []).length;
+  assert.strictEqual(dma2Mentions, 1,
+    'DMA 2 is named exactly ONCE in the rendered result, not once per overlapping version-history record (got ' + dma2Mentions + ' mentions in: "' + el.textContent + '")');
+
+  console.log('PASS: CWD zone check uses the 8-record last-in-effect set only; a DMA 2 hit is reported once, not eight times.');
+}
+
 
 // ── Tier 2 "Check for Cross Post" ────────────────────────────────────────
 // New control at the bottom of the Tier 2 panel (Address mode), after the
@@ -6206,7 +6459,11 @@ async function run() {
   await runCrossPostCss();
   await runCwdMapLinkCarriesCoordinates();
   await runNoFetchToCwdFeatureServer();
-  await runNoDmaVerdictElement();
+  await runCwdZoneInsideOriginalDma();
+  await runCwdZoneInsideNeither();
+  await runCwdZoneNearBoundary();
+  await runCwdZoneCheckFailsLoud();
+  await runCwdZoneUsesLastInEffectSetOnly();
   await runTier2CrossPostRenders();
   await runTier2CrossPostUsesResolvedCoords();
   await runTier2CrossPostFoundNone();

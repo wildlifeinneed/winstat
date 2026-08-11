@@ -1176,6 +1176,44 @@
       font-style: italic;
     }
 
+    /* ─── CWD zone check (checkCwdZone/renderCwdZoneStatus, dispatcher.js) ─
+       cwd-zone-hit / cwd-zone-clear / cwd-zone-failed are mutually exclusive
+       top-level states. "hit" (amber) covers inside-DMA, near-DMA, inside/
+       near-Established-Area -- ANY reason to pause and confirm with PGC.
+       "clear" (also amber, NOT green) covers the "inside neither" case --
+       deliberately not the green treatment .resolved-location uses, so a
+       clean miss never reads as an all-clear. "failed" (red) is the fail-
+       loud error path. */
+    .cwd-zone-status {
+      margin-bottom: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 13.5px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+    .cwd-zone-status.cwd-zone-hit,
+    .cwd-zone-status.cwd-zone-clear {
+      background: var(--amber-light);
+      border: 1px solid #f3d19b;
+      border-left: 4px solid var(--amber);
+      color: var(--amber);
+    }
+    .cwd-zone-status.cwd-zone-failed {
+      background: var(--red-light);
+      border: 1px solid #f0b8b0;
+      border-left: 4px solid var(--red);
+      color: var(--red);
+    }
+    .cwd-zone-status .cwd-zone-line { margin: 0 0 6px 0; }
+    .cwd-zone-status .cwd-zone-line:last-child { margin-bottom: 0; }
+    .cwd-zone-status .cwd-zone-line-caveat,
+    .cwd-zone-status .cwd-zone-line-snapshot {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
     /* ─── Feature status strip (under header) ─────────────────── */
     .status-strip {
       padding: 9px 16px;
@@ -2077,13 +2115,14 @@
   </div>
 
   <!-- Resources: always-available reference links (no lookup required).
-       This is LOCATION CONTEXT ONLY -- a link-out to PGC's own CWD map for
-       the animal's area, updated with coordinates once an address resolves
-       (see updateCwdMapLink() in dispatcher.js). It is NOT a computed
-       compliance verdict: PGC retired the numbered DMA system 2026-06-30 and
-       publishes no machine-readable WMU-level rule-status data to replace it
-       (docs/DMA_TO_WMU_MIGRATION_SCOPE.md), so this dispatcher cannot and
-       does not claim whether CWD rules do or don't apply at any location. -->
+       This is a FALLBACK link-out to PGC's own CWD Interactive Map for the
+       animal's area, updated with coordinates once an address resolves (see
+       updateCwdMapLink() in dispatcher.js). It stays visible even when the
+       automated zone check (#cwd-zone-status, inside #address-result) succeeds,
+       and is the ONLY CWD-related thing shown when that check fails -- see
+       docs/DMA_TO_WMU_MIGRATION_SCOPE.md for why an automated DMA check was
+       restored after being removed, and docs/data/CWD_ZONES_REFRESH.md for
+       the vendored-snapshot data behind it. -->
   <div class="resource-links" aria-label="Reference links">
     <a class="btn-dma-link"
        id="dma-map-link"
@@ -2211,6 +2250,14 @@
 
     <section id="address-result" class="panel" style="display:none;">
       <div id="resolved-location" class="resolved-location" style="display:none;" aria-live="polite"></div>
+
+      <!-- CWD zone check -- see checkCwdZone()/renderCwdZoneStatus() in
+           dispatcher.js. Reports BOTH the retired-but-still-enforced original
+           DMA boundaries and the current official Established Area,
+           distinguished. Hidden until a result (including a failed-check
+           result) is rendered; NEVER left showing a stale prior result for a
+           different address (updateCwdZoneStatus clears it first). -->
+      <div id="cwd-zone-status" class="cwd-zone-status" style="display:none;" aria-live="polite"></div>
 
       <div class="agg-summary">
         Volunteers in range: <span class="count" id="agg-total">0</span>

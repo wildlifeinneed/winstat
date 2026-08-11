@@ -573,6 +573,43 @@
     staticUi: {
       // {phone} = PGC_PHONE. Footer fallback note under the recommend button.
       finderFallbackNote: 'If no Volunteer contacts FINDER within 2 hours FINDER should call PA Game Commission: {phone}'
+    },
+
+    // ── CWD zone check wording (dispatcher.js checkCwdZone/renderCwdZoneStatus) ─
+    // PGC officially retired the numbered DMA system 2026-06-30, but PGC field
+    // staff and the state dispatch office are STILL enforcing the retired DMA
+    // footprint on the ground (owner-verified by phone, 2026-08). This wording
+    // must keep BOTH designations distinguishable: what PGC enforces today in
+    // practice (original DMA) vs. the current official map layer (Established
+    // Area). Never render a clean "not inside" as a green all-clear — that is
+    // the direction that can get an infected animal moved.
+    cwdZone: {
+      // {dmas} = comma-joined DMA numbers, e.g. "2" or "2, 3".
+      insideDma: 'Inside original DMA {dmas}. PGC field staff and the state dispatch office are STILL enforcing this boundary as of the last check-in: fawn/deer rehab from inside this area is still being refused, regardless of the 2026-06-30 official retirement.',
+      // Shown ADDITIONALLY (never as a silent merge) when the point also falls
+      // in the separately-retired DMA 5 footprint (ended 2026-06-04).
+      insideDma5: 'Also inside the separately-retired DMA 5 historical footprint. Field staff working from "the original DMA locations" may still reference this boundary too — treat it the same as an original-DMA hit and confirm with PGC.',
+      // {dma} = single DMA number for a near-boundary (not literally inside) hit.
+      nearDma: 'Just outside original DMA {dma}, close enough to the boundary that it should be treated as inside pending confirmation with PGC. DMA boundaries follow roads and township lines — a short distance outside on a map can still be "inside" on the ground.',
+      insideEstablishedArea: 'Inside the current official CWD Established Area (the boundary PGC formally adopted 2026-06-30, replacing the numbered DMA system).',
+      nearEstablishedArea: 'Just outside the current official CWD Established Area boundary, close enough that it should be treated as inside pending confirmation with PGC.',
+      // Neither zone, and not near enough to either to trigger the proximity
+      // band above. Deliberately NOT phrased as "clear" or "safe" — silence on
+      // CWD status is not the same as confirmation there are no rules here.
+      neither: 'Not inside any original DMA or the current CWD Established Area, and not near enough to either boundary to flag automatically. Confirm with PA Game Commission before assuming no CWD rules apply here.',
+      // Unconditional caveat, always shown alongside a result. There is no
+      // geocode-precision/confidence signal available anywhere in this
+      // pipeline (Census and Photon both return only lat/lon, no match-quality
+      // field) to gate this on, so it is shown every time rather than faked.
+      precisionCaveat: 'This check uses the coordinate the system resolved for this address. If that address only geocoded approximately (e.g. a rural route or an address with no exact street match), treat a near-boundary or "not inside" result with extra caution and confirm with PA Game Commission.',
+      // Fail-loud copy. MUST render instead of any of the above whenever the
+      // vendored zone data can't be loaded/parsed, or is missing/empty — NEVER
+      // silently fall through to "neither" on an error path.
+      checkFailed: 'The CWD zone check could not be performed (the zone data did not load). Use the PA Game Commission CWD map link below to check this location manually.',
+      // {date} = the recorded vendored-snapshot fetch date (see
+      // docs/data/CWD_ZONES_REFRESH.md). Shown once per result so the
+      // dispatcher knows how stale the retired-DMA snapshot might be.
+      snapshotNote: 'Zone boundaries last refreshed from PA Game Commission data on {date}. This is a point-in-time snapshot of already-retired records; see docs/data/CWD_ZONES_REFRESH.md for the known limitations.'
     }
   };
 

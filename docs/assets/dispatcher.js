@@ -65,6 +65,26 @@
   var GEOJSON_PATH = 'data/pa_counties.json';
   var MAP_PANEL_KEY = 'win_map_panel_open'; // localStorage collapse persistence
 
+  // ── CWD zone check data paths ──────────────────────────────────────────
+  // Vendored snapshots of the PA Game Commission CWD FeatureServer (see
+  // docs/data/CWD_ZONES_REFRESH.md for the fetch date, source queries, and
+  // known limitations of vendoring a point-in-time copy of already-retired
+  // records). Fetched the SAME way GEOJSON_PATH is fetched above -- plain
+  // same-origin relative fetch, no CDN, works from file:// and GitHub Pages.
+  var CWD_DMA_ORIGINAL_PATH = 'data/cwd_dma_original.json'; // 8 last-in-effect DMAs (end_date 2026-06-30)
+  var CWD_DMA5_PATH = 'data/cwd_dma5_historical.json';      // DMA 5 only (retired earlier, 2026-06-04)
+  var CWD_ESTABLISHED_AREA_PATH = 'data/cwd_established_area.json'; // current official layer (302)
+  // Recorded fetch date for the vendored CWD snapshots above (see
+  // docs/data/CWD_ZONES_REFRESH.md). Surfaced in the zone-check result so the
+  // dispatcher can judge staleness of the retired-DMA data.
+  var CWD_ZONES_SNAPSHOT_DATE = '2026-08-11';
+  // Proximity band: a point OUTSIDE every zone but within this distance of a
+  // zone boundary is reported as "near" rather than a clean miss. Chosen
+  // because DMA boundaries commonly follow roads/township lines where people
+  // live -- a small distance on the map is not a safe margin on the ground.
+  // Over-flagging near a boundary is the safe direction; under-flagging is not.
+  var CWD_NEAR_BOUNDARY_MI = 2;
+
   // Threshold values relocated to messages.js (MSG.thresholds) so the numeric
   // tuning knobs live in one editable place. Behavior is unchanged: these are
   // still the FALLBACK defaults when data/config.json omits a value.
@@ -94,6 +114,13 @@
     widenCounty: null,      // Tier 1 county carried into Tier 2 as exclude_county
     mapBuilt: false,        // true once the SVG choropleth is drawn
     geojson: null,          // parsed pa_counties.json (cached for the Leaflet WIN-area overlay)
+    // CWD zone check cache. null = not yet loaded. 'failed' = load attempted
+    // and failed (fetch error, bad HTTP status, bad JSON, or missing/empty
+    // features) -- this is a DISTINCT state from "not yet loaded" so a failed
+    // load is never silently retried into looking like a fresh unloaded state
+    // mid-render. An object = { dmaOriginal, dma5, establishedArea } parsed
+    // FeatureCollections, cached for the session (mirrors state.geojson).
+    cwdZones: null,
     mapAreas: {},           // area-string -> array of county-path <path> nodes
     mapCounties: {},        // county name -> its county-path <path> node
     countyCentroids: {},    // county name -> { lat, lon } area-weighted centroid (from geojson)
@@ -5077,17 +5104,21 @@
   }
 
   // ════════════════════════════════════════════════════════════════════
-  //  CWD LOCATION CONTEXT LINK — Tier-2 only
-  //  PGC retired the numbered DMA system effective 2026-06-30 (every record
-  //  in the CWD FeatureServer's layer 300 now carries dma_status='I'), and
-  //  PGC publishes no machine-readable WMU→CWD-rule-status mapping to
-  //  replace it (see docs/DMA_TO_WMU_MIGRATION_SCOPE.md). There is no data
-  //  source left that can honestly answer "does this location have active
-  //  CWD rules" by automated lookup, so this dispatcher no longer tries.
+  //  CWD LOCATION CONTEXT LINK — Tier-2 only, ALWAYS shown as a fallback
+  //  PGC officially retired the numbered DMA system effective 2026-06-30 and
+  //  replaced it with a single, much smaller Established Area. BUT: the
+  //  owner confirmed directly with his rehabber AND by phone with the PA
+  //  Game Commission dispatch office that field staff are STILL enforcing the
+  //  retired DMA footprint -- "I am stuck using the old info until the system
+  //  filters down to the boots on the ground level." So checkCwdZone() below
+  //  restores an automated check against the RETIRED DMA boundaries (the ones
+  //  actually being enforced) alongside the current official Established
+  //  Area, clearly distinguished (see docs/DMA_TO_WMU_MIGRATION_SCOPE.md).
   //
-  //  Instead, #dma-map-link is kept updated with the animal's coordinates so
-  //  it deep-links into PGC's own CWD Interactive Map for that location. This
-  //  is LOCATION CONTEXT ONLY -- it never asserts a compliance verdict.
+  //  #dma-map-link is kept as the ALWAYS-AVAILABLE fallback deep link into
+  //  PGC's own CWD Interactive Map for the resolved coordinate. It stays
+  //  visible even when checkCwdZone() succeeds, and is the ONLY thing shown
+  //  when the automated check fails -- see the fail-loud contract below.
   // ════════════════════════════════════════════════════════════════════
   function updateCwdMapLink(agg) {
     var link = $('#dma-map-link');
@@ -5098,6 +5129,292 @@
     if (!hasCoords) return;
     link.href = 'https://pagame.maps.arcgis.com/apps/webappviewer/index.html?id=c9c7c8912356450fa77fc34d30b131fb&marker=' +
       agg.animal_lon + ',' + agg.animal_lat + '&level=12&showLayers=NEW_PUBLIC_718';
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  //  CWD ZONE CHECK — point-in-polygon against vendored PGC boundaries
+  //  Algorithm ported (not reinvented) from worker/src/pip.js's even-odd
+  //  ray-casting, which is already proven against PA polygon data of the
+  //  same style (no interior holes). Kept as a pure client-side module so
+  //  this works unmodified from file:// and GitHub Pages, and so the
+  //  "no fetch to the CWD FeatureServer during a lookup" test contract holds
+  //  -- the ONLY network fetch here is to this site's own vendored JSON.
+  // ════════════════════════════════════════════════════════════════════
+
+  function cwdPointInRing(lon, lat, ring) {
+    if (!Array.isArray(ring) || ring.length < 3) return false;
+    var inside = false;
+    for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      var xi = ring[i][0], yi = ring[i][1];
+      var xj = ring[j][0], yj = ring[j][1];
+      var intersect = ((yi > lat) !== (yj > lat)) &&
+        (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  function cwdPointInPolygon(lon, lat, polygon) {
+    if (!Array.isArray(polygon) || !polygon.length) return false;
+    return cwdPointInRing(lon, lat, polygon[0]);
+  }
+
+  function cwdPointInGeometry(lon, lat, geometry) {
+    if (!geometry) return false;
+    if (geometry.type === 'Polygon') return cwdPointInPolygon(lon, lat, geometry.coordinates);
+    if (geometry.type === 'MultiPolygon') {
+      var polys = Array.isArray(geometry.coordinates) ? geometry.coordinates : [];
+      for (var p = 0; p < polys.length; p++) {
+        if (cwdPointInPolygon(lon, lat, polys[p])) return true;
+      }
+      return false;
+    }
+    return false;
+  }
+
+  // Approximate planar distance in MILES from (lon,lat) to the nearest vertex
+  // OR outer-ring segment midpoint of `geometry`. This is NOT a true
+  // point-to-segment distance -- it is a cheap, deliberately-wide sampling
+  // that treats every ring vertex and every ring-segment midpoint as a probe
+  // point. For the short, mostly-straight boundary segments in this dataset
+  // this closes the gap a vertex-only check would have on a long straight
+  // edge, but it can still OVERSTATE true distance to an unusually long
+  // segment's true closest point. That direction of error (reporting FARTHER
+  // than reality) is the unsafe direction, so callers should treat the
+  // CWD_NEAR_BOUNDARY_MI cutoff as a floor, not a guarantee -- when a result
+  // lands just outside the band, the honest answer is still "confirm with
+  // PGC", not a hard guarantee of safety.
+  function cwdDistanceToGeometryMi(lon, lat, geometry) {
+    if (!geometry) return Infinity;
+    var milesPerDegLat = 69.0;
+    var milesPerDegLon = 69.1 * Math.cos(lat * Math.PI / 180);
+    var best = Infinity;
+
+    function probeRing(ring) {
+      if (!Array.isArray(ring) || ring.length < 2) return;
+      var pts = ring;
+      for (var i = 0; i < pts.length; i++) {
+        var vx = pts[i][0], vy = pts[i][1];
+        var dLon = (vx - lon) * milesPerDegLon;
+        var dLat = (vy - lat) * milesPerDegLat;
+        var d = Math.sqrt(dLon * dLon + dLat * dLat);
+        if (d < best) best = d;
+      }
+      // Segment midpoints -- closes the gap a vertex-only sample would miss
+      // on a long straight edge (see function comment above).
+      for (var s = 0; s < pts.length - 1; s++) {
+        var mx = (pts[s][0] + pts[s + 1][0]) / 2;
+        var my = (pts[s][1] + pts[s + 1][1]) / 2;
+        var mdLon = (mx - lon) * milesPerDegLon;
+        var mdLat = (my - lat) * milesPerDegLat;
+        var md = Math.sqrt(mdLon * mdLon + mdLat * mdLat);
+        if (md < best) best = md;
+      }
+    }
+
+    function probePolygon(polygon) {
+      if (!Array.isArray(polygon) || !polygon.length) return;
+      probeRing(polygon[0]); // outer ring only, matching cwdPointInPolygon
+    }
+
+    if (geometry.type === 'Polygon') {
+      probePolygon(geometry.coordinates);
+    } else if (geometry.type === 'MultiPolygon') {
+      var polys = Array.isArray(geometry.coordinates) ? geometry.coordinates : [];
+      for (var p = 0; p < polys.length; p++) probePolygon(polys[p]);
+    }
+    return best;
+  }
+
+  // Validate a fetched CWD FeatureCollection has the shape checkCwdZone()
+  // needs. Returns true only for a non-empty features array of Polygon /
+  // MultiPolygon geometries -- ANY deviation (missing features, empty array,
+  // wrong type) is treated as a load failure by the caller, never silently
+  // tolerated as "zero zones found".
+  function cwdIsValidFeatureCollection(fc) {
+    if (!fc || !Array.isArray(fc.features) || fc.features.length === 0) return false;
+    for (var i = 0; i < fc.features.length; i++) {
+      var g = fc.features[i] && fc.features[i].geometry;
+      if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) return false;
+    }
+    return true;
+  }
+
+  function cwdFetchJson(path) {
+    return fetch(path, { cache: 'no-store' }).then(function (resp) {
+      if (!resp.ok) throw new Error('HTTP ' + resp.status + ' for ' + path);
+      return resp.json();
+    });
+  }
+
+  // Loads and validates the 3 vendored CWD FeatureCollections, caching the
+  // result on state.cwdZones. On ANY failure (network error, bad status, bad
+  // JSON, missing/empty/malformed features) state.cwdZones is set to the
+  // string 'failed' -- a state distinct from null (not-yet-loaded) so a
+  // failed load is never mistaken for "not yet tried" on a later render.
+  // Returns a Promise resolving to state.cwdZones (either the loaded object
+  // or 'failed'); never rejects, so callers don't need their own catch.
+  function loadCwdZones() {
+    if (state.cwdZones && state.cwdZones !== 'failed') {
+      return Promise.resolve(state.cwdZones);
+    }
+    return Promise.all([
+      cwdFetchJson(CWD_DMA_ORIGINAL_PATH),
+      cwdFetchJson(CWD_DMA5_PATH),
+      cwdFetchJson(CWD_ESTABLISHED_AREA_PATH)
+    ]).then(function (results) {
+      var dmaOriginal = results[0], dma5 = results[1], establishedArea = results[2];
+      if (!cwdIsValidFeatureCollection(dmaOriginal) ||
+          !cwdIsValidFeatureCollection(dma5) ||
+          !cwdIsValidFeatureCollection(establishedArea)) {
+        state.cwdZones = 'failed';
+        return state.cwdZones;
+      }
+      state.cwdZones = { dmaOriginal: dmaOriginal, dma5: dma5, establishedArea: establishedArea };
+      return state.cwdZones;
+    }).catch(function () {
+      state.cwdZones = 'failed';
+      return state.cwdZones;
+    });
+  }
+
+  // Core zone check. Returns a Promise resolving to:
+  //   { checkFailed: true }                                   -- data unavailable
+  //   { checkFailed: false, insideDmas: [2,3], nearDma: null, dma5Hit: bool,
+  //     insideEstablishedArea: bool, nearEstablishedArea: bool }
+  // insideDmas is a de-duplicated array of DMA numbers from the 8-record
+  // last-in-effect set ONLY (never the 37-record version history -- the
+  // vendored file itself contains only those 8, so there is nothing else to
+  // accidentally match). nearDma is set (a single DMA number) only when the
+  // point is OUTSIDE every original DMA but within CWD_NEAR_BOUNDARY_MI of
+  // one; insideDmas and nearDma are mutually exclusive per-DMA by construction.
+  function checkCwdZone(lat, lon) {
+    if (typeof lat !== 'number' || typeof lon !== 'number' || !isFinite(lat) || !isFinite(lon)) {
+      return Promise.resolve({ checkFailed: true });
+    }
+    return loadCwdZones().then(function (zones) {
+      if (zones === 'failed') return { checkFailed: true };
+
+      var insideDmas = [];
+      var nearDma = null;
+      var nearDmaDist = Infinity;
+      zones.dmaOriginal.features.forEach(function (f) {
+        var dma = f.properties ? f.properties.dma : null;
+        if (cwdPointInGeometry(lon, lat, f.geometry)) {
+          if (insideDmas.indexOf(dma) === -1) insideDmas.push(dma);
+        } else if (insideDmas.length === 0) {
+          var d = cwdDistanceToGeometryMi(lon, lat, f.geometry);
+          if (d <= CWD_NEAR_BOUNDARY_MI && d < nearDmaDist) {
+            nearDmaDist = d;
+            nearDma = dma;
+          }
+        }
+      });
+      // A literal "inside" hit always wins over a "near" flag on the SAME set.
+      if (insideDmas.length > 0) { nearDma = null; }
+
+      var dma5Feature = zones.dma5.features[0];
+      var dma5Hit = cwdPointInGeometry(lon, lat, dma5Feature.geometry);
+
+      var eaFeature = zones.establishedArea.features[0];
+      var insideEstablishedArea = cwdPointInGeometry(lon, lat, eaFeature.geometry);
+      var nearEstablishedArea = false;
+      if (!insideEstablishedArea) {
+        var eaDist = cwdDistanceToGeometryMi(lon, lat, eaFeature.geometry);
+        nearEstablishedArea = eaDist <= CWD_NEAR_BOUNDARY_MI;
+      }
+
+      return {
+        checkFailed: false,
+        insideDmas: insideDmas,
+        nearDma: nearDma,
+        dma5Hit: dma5Hit,
+        insideEstablishedArea: insideEstablishedArea,
+        nearEstablishedArea: nearEstablishedArea
+      };
+    });
+  }
+
+  // Renders the #cwd-zone-status block from a checkCwdZone() result. Every
+  // branch either names a specific zone/near-zone hit or explicitly says
+  // "confirm with PGC" -- there is NO branch that renders a bare green
+  // all-clear, and the checkFailed branch NEVER falls through to the
+  // "neither" wording (fail LOUD, never fail clear).
+  function renderCwdZoneStatus(result) {
+    var el = $('#cwd-zone-status');
+    if (!el) return;
+    var CZ = MSG.cwdZone;
+    var html = '';
+
+    if (!result || result.checkFailed) {
+      el.className = 'cwd-zone-status cwd-zone-failed';
+      html = '<p class="cwd-zone-line cwd-zone-line-failed">' + escapeHtml(CZ.checkFailed) + '</p>';
+      el.innerHTML = html;
+      el.style.display = 'block';
+      return;
+    }
+
+    var lines = [];
+    var anyHit = false;
+
+    if (result.insideDmas.length > 0) {
+      anyHit = true;
+      lines.push('<p class="cwd-zone-line cwd-zone-line-dma">' +
+        escapeHtml(fmt(CZ.insideDma, { dmas: result.insideDmas.slice().sort(function (a, b) { return a - b; }).join(', ') })) +
+        '</p>');
+    } else if (result.nearDma != null) {
+      anyHit = true;
+      lines.push('<p class="cwd-zone-line cwd-zone-line-near-dma">' +
+        escapeHtml(fmt(CZ.nearDma, { dma: result.nearDma })) + '</p>');
+    }
+
+    if (result.dma5Hit) {
+      anyHit = true;
+      lines.push('<p class="cwd-zone-line cwd-zone-line-dma5">' + escapeHtml(CZ.insideDma5) + '</p>');
+    }
+
+    if (result.insideEstablishedArea) {
+      anyHit = true;
+      lines.push('<p class="cwd-zone-line cwd-zone-line-ea">' + escapeHtml(CZ.insideEstablishedArea) + '</p>');
+    } else if (result.nearEstablishedArea) {
+      anyHit = true;
+      lines.push('<p class="cwd-zone-line cwd-zone-line-near-ea">' + escapeHtml(CZ.nearEstablishedArea) + '</p>');
+    }
+
+    if (!anyHit) {
+      lines.push('<p class="cwd-zone-line cwd-zone-line-neither">' + escapeHtml(CZ.neither) + '</p>');
+    }
+
+    lines.push('<p class="cwd-zone-line cwd-zone-line-caveat">' + escapeHtml(CZ.precisionCaveat) + '</p>');
+    lines.push('<p class="cwd-zone-line cwd-zone-line-snapshot">' +
+      escapeHtml(fmt(CZ.snapshotNote, { date: CWD_ZONES_SNAPSHOT_DATE })) + '</p>');
+
+    el.className = 'cwd-zone-status' + (anyHit ? ' cwd-zone-hit' : ' cwd-zone-clear');
+    el.innerHTML = lines.join('');
+    el.style.display = 'block';
+  }
+
+  // Orchestrates the check + render for the current aggregate's resolved
+  // animal coordinate. Any thrown/rejected step still renders the fail-loud
+  // branch -- this function's own promise chain has a final .catch() so a
+  // bug here can never leave the block silently blank (which a dispatcher
+  // could misread as "nothing to report").
+  function updateCwdZoneStatus(agg) {
+    var el = $('#cwd-zone-status');
+    if (!el) return;
+    var hasCoords = agg && typeof agg.animal_lat === 'number' &&
+                    typeof agg.animal_lon === 'number' &&
+                    isFinite(agg.animal_lat) && isFinite(agg.animal_lon);
+    if (!hasCoords) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    // Clear any PRIOR address's result synchronously, before the async check
+    // below resolves -- otherwise a stale verdict for a different location
+    // could still be on screen for a moment, which is exactly the kind of
+    // misleading state this feature exists to avoid.
+    el.style.display = 'none';
+    el.innerHTML = '';
+    checkCwdZone(agg.animal_lat, agg.animal_lon)
+      .then(renderCwdZoneStatus)
+      .catch(function () { renderCwdZoneStatus({ checkFailed: true }); });
   }
 
   function renderAggregate(agg, ctx) {
@@ -5434,6 +5751,7 @@
     renderNearestRehabbers(pickRehabberOrigin(agg, ctx));
     renderTier2Map(agg, pickRehabberOrigin(agg, ctx), ctx);
     updateCwdMapLink(agg);
+    updateCwdZoneStatus(agg);
     try {
       renderTier2CrossPostButton(agg, animalArea);
     } catch (e) { console.warn('tier2 cross-post button error:', e); }

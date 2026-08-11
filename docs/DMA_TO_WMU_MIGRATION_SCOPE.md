@@ -3,6 +3,38 @@
 > Status: research/decision doc. No code changes. Companion to the fail-safe fix in
 > commit `8ebdcf9` (`fix(dma): fail-safe on empty DMA query result instead of confident 'clear'`).
 
+## 2026-08 addendum: the automated DMA check was restored — field reality overrides the official retirement
+
+Section 4 below recommended removing the automated DMA check, and that removal shipped in
+commit `3d4a9ce`. **It has since been restored** (see `docs/data/CWD_ZONES_REFRESH.md`), for a
+reason this doc's own §2/§5 reasoning did not anticipate: **the official retirement date is not
+the date the rule actually stopped being enforced on the ground.**
+
+The owner reported that his rehabber was told directly by PGC field staff that fawn/deer rehab
+from inside the **original, numbered DMA zones** is still being refused — and the owner then
+called the PA Game Commission's own state dispatch office, who gave the same answer, still
+citing the original DMA locations. In the owner's words: *"I am stuck using the old info until
+the system filters down to the boots on the ground level."*
+
+This does not contradict §2's finding that PGC has published no current WMU-level rule-status
+mapping — that finding still stands, and no WMU lookup was built. What changed is the target of
+the check: instead of trying to answer "what does the *current* official designation say" (a
+question §2 correctly identified as unanswerable in machine-readable form for WMUs), the
+restored check answers a narrower, answerable question: **"is this point inside the boundary PGC
+field staff are still actually citing"** — the retired DMA polygons, which are still present and
+queryable in the CWD FeatureServer even though PGC's own status flags on them (`dma_status`) no
+longer reflect current policy. That boundary data is vendored (not live-queried) into this repo;
+see `docs/data/CWD_ZONES_REFRESH.md` for the source records, the fail-loud posture (§5 below is
+still the operative safety principle — this restoration adds a zone hit, it does not add a "clear"
+state), and the known limitation that PGC could alter or delete those retired records at any time
+without this repo noticing.
+
+The current official Established Area (layer 302) is reported **separately and additionally**,
+never merged with or substituted for the original-DMA result, so the dispatcher can see both "what
+PGC enforces today in practice" and "the current official map" side by side.
+
+---
+
 ## Feasibility verdict
 
 **No.** A correct, honest, fully-automated "does this address fall in an area with active
