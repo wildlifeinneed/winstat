@@ -5658,6 +5658,22 @@
       })));
     }
 
+    // Search-radius subtitle, directly under the "Volunteer Summary" section
+    // title (.actions-header is static HTML; this is the FIRST thing written
+    // into #agg-actions). Sourced from ctx.radius -- the value CAPTURED at
+    // the moment this search was submitted (onAddressSubmit snapshots
+    // clampRadius($('#radius-mi').value) into ctx before the fetch) -- NEVER
+    // read live from the input here. This guarantees the subtitle always
+    // describes the radius that actually produced the results on screen,
+    // even if the dispatcher edits the input afterward without re-running
+    // the lookup (the same scenario .is-stale exists to flag). Rendered as a
+    // normal child of #agg-actions, which itself is a direct child of
+    // #address-result, so .is-stale > *:not(.stale-notice) dims it along
+    // with everything else when the results go stale -- no separate wiring.
+    var radiusHtml = (ctx && typeof ctx.radius === 'number' && isFinite(ctx.radius))
+      ? '<div class="agg-radius-subtitle">' + escapeHtml(fmt(T2.radiusSubtitle, { radius: ctx.radius })) + '</div>'
+      : '';
+
     var premiseHtml = '';
     if (ctx && typeof ctx.issue === 'string') {
       var P_ISSUE_LABELS = { capture: 'Capture', transport: 'Transport' };
@@ -5666,7 +5682,7 @@
       premiseHtml = '<div class="agg-premise">' + escapeHtml(fmt(T2.premiseLine, { issue: pIssueLabel, rvsLabel: pRvsLabel })) + '</div>';
     }
 
-    $('#agg-actions').innerHTML = premiseHtml + actions.join('');
+    $('#agg-actions').innerHTML = radiusHtml + premiseHtml + actions.join('');
     renderContextList(agg, ctx);
     renderNearestRehabbers(pickRehabberOrigin(agg, ctx));
     renderTier2Map(agg, pickRehabberOrigin(agg, ctx), ctx);

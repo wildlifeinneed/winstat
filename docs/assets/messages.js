@@ -365,6 +365,14 @@
       // Premise re-statement at the top of #agg-actions. {issue} = issue label
       // (e.g. "Transport"), {rvsLabel} = "RVS" or "non-RVS".
       premiseLine: '{issue} of {rvsLabel} Animal',
+      // Search-radius subtitle shown directly under the "Volunteer Summary"
+      // section title, ABOVE premiseLine. {radius} MUST come from the
+      // ctx.radius captured at the moment THIS search was submitted (see
+      // renderAggregate) -- never from reading the live #radius-mi input --
+      // so it always describes the radius that actually produced the
+      // results on screen, even if the input is edited afterward without
+      // re-running the lookup.
+      radiusSubtitle: 'Search radius: {radius} miles',
       configMalformed: 'Config file is malformed; using defaults.',
       snapshotUnavailable: 'Snapshot not available — run refresh_monday.py',
       // {ts} = formatted timestamp.

@@ -3419,6 +3419,83 @@ async function runPremiseLineNonRvsTransport() {
   console.log('PASS: Tier 2 premise line renders "Transport of non-RVS Animal".');
 }
 
+// ── RADIUS SUBTITLE: Volunteer Summary section shows the radius that
+//    ACTUALLY PRODUCED the displayed results, sourced from ctx.radius
+//    (captured at submit time), never the live #radius-mi input value. ─────
+async function runTier2RadiusSubtitle() {
+  const agg = {
+    total_in_range: 3,
+    role_counts: { 'C&T': 3, 'RVS C&T': 0, 'COURIER': 0 },
+    win_areas: ['10'],
+    out_of_county: [],
+  };
+  const { doc, window } = await driveTier2(agg, 'Allegheny', { rvs: false, issue: 'transport' });
+
+  // 1. Subtitle renders directly under the "Volunteer Summary" title: the
+  //    title (.actions-header) and the subtitle's container (#agg-actions)
+  //    are adjacent siblings, and the subtitle is the FIRST child written
+  //    into #agg-actions (before the issue/RVS premise line and every
+  //    action line).
+  const header = doc.querySelector('.actions-header');
+  assert.ok(header && header.textContent.trim() === 'Volunteer Summary',
+    'Volunteer Summary section title exists');
+  const aggActions = doc.getElementById('agg-actions');
+  assert.strictEqual(header.nextElementSibling, aggActions,
+    '#agg-actions is the sibling immediately after the "Volunteer Summary" title');
+  const subtitleEl = aggActions.querySelector('.agg-radius-subtitle');
+  assert.ok(subtitleEl, '.agg-radius-subtitle element exists in #agg-actions');
+  assert.strictEqual(aggActions.firstElementChild, subtitleEl,
+    'the radius subtitle is the FIRST element under the section title (ahead of the issue/RVS premise line)');
+
+  // driveTier2() sets #radius-mi to '50' before clicking #address-btn, so the
+  // radius that PRODUCED these results is 50 -- this is the value that must
+  // show, regardless of anything that happens to the input afterward.
+  assert.strictEqual(subtitleEl.textContent.trim(), 'Search radius: 50 miles',
+    'radius subtitle reads "Search radius: 50 miles" (got: "' + subtitleEl.textContent.trim() + '")');
+
+  // 2. REGRESSION GUARD: editing #radius-mi AFTER results are on screen, 
+  //    WITHOUT re-running the lookup, must NOT change the subtitle. The
+  //    subtitle must keep describing the search that actually ran (50),
+  //    not whatever number now sits in the input box.
+  const radiusInput = doc.getElementById('radius-mi');
+  radiusInput.value = '250';
+  radiusInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+  radiusInput.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+  assert.strictEqual(radiusInput.value, '250', 'the input itself did change to 250 (sanity check)');
+  assert.strictEqual(doc.querySelector('.agg-radius-subtitle').textContent.trim(), 'Search radius: 50 miles',
+    'editing #radius-mi WITHOUT re-running the lookup must NOT change the rendered subtitle -- ' +
+    'it must keep showing the radius that produced the results on screen (50), not the live input (250)');
+
+  // 3. STALE PARTICIPATION: the subtitle is a normal child of #agg-actions,
+  //    which is itself a direct child of #address-result, so when the
+  //    surface is flagged stale, the SAME .is-stale > *:not(.stale-notice)
+  //    CSS rule dims it along with the rest of the results -- it must not
+  //    remain a plain, still-authoritative-looking child outside that dimmed
+  //    set. Trigger staleness the same way the app does: change the shared
+  //    RVS radio (a real stale-triggering input per the .is-stale doc
+  //    comment) after results are on screen.
+  const rvsYes = doc.querySelector('input[name="rvs"][value="yes"]');
+  assert.ok(rvsYes, 'rvs=yes radio exists');
+  rvsYes.checked = true;
+  rvsYes.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flush(window);
+  const resultSection = doc.getElementById('address-result');
+  assert.ok(resultSection.classList.contains('is-stale'),
+    'changing a stale-triggering input (rvs) after results are on screen flags #address-result .is-stale');
+  const subtitleAfterStale = doc.querySelector('.agg-radius-subtitle');
+  assert.ok(subtitleAfterStale, 'radius subtitle element still exists once stale (never removed)');
+  assert.strictEqual(subtitleAfterStale.parentElement, aggActions,
+    'radius subtitle stays a normal child of #agg-actions (a direct child of #address-result), ' +
+    'so it is covered by the .is-stale > *:not(.stale-notice) dim rule like the rest of the results');
+  assert.ok(!subtitleAfterStale.classList.contains('stale-notice'),
+    'radius subtitle is not exempted from the stale dim treatment via a .stale-notice class');
+
+  console.log('PASS: Volunteer Summary shows "Search radius: 50 miles" directly under the section ' +
+    'title (sourced from the search that actually ran); editing the radius input afterward without ' +
+    're-running does NOT change it; the subtitle participates in the existing .is-stale dim treatment.');
+}
+
 // ── AVAILABILITY INDICATOR: ctx-row shows avail note + unavail dimming. ─────
 //    When availability_note is empty/null -> no note shown.
 //    When note contains a deny keyword -> row gets .unavail + note text.
@@ -6667,6 +6744,7 @@ async function run() {
   await runTier1FallbackFlag();
   await runPremiseLineRvsCapture();
   await runPremiseLineNonRvsTransport();
+  await runTier2RadiusSubtitle();
   await runTier2LenientPrefersQualified();
   await runTier2QualTagBackcompat();
   await runMapRender();
@@ -6739,7 +6817,7 @@ async function run() {
   await runCrossPostMapMobileFullscreenEscapeKey();
   await runMobileTextInputFontSizeNoZoom();
   await runMapPopupUnavailableLabelNotLowContrastGrey();
-  console.log('\nALL DOM TESTS PASSED (93 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (94 scenarios).');
 }
 
 // ── MAP POPUP "Unavailable" label: same readability complaint, different
