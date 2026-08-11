@@ -3943,6 +3943,15 @@
     var hasAvail = (typeof avail === 'number');
     var availVal = hasAvail ? avail : total;
 
+    // Tier 2's cards start life with the SAME .empty class Tier 1's cards do
+    // (renderCardsForCounty('') on page load adds .empty to every .cap-card,
+    // Tier 1 and Tier 2 alike). Tier 1 removes it the moment a county is
+    // picked; Tier 2 must do the same the moment a real search result is in,
+    // or its counts stay stuck on .cap-card.empty's grey/dim treatment
+    // forever -- the exact "flat grey vs Tier 1's bold dark green" visual gap
+    // this shares one .cap-card CSS rule set to prevent.
+    card.classList.remove('empty');
+
     var availEl = $('.avail', card);
     var totalEl = $('.total', card);
     if (availEl) availEl.textContent = String(availVal);

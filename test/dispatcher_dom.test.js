@@ -3496,6 +3496,45 @@ async function runTier2RadiusSubtitle() {
     're-running does NOT change it; the subtitle participates in the existing .is-stale dim treatment.');
 }
 
+// ── TIER 2 CARDS SHARE TIER 1's .cap-card TREATMENT (no drift) ──────────────
+// Tier 1 and Tier 2 role-summary cards both use the ONE shared .cap-card /
+// .cap-card .num CSS rule (bold var(--green-deep) counts) -- there is no
+// separate Tier-2-only rule set. The visual gap the owner reported (Tier 2
+// counts rendering flat grey) was caused by a JS state bug, not by
+// duplicated CSS: init's renderCardsForCounty('') (no county picked yet)
+// adds .empty to EVERY .cap-card on the page, Tier 1 and Tier 2 alike
+// (.cap-card.empty .num gets var(--text-light), the dim/grey color). Tier
+// 1's own populate function (renderCardsForCounty) removes .empty the
+// moment a county is picked; Tier 2's populate function (renderAggCard) must
+// do the same the moment a real search result lands, or its cards are stuck
+// grey forever even with real numbers in them. This asserts that fix.
+async function runTier2CardsMatchTier1NotEmpty() {
+  const agg = {
+    total_in_range: 5,
+    role_counts: { 'C&T': 3, 'RVS C&T': 1, 'COURIER': 1 },
+    win_areas: ['10'],
+    out_of_county: [],
+  };
+  const { doc } = await driveTier2(agg, 'Allegheny', { rvs: false, issue: 'transport' });
+
+  const t2Cards = Array.prototype.slice.call(doc.querySelectorAll('.cap-card[data-bucket]'));
+  assert.strictEqual(t2Cards.length, 3, 'all 3 Tier 2 role cards exist (C&T, RVS C&T, COURIER)');
+  t2Cards.forEach(function (card) {
+    assert.ok(!card.classList.contains('empty'),
+      'Tier 2 card [data-bucket="' + card.getAttribute('data-bucket') + '"] must not carry .empty ' +
+      'once a real search result has populated it -- .cap-card.empty .num is the flat-grey treatment ' +
+      '(var(--text-light)); it must read bold dark green like Tier 1, via the SAME shared .cap-card rule');
+    // Same class list Tier 1's populated cards end up with (base .cap-card,
+    // no .empty) -- one shared selector, not a second Tier-2-only rule set.
+    assert.strictEqual(card.className, 'cap-card',
+      'Tier 2 card className is exactly "cap-card" (matching Tier 1\'s populated state), got: "' +
+      card.className + '"');
+  });
+
+  console.log('PASS: Tier 2 role-summary cards lose .empty once populated and share Tier 1\'s exact ' +
+    '.cap-card CSS treatment (bold dark green counts) -- no more flat-grey/dim drift between the two tiers.');
+}
+
 // ── AVAILABILITY INDICATOR: ctx-row shows avail note + unavail dimming. ─────
 //    When availability_note is empty/null -> no note shown.
 //    When note contains a deny keyword -> row gets .unavail + note text.
@@ -6745,6 +6784,7 @@ async function run() {
   await runPremiseLineRvsCapture();
   await runPremiseLineNonRvsTransport();
   await runTier2RadiusSubtitle();
+  await runTier2CardsMatchTier1NotEmpty();
   await runTier2LenientPrefersQualified();
   await runTier2QualTagBackcompat();
   await runMapRender();
@@ -6817,7 +6857,7 @@ async function run() {
   await runCrossPostMapMobileFullscreenEscapeKey();
   await runMobileTextInputFontSizeNoZoom();
   await runMapPopupUnavailableLabelNotLowContrastGrey();
-  console.log('\nALL DOM TESTS PASSED (94 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (95 scenarios).');
 }
 
 // ── MAP POPUP "Unavailable" label: same readability complaint, different
