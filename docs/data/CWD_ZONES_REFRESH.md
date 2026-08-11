@@ -9,6 +9,16 @@ and the state dispatch office are still enforcing the retired boundaries in prac
 dispatcher needs to report against BOTH the retired-but-enforced boundary and the current
 official one.
 
+**UI simplification, 2026-08-11 (same day as the fetch below):** the owner cut the rendered
+output down to a strict three-outcome contract — `Location inside DMA Zone {XX}` / `Location not
+within a DMA Zone` / the fail-loud "could not be performed" message. `cwd_established_area.json`
+is **retained on disk, committed, and unchanged** (owner's standing rule: hiding something from
+the UI never means deleting it) but `loadCwdZones()`/`checkCwdZone()` no longer fetch or check it,
+and there is no more distinct "Established Area" outcome, DMA-5 special-case sentence, or
+snapshot-note line in the rendered UI. This is a deliberate scope cut, not data rot — if a future
+reader wants the Established Area check back, the vendored file is still here and still valid as
+of the fetch date below.
+
 ## Files
 
 | File | Contents | Source layer | Raw size | Gzipped |
@@ -32,10 +42,12 @@ totaling ~15,043 sq mi).
 earlier, meaning it was already retired before the rest of the system was. It is neither
 "currently in the last-in-effect set" nor safely ignorable: field staff working from "the
 original DMA locations" may well still reference it too, and the operating principle for this
-whole feature is that over-flagging is the safe direction. So it is vendored as its own file and
-surfaced as its own, separately-labeled result (`dispatcher.js` `dma5Hit`, rendered via
-`MSG.cwdZone.insideDma5`) — **never silently merged into the main DMA list, and never silently
-dropped.**
+whole feature is that over-flagging is the safe direction. So it is vendored as its own file, and
+`checkCwdZone()` checks it separately and folds a hit into the same `insideDmas` list as any other
+DMA — **never silently ignored.** (Note: as of the 2026-08-11 UI simplification above, DMA 5 no
+longer gets a distinct rendered sentence; a hit renders identically to any other DMA, e.g.
+`Location inside DMA Zone 5`. It is still checked against its own separately-vendored file — only
+the special-case wording was removed.)
 
 ## Source queries used to produce this snapshot
 
@@ -116,9 +128,11 @@ while the UI kept printing a number — is exactly the failure mode being traded
 one here: instead of an outage, the risk is silent staleness with no expiry signal.
 
 Mitigations in place:
-- The fetch date (2026-08-11) is recorded in this file and in `CWD_ZONES_SNAPSHOT_DATE` in
-  `dispatcher.js`, and is surfaced to the dispatcher in every zone-check result
-  (`MSG.cwdZone.snapshotNote`) so staleness is visible on every use, not just in documentation.
+- The fetch date (2026-08-11) is recorded in this file. It is **no longer surfaced in the
+  rendered UI** as of the 2026-08-11 simplification noted above (the `CWD_ZONES_SNAPSHOT_DATE`
+  constant and `MSG.cwdZone.snapshotNote` line were removed from `dispatcher.js`/`messages.js`
+  along with the rest of the caveat wording) -- this file remains the source of truth for the
+  fetch date going forward.
 - The refresh procedure above is fully reproducible from raw HTTP requests, so re-vendoring is a
   mechanical exercise, not a research project, if/when someone needs to check for drift.
 
@@ -139,8 +153,12 @@ out of scope for this restoration.
    silently merged or dropped" rule applies to any future DMA in that situation.
 3. Re-run query 3 with the updated `objectIds` list, split into the two DMA files.
 4. Re-run query 4 for the Established Area; confirm `ea_status='A'` still identifies exactly one
-   feature.
-5. Update `CWD_ZONES_SNAPSHOT_DATE` in `docs/assets/dispatcher.js` and the fetch date in this file.
+   feature. (This file is retained/refreshed for provenance even though it is not currently
+   fetched or checked by the UI -- see the "UI simplification" note above.)
+5. Update the fetch date in this file (the "Fetch date of this snapshot" line above and the note
+   in the "UI simplification" section). There is no `CWD_ZONES_SNAPSHOT_DATE` constant or
+   rendered snapshot note anymore (removed in the 2026-08-11 UI simplification) -- this file is
+   the sole place that date lives now.
 6. Re-run the CWD zone check tests (`test/dispatcher_dom.test.js`) — the near-boundary and
    inside/outside fixtures used by those tests are pinned to THIS snapshot's specific geometry;
    a refresh that changes a boundary meaningfully may require updating those fixture coordinates

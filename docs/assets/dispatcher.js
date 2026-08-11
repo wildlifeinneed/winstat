@@ -71,13 +71,14 @@
   // known limitations of vendoring a point-in-time copy of already-retired
   // records). Fetched the SAME way GEOJSON_PATH is fetched above -- plain
   // same-origin relative fetch, no CDN, works from file:// and GitHub Pages.
+  //
+  // docs/data/cwd_established_area.json is intentionally NOT listed here --
+  // the file stays vendored/committed on disk (owner's standing rule:
+  // hiding something from the UI never means deleting it) but is no longer
+  // fetched or checked, per the three-outcome DMA-only contract. See the
+  // "retained but no longer surfaced" note in CWD_ZONES_REFRESH.md.
   var CWD_DMA_ORIGINAL_PATH = 'data/cwd_dma_original.json'; // 8 last-in-effect DMAs (end_date 2026-06-30)
   var CWD_DMA5_PATH = 'data/cwd_dma5_historical.json';      // DMA 5 only (retired earlier, 2026-06-04)
-  var CWD_ESTABLISHED_AREA_PATH = 'data/cwd_established_area.json'; // current official layer (302)
-  // Recorded fetch date for the vendored CWD snapshots above (see
-  // docs/data/CWD_ZONES_REFRESH.md). Surfaced in the zone-check result so the
-  // dispatcher can judge staleness of the retired-DMA data.
-  var CWD_ZONES_SNAPSHOT_DATE = '2026-08-11';
 
   // Threshold values relocated to messages.js (MSG.thresholds) so the numeric
   // tuning knobs live in one editable place. Behavior is unchanged: these are
@@ -112,7 +113,7 @@
     // and failed (fetch error, bad HTTP status, bad JSON, or missing/empty
     // features) -- this is a DISTINCT state from "not yet loaded" so a failed
     // load is never silently retried into looking like a fresh unloaded state
-    // mid-render. An object = { dmaOriginal, dma5, establishedArea } parsed
+    // mid-render. An object = { dmaOriginal, dma5 } parsed
     // FeatureCollections, cached for the session (mirrors state.geojson).
     cwdZones: null,
     mapAreas: {},           // area-string -> array of county-path <path> nodes
@@ -5187,11 +5188,19 @@
     });
   }
 
-  // Loads and validates the 3 vendored CWD FeatureCollections, caching the
-  // result on state.cwdZones. On ANY failure (network error, bad status, bad
-  // JSON, missing/empty/malformed features) state.cwdZones is set to the
-  // string 'failed' -- a state distinct from null (not-yet-loaded) so a
-  // failed load is never mistaken for "not yet tried" on a later render.
+  // Loads and validates the 2 vendored CWD DMA FeatureCollections (original
+  // last-in-effect set + DMA 5), caching the result on state.cwdZones. On
+  // ANY failure (network error, bad status, bad JSON, missing/empty/
+  // malformed features) state.cwdZones is set to the string 'failed' -- a
+  // state distinct from null (not-yet-loaded) so a failed load is never
+  // mistaken for "not yet tried" on a later render.
+  //
+  // docs/data/cwd_established_area.json remains vendored and committed
+  // (owner's standing rule: hiding something from the UI never means
+  // deleting it) but is intentionally NOT fetched here -- the current
+  // three-outcome contract only surfaces original-DMA membership. See
+  // docs/data/CWD_ZONES_REFRESH.md for the retention note.
+  //
   // Returns a Promise resolving to state.cwdZones (either the loaded object
   // or 'failed'); never rejects, so callers don't need their own catch.
   function loadCwdZones() {
@@ -5200,17 +5209,15 @@
     }
     return Promise.all([
       cwdFetchJson(CWD_DMA_ORIGINAL_PATH),
-      cwdFetchJson(CWD_DMA5_PATH),
-      cwdFetchJson(CWD_ESTABLISHED_AREA_PATH)
+      cwdFetchJson(CWD_DMA5_PATH)
     ]).then(function (results) {
-      var dmaOriginal = results[0], dma5 = results[1], establishedArea = results[2];
+      var dmaOriginal = results[0], dma5 = results[1];
       if (!cwdIsValidFeatureCollection(dmaOriginal) ||
-          !cwdIsValidFeatureCollection(dma5) ||
-          !cwdIsValidFeatureCollection(establishedArea)) {
+          !cwdIsValidFeatureCollection(dma5)) {
         state.cwdZones = 'failed';
         return state.cwdZones;
       }
-      state.cwdZones = { dmaOriginal: dmaOriginal, dma5: dma5, establishedArea: establishedArea };
+      state.cwdZones = { dmaOriginal: dmaOriginal, dma5: dma5 };
       return state.cwdZones;
     }).catch(function () {
       state.cwdZones = 'failed';
@@ -5219,17 +5226,20 @@
   }
 
   // Core zone check. Returns a Promise resolving to:
-  //   { checkFailed: true }                                   -- data unavailable
-  //   { checkFailed: false, insideDmas: [2,3], dma5Hit: bool,
-  //     insideEstablishedArea: bool }
-  // insideDmas is a de-duplicated array of DMA numbers from the 8-record
-  // last-in-effect set ONLY (never the 37-record version history -- the
-  // vendored file itself contains only those 8, so there is nothing else to
-  // accidentally match).
+  //   { checkFailed: true }                -- data unavailable
+  //   { checkFailed: false, insideDmas: [2,3] }
+  // insideDmas is a de-duplicated array of DMA numbers, combining the 8
+  // last-in-effect original-DMA records with DMA 5 (checked against its own
+  // separately-vendored file, but reported through the SAME "insideDmas"
+  // list and the SAME wording as any other DMA -- per the owner's
+  // three-outcome contract, DMA 5 is just a DMA number now, no special-case
+  // sentence).
   //
   // This is a pure point-in-polygon membership check: the geocoded
   // coordinate either falls inside a zone or it doesn't. There is no
-  // proximity/near-boundary state -- the result is a plain yes/no per zone.
+  // proximity/near-boundary state and no Established Area check -- the
+  // Established Area snapshot stays vendored on disk but is not part of
+  // this lookup.
   function checkCwdZone(lat, lon) {
     if (typeof lat !== 'number' || typeof lon !== 'number' || !isFinite(lat) || !isFinite(lon)) {
       return Promise.resolve({ checkFailed: true });
@@ -5246,70 +5256,54 @@
       });
 
       var dma5Feature = zones.dma5.features[0];
-      var dma5Hit = cwdPointInGeometry(lon, lat, dma5Feature.geometry);
-
-      var eaFeature = zones.establishedArea.features[0];
-      var insideEstablishedArea = cwdPointInGeometry(lon, lat, eaFeature.geometry);
+      if (cwdPointInGeometry(lon, lat, dma5Feature.geometry)) {
+        var dma5Num = dma5Feature.properties ? dma5Feature.properties.dma : 5;
+        if (insideDmas.indexOf(dma5Num) === -1) insideDmas.push(dma5Num);
+      }
 
       return {
         checkFailed: false,
-        insideDmas: insideDmas,
-        dma5Hit: dma5Hit,
-        insideEstablishedArea: insideEstablishedArea
+        insideDmas: insideDmas
       };
     });
   }
 
-  // Renders the #cwd-zone-status block from a checkCwdZone() result. Every
-  // branch either names a specific zone hit or explicitly says "confirm
-  // with PGC" -- there is NO branch that renders a bare green all-clear,
-  // and the checkFailed branch NEVER falls through to the "neither" wording
-  // (fail LOUD, never fail clear). The result is a plain yes/no per zone --
-  // there is no proximity/near-boundary state and no location-quality
-  // caveat of any kind.
+  // Renders the #cwd-zone-status block from a checkCwdZone() result. Exactly
+  // three possible outcomes, per the owner's contract:
+  //   1. inside one or more DMAs -> 'Location inside DMA Zone {XX}'
+  //      (all matched DMA numbers named, comma-joined, ascending -- never
+  //      silently picking just the first when more than one matches)
+  //   2. not inside any DMA -> the bare 'Location not within a DMA Zone'
+  //      string, with no trailing sentence
+  //   3. data failed to load -> the fail-loud copy below (never falls
+  //      through to outcome 2 -- fail LOUD, never fail clear)
+  // No proximity/near-edge wording, no precision/approximate-location
+  // wording, no PGC-enforcement sentence, no snapshot note, no Established
+  // Area outcome -- all removed from the rendered output per the owner's
+  // simplification.
   function renderCwdZoneStatus(result) {
     var el = $('#cwd-zone-status');
     if (!el) return;
     var CZ = MSG.cwdZone;
-    var html = '';
 
     if (!result || result.checkFailed) {
       el.className = 'cwd-zone-status cwd-zone-failed';
-      html = '<p class="cwd-zone-line cwd-zone-line-failed">' + escapeHtml(CZ.checkFailed) + '</p>';
-      el.innerHTML = html;
+      el.innerHTML = '<p class="cwd-zone-line cwd-zone-line-failed">' + escapeHtml(CZ.checkFailed) + '</p>';
       el.style.display = 'block';
       return;
     }
 
-    var lines = [];
-    var anyHit = false;
-
     if (result.insideDmas.length > 0) {
-      anyHit = true;
       var dmaList = result.insideDmas.slice().sort(function (a, b) { return a - b; }).join(', ');
-      lines.push('<p class="cwd-zone-line cwd-zone-line-dma">' +
-        escapeHtml(fmt(CZ.insideDma, { dmas: dmaList })) + '</p>');
+      el.className = 'cwd-zone-status cwd-zone-hit';
+      el.innerHTML = '<p class="cwd-zone-line cwd-zone-line-dma">' +
+        escapeHtml(fmt(CZ.insideDma, { dmas: dmaList })) + '</p>';
+      el.style.display = 'block';
+      return;
     }
 
-    if (result.dma5Hit) {
-      anyHit = true;
-      lines.push('<p class="cwd-zone-line cwd-zone-line-dma5">' + escapeHtml(CZ.insideDma5) + '</p>');
-    }
-
-    if (result.insideEstablishedArea) {
-      anyHit = true;
-      lines.push('<p class="cwd-zone-line cwd-zone-line-ea">' + escapeHtml(CZ.insideEstablishedArea) + '</p>');
-    }
-
-    if (!anyHit) {
-      lines.push('<p class="cwd-zone-line cwd-zone-line-neither">' + escapeHtml(CZ.neither) + '</p>');
-    }
-
-    lines.push('<p class="cwd-zone-line cwd-zone-line-snapshot">' +
-      escapeHtml(fmt(CZ.snapshotNote, { date: CWD_ZONES_SNAPSHOT_DATE })) + '</p>');
-
-    el.className = 'cwd-zone-status' + (anyHit ? ' cwd-zone-hit' : ' cwd-zone-clear');
-    el.innerHTML = lines.join('');
+    el.className = 'cwd-zone-status cwd-zone-clear';
+    el.innerHTML = '<p class="cwd-zone-line cwd-zone-line-neither">' + escapeHtml(CZ.neither) + '</p>';
     el.style.display = 'block';
   }
 

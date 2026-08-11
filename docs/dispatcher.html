@@ -1178,11 +1178,11 @@
 
     /* ─── CWD zone check (checkCwdZone/renderCwdZoneStatus, dispatcher.js) ─
        cwd-zone-hit / cwd-zone-clear / cwd-zone-failed are mutually exclusive
-       top-level states. "hit" (amber) covers inside-DMA, inside-Established-
-       Area -- ANY reason to pause and confirm with PGC. "clear" (also amber,
-       NOT green) covers the "inside neither" case -- deliberately not the
-       green treatment .resolved-location uses, so a clean miss never reads
-       as an all-clear. "failed" (red) is the fail-loud error path. */
+       top-level states. "hit" (amber) covers an inside-DMA result. "clear"
+       (also amber, NOT green) covers the "not within a DMA Zone" case --
+       deliberately not the green treatment .resolved-location uses, so a
+       clean miss never reads as an all-clear. "failed" (red) is the fail-
+       loud error path. */
     .cwd-zone-status {
       margin-bottom: 12px;
       padding: 10px 12px;
@@ -1204,13 +1204,7 @@
       border-left: 4px solid var(--red);
       color: var(--red);
     }
-    .cwd-zone-status .cwd-zone-line { margin: 0 0 6px 0; }
-    .cwd-zone-status .cwd-zone-line:last-child { margin-bottom: 0; }
-    .cwd-zone-status .cwd-zone-line-snapshot {
-      font-size: 12px;
-      color: var(--text-muted);
-      font-style: italic;
-    }
+    .cwd-zone-status .cwd-zone-line { margin: 0; }
 
     /* ─── Feature status strip (under header) ─────────────────── */
     .status-strip {

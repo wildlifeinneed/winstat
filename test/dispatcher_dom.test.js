@@ -5689,14 +5689,12 @@ async function runNoFetchToCwdFeatureServer() {
   console.log('PASS: no fetch/XHR is issued to the CWD FeatureServer during a lookup.');
 }
 
-// ── CWD zone check: inside an original (retired-but-still-enforced) DMA ───
+// ── CWD zone check: inside an original DMA -> bare "Location inside DMA
+//    Zone {XX}" ─────────────────────────────────────────────────────────
 // Coordinate verified directly against the vendored geometry (see
 // docs/data/CWD_ZONES_REFRESH.md): a COMFORTABLY interior point in DMA 2
 // (~37.7 mi from the nearest boundary vertex/segment -- deliberately far
-// from the vertex-adjacent fragility zone), which also happens to fall
-// inside the current Established Area (the two footprints genuinely
-// overlap here; this is real geography, not a test artifact -- the entire
-// Established Area sits inside the retired DMA 2 footprint).
+// from the vertex-adjacent fragility zone).
 async function runCwdZoneInsideOriginalDma() {
   const agg = {
     total_in_range: 3,
@@ -5731,22 +5729,83 @@ async function runCwdZoneInsideOriginalDma() {
   assert.ok(el, '#cwd-zone-status element exists');
   assert.notStrictEqual(el.style.display, 'none', 'zone status is visible after a resolved lookup');
   assert.ok(el.className.indexOf('cwd-zone-hit') !== -1, 'zone status carries the "hit" state class');
-  assert.ok(el.textContent.indexOf('DMA 2') !== -1,
-    'names DMA 2 specifically (got: "' + el.textContent + '")');
-  assert.ok(/still.*(enforc|refus)/i.test(el.textContent) || /refused/i.test(el.textContent),
-    'copy conveys PGC field staff/state office are still enforcing this boundary');
-  assert.ok(el.textContent.indexOf('Established Area') !== -1,
-    'ALSO reports the current Established Area separately (real overlap at this point)');
+  assert.strictEqual(el.textContent.trim(), 'Location inside DMA Zone 2',
+    'renders the EXACT bare approved hit string with the matched DMA number, nothing else (got: "' + el.textContent + '")');
   assert.strictEqual(doc.getElementById('dma-map-link').style.display, '',
     '#dma-map-link fallback link stays present alongside a successful check');
 
-  console.log('PASS: CWD zone check reports "inside DMA 2" + Established Area for a comfortably-interior DMA 2 point.');
+  console.log('PASS: CWD zone check renders the bare "Location inside DMA Zone 2" string for a comfortably-interior DMA 2 point.');
+
+  // ── Multiple-zone case, folded into this same scenario ──────────────────
+  // If a point lands in more than one original DMA polygon, ALL matched
+  // DMAs must be named in the one line, ascending, comma-joined -- never
+  // silently picking just the first. Real DMA polygons are a non-
+  // overlapping partition (no genuinely overlapping real-world coordinate
+  // exists), so this uses a synthetic 2-DMA override confined to a second,
+  // separate DOM instance within this same test function.
+  const SYNTH_DMA_ORIGINAL = {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        properties: { dma: 9 },
+        geometry: { type: 'Polygon', coordinates: [[[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]]] },
+      },
+      {
+        type: 'Feature',
+        properties: { dma: 3 },
+        geometry: { type: 'Polygon', coordinates: [[[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5], [-0.5, -0.5]]] },
+      },
+    ],
+  };
+  const SYNTH_DMA5 = {
+    type: 'FeatureCollection',
+    features: [{ type: 'Feature', properties: { dma: 5 }, geometry: { type: 'Polygon', coordinates: [[[10, 10], [11, 10], [11, 11], [10, 11], [10, 10]]] } }],
+  };
+  const multiAgg = {
+    total_in_range: 3,
+    role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 2 },
+    win_areas: ['10'],
+    animal_lat: 0,
+    animal_lon: 0,
+    out_of_county: [],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { window: w3 } = loadDom({
+    workerAgg: multiAgg,
+    data: {
+      'county_win.json': COUNTY_WIN,
+      'coordinators.json': COORDINATORS,
+      'cwd_dma_original.json': SYNTH_DMA_ORIGINAL,
+      'cwd_dma5_historical.json': SYNTH_DMA5,
+    },
+  });
+  const doc3 = w3.document;
+  await flush(w3);
+  await flush(w3);
+  doc3.getElementById('widen-btn').dispatchEvent(new w3.Event('click', { bubbles: true }));
+  await flush(w3);
+  doc3.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';
+  doc3.getElementById('radius-mi').value = '50';
+  doc3.getElementById('address-btn').dispatchEvent(new w3.Event('click', { bubbles: true }));
+  await flush(w3);
+  await flush(w3);
+  await flush(w3);
+  await flush(w3);
+  await flush(w3);
+
+  const multiEl = doc3.getElementById('cwd-zone-status');
+  assert.ok(multiEl, '#cwd-zone-status element exists (multi-zone case)');
+  assert.ok(multiEl.className.indexOf('cwd-zone-hit') !== -1, 'multi-zone result carries the "hit" state class');
+  assert.strictEqual(multiEl.textContent.trim(), 'Location inside DMA Zone 3, 9',
+    'names BOTH matched DMAs in one line, ascending, comma-joined -- format is "Location inside DMA Zone {XX}" with {XX} = comma-joined ascending DMA numbers (got: "' + multiEl.textContent + '")');
+
+  console.log('PASS: CWD zone check names ALL matched DMAs in one ascending comma-joined line when a point lands in more than one original DMA polygon (format: "Location inside DMA Zone 3, 9").');
 }
 
-// ── CWD zone check: not inside DMA or Established Area, and NOT near a
-//    boundary (Philadelphia -- 43+ mi from the nearest DMA, 143+ mi from the
-//    Established Area). Must render an explicit non-green "confirm with
-//    PGC" message, never a bare/implicit all-clear.
+// ── CWD zone check: not inside any DMA -> the bare approved miss string,
+//    with NO trailing sentence of any kind. ───────────────────────────────
 async function runCwdZoneInsideNeither() {
   const agg = {
     total_in_range: 3,
@@ -5781,22 +5840,19 @@ async function runCwdZoneInsideNeither() {
   assert.ok(el, '#cwd-zone-status element exists');
   assert.ok(el.className.indexOf('cwd-zone-clear') !== -1, 'zone status carries the "clear" state class (NOT "hit")');
   assert.ok(el.className.indexOf('cwd-zone-failed') === -1, 'zone status is NOT the failed-check state');
-  assert.ok(/not inside/i.test(el.textContent) && /confirm/i.test(el.textContent),
-    'copy explicitly says not inside either zone AND to confirm with PGC (got: "' + el.textContent + '")');
-  assert.ok(!/\bclear\b/i.test(el.textContent) && !/\bsafe\b/i.test(el.textContent) && !/\ball[- ]clear\b/i.test(el.textContent),
-    'copy never uses "clear"/"safe"/"all-clear" wording for a bare miss (got: "' + el.textContent + '")');
+  assert.strictEqual(el.textContent.trim(), 'Location not within a DMA Zone',
+    'renders the EXACT bare approved miss string, with NO trailing sentence of any kind (got: "' + el.textContent + '")');
 
-  console.log('PASS: CWD zone check for a point far outside every zone renders an explicit non-green "confirm with PGC" message.');
+  console.log('PASS: CWD zone check for a point outside every DMA renders the bare "Location not within a DMA Zone" string with no trailing sentence.');
 }
 
 // ── CWD zone check: a point just outside a DMA boundary is a plain MISS ───
 // Coordinate verified directly against the vendored geometry: outside every
-// original DMA and outside the Established Area, ~0.31 mi from DMA 6's
-// boundary. This point used to trigger a "near DMA 6" proximity flag; the
-// owner has cancelled the proximity/near-boundary feature entirely (option
-// B: pure binary), so this is now the REGRESSION GUARD that the band never
-// creeps back in -- it must render the plain no-zone result with NO
-// proximity wording and NO precision caveat, identical to any other miss.
+// original DMA, ~0.31 mi from DMA 6's boundary. This point used to trigger
+// a "near DMA 6" proximity flag; the owner has cancelled the proximity/
+// near-boundary feature entirely, so this is the REGRESSION GUARD that the
+// band never creeps back in -- it must render the bare approved miss string
+// with NO proximity wording and NO precision caveat, identical to any other miss.
 async function runCwdZoneJustOutsideIsPlainMiss() {
   const agg = {
     total_in_range: 3,
@@ -5833,16 +5889,12 @@ async function runCwdZoneJustOutsideIsPlainMiss() {
     'a point just outside a DMA boundary carries the "clear" (miss) state class, NOT "hit" (got className: "' + el.className + '")');
   assert.ok(el.className.indexOf('cwd-zone-hit') === -1,
     'does NOT carry the "hit" state class for a point that is simply outside');
-  assert.ok(/not inside/i.test(el.textContent) && /confirm/i.test(el.textContent),
-    'copy explicitly says not inside either zone AND to confirm with PGC (got: "' + el.textContent + '")');
-  assert.ok(!/just outside/i.test(el.textContent) && !/treat.*inside/i.test(el.textContent) && !/near\b/i.test(el.textContent),
-    'NO proximity/near-boundary wording anywhere -- the near-boundary band is fully removed (got: "' + el.textContent + '")');
+  assert.strictEqual(el.textContent.trim(), 'Location not within a DMA Zone',
+    'renders the EXACT bare approved miss string -- NOT "near DMA 6", no proximity wording of any kind (got: "' + el.textContent + '")');
   assert.ok(!/DMA 6/.test(el.textContent),
     'does NOT name DMA 6 at all -- a miss is a miss, not "near DMA 6" (got: "' + el.textContent + '")');
-  assert.ok(!/geocoded approximately/i.test(el.textContent) && !/house number/i.test(el.textContent) && !/raw coordinates/i.test(el.textContent),
-    'NO precision/approximate-location caveat wording -- location caveats are fully removed (got: "' + el.textContent + '")');
 
-  console.log('PASS: CWD zone check reports a point ~0.31 mi outside DMA 6 as a plain no-zone miss, with NO proximity wording and NO precision caveat (regression guard against the band creeping back).');
+  console.log('PASS: CWD zone check reports a point ~0.31 mi outside DMA 6 as the bare no-zone miss string, with NO proximity wording (regression guard against the band creeping back).');
 }
 
 // ── CWD zone check: fail LOUD, never fail clear ───────────────────────────
@@ -5850,7 +5902,8 @@ async function runCwdZoneJustOutsideIsPlainMiss() {
 // fetch mock behavior for any data/*.json path NOT explicitly overridden --
 // it resolves an empty {} body with no .features array, exactly like a
 // malformed/garbage response). Must render "could not be performed" and
-// keep #dma-map-link visible; must NEVER render "not inside"/"clear" text.
+// keep #dma-map-link visible; must NEVER render "not within a DMA Zone" text.
+// Owner explicitly approved this exact wording -- unchanged from before.
 async function runCwdZoneCheckFailsLoud() {
   const agg = {
     total_in_range: 3,
@@ -5889,10 +5942,11 @@ async function runCwdZoneCheckFailsLoud() {
   assert.notStrictEqual(el.style.display, 'none', 'failed-check status is still shown to the dispatcher, not hidden');
   assert.ok(el.className.indexOf('cwd-zone-failed') !== -1,
     'zone status carries the "failed" state class (got className: "' + el.className + '")');
-  assert.ok(/could not/i.test(el.textContent),
-    'copy says the check could not be performed (got: "' + el.textContent + '")');
-  assert.ok(!/not inside any original DMA/i.test(el.textContent),
-    'NEVER falls through to the "not inside" clean-miss wording on a data-load failure');
+  assert.strictEqual(el.textContent.trim(),
+    'The CWD zone check could not be performed (the zone data did not load). Use the PA Game Commission CWD map link below to check this location manually.',
+    'renders the exact owner-approved fail-loud wording, unchanged (got: "' + el.textContent + '")');
+  assert.ok(!/not within a dma zone/i.test(el.textContent),
+    'NEVER falls through to the "not within a DMA Zone" clean-miss wording on a data-load failure');
   assert.ok(!/\bclear\b/i.test(el.textContent),
     'NEVER uses "clear" wording on a data-load failure');
 
@@ -5902,7 +5956,7 @@ async function runCwdZoneCheckFailsLoud() {
   assert.ok(link.href.indexOf(String(agg.animal_lon)) !== -1 && link.href.indexOf(String(agg.animal_lat)) !== -1,
     'fallback link still carries the resolved coordinates even though the zone check failed');
 
-  console.log('PASS: CWD zone check fails LOUD ("could not be performed") on bad/garbage zone data, never falls through to "not inside", and keeps the PGC map fallback link visible.');
+  console.log('PASS: CWD zone check fails LOUD ("could not be performed") on bad/garbage zone data, never falls through to "not within a DMA Zone", and keeps the PGC map fallback link visible.');
 }
 
 // ── CWD zone check: matches the 8-record last-in-effect set, not the
@@ -5952,20 +6006,22 @@ async function runCwdZoneUsesLastInEffectSetOnly() {
   await flush(w2);
 
   const el = doc.getElementById('cwd-zone-status');
-  const dma2Mentions = (el.textContent.match(/DMA 2\b/g) || []).length;
+  const dma2Mentions = (el.textContent.match(/DMA Zone 2\b/g) || []).length;
   assert.strictEqual(dma2Mentions, 1,
     'DMA 2 is named exactly ONCE in the rendered result, not once per overlapping version-history record (got ' + dma2Mentions + ' mentions in: "' + el.textContent + '")');
 
   console.log('PASS: CWD zone check uses the 8-record last-in-effect set only; a DMA 2 hit is reported once, not eight times.');
 }
 
-// ── CWD zone check: NO precision caveat / near-edge wording on ANY outcome ─
-// Owner directive (option B, pure binary): the result is yes/no for a DMA
-// and which one, period -- no location-quality hedging anywhere, and no
-// "inside, but near the edge" additive state. This asserts the negative
-// across the full outcome set: an inside-a-DMA hit (submitted via a raw
-// pin-drop coordinate, the input style that USED to always trigger a
-// caveat) and a plain miss both render with NONE of the removed wording.
+// ── CWD zone check: NO caveat/near-edge/enforcement/snapshot wording on
+//    ANY outcome ─────────────────────────────────────────────────────────
+// Owner directive: the result is a plain "Location inside DMA Zone {XX}" /
+// "Location not within a DMA Zone" / fail-loud string, period -- no
+// location-quality hedging, no proximity/near-edge wording, no PGC-
+// enforcement sentence, no snapshot note, and no Established Area outcome,
+// on ANY outcome. Asserts the negative across the full outcome set: an
+// inside-a-DMA hit (submitted via a raw pin-drop coordinate, the input
+// style that USED to always trigger a caveat) and a plain miss.
 async function runCwdZoneNoCaveatOnAnyOutcome() {
   const insideAgg = {
     total_in_range: 3,
@@ -5989,7 +6045,8 @@ async function runCwdZoneNoCaveatOnAnyOutcome() {
   await flush(w2);
   // Submitted as a raw pin-drop coordinate -- previously this ALWAYS
   // triggered the unconditional/pin-drop precision caveat, regardless of
-  // the zone result. Now there must be no caveat wording at all.
+  // the zone result. Now there must be no caveat wording at all, and the
+  // rendered text must be EXACTLY the bare hit string.
   doc.getElementById('animal-address').value = '40.2687, -78.2168';
   doc.getElementById('radius-mi').value = '50';
   doc.getElementById('address-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
@@ -6002,19 +6059,23 @@ async function runCwdZoneNoCaveatOnAnyOutcome() {
   const insideEl = doc.getElementById('cwd-zone-status');
   assert.ok(insideEl, '#cwd-zone-status element exists');
   assert.ok(insideEl.className.indexOf('cwd-zone-hit') !== -1, 'inside-DMA result still carries the "hit" state class');
-  assert.ok(insideEl.textContent.indexOf('DMA 2') !== -1,
-    'still names DMA 2 as a plain inside hit even when submitted as raw coordinates (got: "' + insideEl.textContent + '")');
-  assert.ok(!/close to the edge/i.test(insideEl.textContent) && !/near the edge/i.test(insideEl.textContent),
-    'inside-DMA case: NO "near the edge" / inside-near-edge wording (that state is fully removed, got: "' + insideEl.textContent + '")');
-  assert.ok(!/not (fully )?reliable/i.test(insideEl.textContent),
-    'inside-DMA case: NO "boundary determination not reliable" wording (got: "' + insideEl.textContent + '")');
+  assert.strictEqual(insideEl.textContent.trim(), 'Location inside DMA Zone 2',
+    'inside-DMA case is EXACTLY the bare hit string even when submitted as raw pin-drop coordinates -- no caveat text of any kind (got: "' + insideEl.textContent + '")');
+  assert.ok(!/close to the edge/i.test(insideEl.textContent) && !/near the edge/i.test(insideEl.textContent) && !/\bnear\b/i.test(insideEl.textContent),
+    'inside-DMA case: NO near-edge/proximity wording (got: "' + insideEl.textContent + '")');
   assert.ok(!/entered as raw coordinates/i.test(insideEl.textContent) && !/geocoded approximately/i.test(insideEl.textContent) &&
     !/does not appear to include a specific house number/i.test(insideEl.textContent),
-    'inside-DMA case: NO precision/approximate-location caveat of any kind, even for a raw pin-drop submission (got: "' + insideEl.textContent + '")');
+    'inside-DMA case: NO precision/approximate-location caveat of any kind (got: "' + insideEl.textContent + '")');
+  assert.ok(!/still.*enforc/i.test(insideEl.textContent) && !/refused/i.test(insideEl.textContent),
+    'inside-DMA case: NO PGC-enforcement sentence (got: "' + insideEl.textContent + '")');
+  assert.ok(!/established area/i.test(insideEl.textContent),
+    'inside-DMA case: NO Established Area outcome/wording of any kind (got: "' + insideEl.textContent + '")');
+  assert.ok(!/refreshed/i.test(insideEl.textContent) && !/snapshot/i.test(insideEl.textContent),
+    'inside-DMA case: NO snapshot note (got: "' + insideEl.textContent + '")');
 
   // Second sub-scenario: a plain miss, submitted as a full house-number
-  // street address (the input style that USED to be the one exemption from
-  // the caveat) -- confirms the miss case also carries no caveat wording.
+  // street address -- confirms the miss case also carries no caveat/
+  // enforcement/snapshot/established-area wording, and is the exact bare string.
   const missAgg = {
     total_in_range: 3,
     role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 2 },
@@ -6045,15 +6106,20 @@ async function runCwdZoneNoCaveatOnAnyOutcome() {
 
   const missEl = doc3.getElementById('cwd-zone-status');
   assert.ok(missEl, '#cwd-zone-status element exists (miss case)');
+  assert.strictEqual(missEl.textContent.trim(), 'Location not within a DMA Zone',
+    'miss case is EXACTLY the bare approved string, no trailing sentence (got: "' + missEl.textContent + '")');
   assert.ok(!/entered as raw coordinates/i.test(missEl.textContent) && !/geocoded approximately/i.test(missEl.textContent) &&
     !/does not appear to include a specific house number/i.test(missEl.textContent),
     'miss case: NO precision/approximate-location caveat of any kind (got: "' + missEl.textContent + '")');
   assert.ok(!/close to the edge/i.test(missEl.textContent) && !/near the edge/i.test(missEl.textContent) && !/\bnear\b/i.test(missEl.textContent),
     'miss case: NO near-edge/proximity wording of any kind (got: "' + missEl.textContent + '")');
+  assert.ok(!/established area/i.test(missEl.textContent),
+    'miss case: NO Established Area outcome/wording (got: "' + missEl.textContent + '")');
+  assert.ok(!/refreshed/i.test(missEl.textContent) && !/snapshot/i.test(missEl.textContent),
+    'miss case: NO snapshot note (got: "' + missEl.textContent + '")');
 
-  console.log('PASS: NO precision-caveat or near-edge wording renders on ANY CWD zone outcome (inside-a-DMA via raw pin-drop, or a plain miss).');
+  console.log('PASS: NO caveat/near-edge/PGC-enforcement/snapshot/Established-Area wording renders on ANY CWD zone outcome (inside-a-DMA via raw pin-drop, or a plain miss) -- both are the exact bare approved strings.');
 }
-
 
 // ── Tier 2 "Check for Cross Post" ────────────────────────────────────────
 // New control at the bottom of the Tier 2 panel (Address mode), after the

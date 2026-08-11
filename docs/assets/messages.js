@@ -576,32 +576,25 @@
     },
 
     // ── CWD zone check wording (dispatcher.js checkCwdZone/renderCwdZoneStatus) ─
-    // PGC officially retired the numbered DMA system 2026-06-30, but PGC field
-    // staff and the state dispatch office are STILL enforcing the retired DMA
-    // footprint on the ground (owner-verified by phone, 2026-08). This wording
-    // must keep BOTH designations distinguishable: what PGC enforces today in
-    // practice (original DMA) vs. the current official map layer (Established
-    // Area). Never render a clean "not inside" as a green all-clear — that is
-    // the direction that can get an infected animal moved.
+    // Owner-approved three-outcome contract (cut down from the earlier
+    // multi-sentence wording): a plain hit names the DMA(s), a plain miss is
+    // a bare sentence with no trailing caveat, and a failed check keeps its
+    // own distinct fail-loud copy, unchanged. No PGC-enforcement sentence,
+    // no DMA-5 special case, no Established Area outcome, no snapshot note,
+    // no proximity/near-edge wording, no precision/approximate-location
+    // wording -- none of that renders anymore.
     cwdZone: {
-      // {dmas} = comma-joined DMA numbers, e.g. "2" or "2, 3".
-      insideDma: 'Inside original DMA {dmas}. PGC field staff and the state dispatch office are STILL enforcing this boundary as of the last check-in: fawn/deer rehab from inside this area is still being refused, regardless of the 2026-06-30 official retirement.',
-      // Shown ADDITIONALLY (never as a silent merge) when the point also falls
-      // in the separately-retired DMA 5 footprint (ended 2026-06-04).
-      insideDma5: 'Also inside the separately-retired DMA 5 historical footprint. Field staff working from "the original DMA locations" may still reference this boundary too — treat it the same as an original-DMA hit and confirm with PGC.',
-      insideEstablishedArea: 'Inside the current official CWD Established Area (the boundary PGC formally adopted 2026-06-30, replacing the numbered DMA system).',
-      // Neither zone. A pure point-in-polygon miss -- deliberately NOT
-      // phrased as "clear" or "safe" — silence on CWD status is not the same
-      // as confirmation there are no rules here.
-      neither: 'Not inside any original DMA or the current CWD Established Area. Confirm with PA Game Commission before assuming no CWD rules apply here.',
-      // Fail-loud copy. MUST render instead of any of the above whenever the
-      // vendored zone data can't be loaded/parsed, or is missing/empty — NEVER
-      // silently fall through to "neither" on an error path.
-      checkFailed: 'The CWD zone check could not be performed (the zone data did not load). Use the PA Game Commission CWD map link below to check this location manually.',
-      // {date} = the recorded vendored-snapshot fetch date (see
-      // docs/data/CWD_ZONES_REFRESH.md). Shown once per result so the
-      // dispatcher knows how stale the retired-DMA snapshot might be.
-      snapshotNote: 'Zone boundaries last refreshed from PA Game Commission data on {date}. This is a point-in-time snapshot of already-retired records; see docs/data/CWD_ZONES_REFRESH.md for the known limitations.'
+      // {dmas} = comma-joined DMA numbers, ascending, e.g. "5" or "2, 3".
+      // DMA 5 is included in this same list/wording -- it is just a DMA
+      // number now, no separate sentence.
+      insideDma: 'Location inside DMA Zone {dmas}',
+      // Bare miss string. No trailing sentence of any kind.
+      neither: 'Location not within a DMA Zone',
+      // Fail-loud copy. MUST render instead of either outcome above whenever
+      // the vendored zone data can't be loaded/parsed, or is missing/empty —
+      // NEVER silently fall through to "neither" on an error path. Owner
+      // explicitly approved this exact wording; do not reword it.
+      checkFailed: 'The CWD zone check could not be performed (the zone data did not load). Use the PA Game Commission CWD map link below to check this location manually.'
     }
   };
 
