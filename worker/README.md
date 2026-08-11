@@ -49,7 +49,7 @@ returned.** The tests assert this (deep key scan for both flag states).
 `GET` or `POST` to the Worker:
 - Either `animal_lat` + `animal_lon`, OR `address` (geocoded via US Census /
   Photon at runtime).
-- Optional `radius_mi` (default 30, clamped to max 100).
+- Optional `radius_mi` (default 30, clamped to max 1000).
 - `400 missing_location` when neither location is supplied; `400 invalid_radius`
   on a non-numeric radius; `422 address_not_found` / `502 geocoder_unavailable`
   on geocode failure. Error bodies never echo input coordinates.

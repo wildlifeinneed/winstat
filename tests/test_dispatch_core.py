@@ -8,7 +8,7 @@ Covers Phase D:
   * AggregateResult is PII-FREE (no name/coord/address keys)
   * closest-rehabber selection incl. prefer-open + closed-flag
   * recommendation assembly resolves coordinators via county_win
-  * radius clamp/validate (default 20, max 100)
+  * radius clamp/validate (default 30, max 1000)
 
 All coordinates are KNOWN synthetic values; the DistanceProvider interface lets
 us inject a deterministic stub where exact geometry would be noise.
@@ -368,7 +368,7 @@ def test_recommendation_supporting_counts_mirror_aggregate():
 
 
 # ---------------------------------------------------------------------------
-# 8. Radius clamp / validate (default 30, max 100)
+# 8. Radius clamp / validate (default 30, max 1000)
 # ---------------------------------------------------------------------------
 
 
@@ -381,7 +381,7 @@ def test_clamp_radius_default_for_non_numeric():
 
 
 def test_clamp_radius_caps_at_max():
-    assert dc.clamp_radius(500) == dc.MAX_RADIUS_MI == 100.0
+    assert dc.clamp_radius(5000) == dc.MAX_RADIUS_MI == 1000.0
 
 
 def test_clamp_radius_negative_clamps_to_zero():
@@ -398,10 +398,11 @@ def test_clamp_radius_non_finite_falls_back_to_default():
 
 
 def test_find_volunteers_applies_radius_clamp():
-    # Request a huge radius; it clamps to 100, so a volunteer at 150 'mi' is out.
+    # Request a radius above the 1000mi cap; it clamps to 1000, so both a
+    # volunteer at 150mi and one at 50mi are in range (neither exceeds 1000).
     dataset = [_vol(150.0, ["C&T"], "1"), _vol(50.0, ["C&T"], "2")]
     agg = dc.find_volunteers_in_radius(
         0.0, 0.0, 9999, dataset, provider=_GridProvider()
     )
-    assert agg.total_in_range == 1
-    assert agg.win_areas == ["2"]
+    assert agg.total_in_range == 2
+    assert agg.win_areas == ["1", "2"]

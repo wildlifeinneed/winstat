@@ -93,7 +93,7 @@ and rehabbers from both the dispatch area and suggested areas.
 
 When the dispatcher has the animal's street address, they type it in (with
 type-ahead address suggestions) and set a **search radius** in miles (default 30,
-maximum 100). The app then shows:
+maximum 1000). The app then shows:
 
 - **Volunteers in range** — a total count within the radius, including volunteers
   not on Connecteam (labeled separately so the dispatcher knows to contact them

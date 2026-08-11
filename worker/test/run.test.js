@@ -13,7 +13,7 @@
  *
  * Coverage:
  *   (a) correct aggregate for a known synthetic coord set
- *   (b) radius clamp (>100 -> 100; default 30; negative -> 0)
+ *   (b) radius clamp (>max -> max; default 30; negative -> 0)
  *   (c) 400 on bad input (missing location; invalid radius; unresolvable addr)
  *   (d) success response contains {total_in_range, role_counts, win_areas}
  *       plus the dispatcher-entered animal_lat/animal_lon (safe, not volunteer
@@ -326,8 +326,8 @@ async function main() {
   });
 
   // (b) radius clamp -----------------------------------------------------
-  await test('(b) clampRadius: >max -> 100, missing -> default 30, neg -> 0', () => {
-    assert.strictEqual(clampRadius(500), MAX_RADIUS_MI);
+  await test('(b) clampRadius: >max -> 1000, missing -> default 30, neg -> 0', () => {
+    assert.strictEqual(clampRadius(5000), MAX_RADIUS_MI);
     assert.strictEqual(clampRadius(null), DEFAULT_RADIUS_MI);
     assert.strictEqual(clampRadius(undefined), DEFAULT_RADIUS_MI);
     assert.strictEqual(clampRadius('abc'), DEFAULT_RADIUS_MI);
@@ -335,9 +335,9 @@ async function main() {
     assert.strictEqual(clampRadius(33), 33);
   });
 
-  await test('(b2) radius clamp applied end-to-end (5000 -> 100mi behavior)', () => {
-    const agg = findVolunteersInRadius(ANIMAL.lat, ANIMAL.lon, 5000, COORDS);
-    // clamped to 100mi -> still 4 (far volunteer ~ within 100mi straight-line)
+  await test('(b2) radius clamp applied end-to-end (99999 -> 1000mi behavior)', () => {
+    const agg = findVolunteersInRadius(ANIMAL.lat, ANIMAL.lon, 99999, COORDS);
+    // clamped to 1000mi -> all synthetic volunteers are within range
     assert.strictEqual(agg.total_in_range, 4);
   });
 

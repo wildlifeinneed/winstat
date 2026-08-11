@@ -19,7 +19,7 @@
 
 // --- Radius policy (mirror DEFAULT_RADIUS_MI / MAX_RADIUS_MI) ---------------
 const DEFAULT_RADIUS_MI = 30.0;
-const MAX_RADIUS_MI = 100.0;
+const MAX_RADIUS_MI = 1000.0;
 
 // Marginal-capacity threshold (mirror DEFAULT_CONFIG.marginal_threshold in
 // refresh_monday.py AND dispatcher.js). Tier 2 is radius-scoped across many

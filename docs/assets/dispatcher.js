@@ -145,7 +145,7 @@
   // original cross-origin (CORS) failure that broke By-Animal-Address mode.
   var WORKER_URL = 'https://pa-wildlife-dispatcher.winstat.workers.dev';
   var RADIUS_DEFAULT = 30;
-  var RADIUS_MAX = 100;
+  var RADIUS_MAX = 1000;
   // Miles -> metres conversion for Leaflet's L.circle (which takes a TRUE
   // geographic radius in metres, unlike L.circleMarker's fixed pixel radius).
   var MI_TO_METERS = 1609.344;
