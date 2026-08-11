@@ -25,6 +25,10 @@
       --amber-light: #fff3e0;
       --red:         #c0392b;
       --red-light:   #fdecea;
+      /* Dedicated token for unavailable-volunteer TEXT (not the same as --red,
+         which signals errors/alerts elsewhere). A readable light red/pink,
+         4.62:1 against --surface (#fff) — passes WCAG AA body text (4.5:1). */
+      --unavail-text: #c14c72;
       --bg:          #f5f2ec;
       --surface:     #ffffff;
       --border:      #e2dcd4;
@@ -955,7 +959,19 @@
     }
     .ctx-row.role-rvs { border-left-color: #f0c070; }
     .ctx-row.role-courier { border-left-color: #c8cfe0; }
-    .ctx-row.unavail { opacity: 0.72; }
+    /* Unavailable-volunteer TEXT: a readable light red/pink (--unavail-text)
+       instead of the old opacity/grey dimming, which was hard to read. Only
+       the row's own text (name, distance, county/area context, availability
+       note) changes color — role badges and the role-colored left border
+       keep their normal colors so role identification stays intact. This is
+       presentation only: the row, its count, and its position are unchanged. */
+    .ctx-row.unavail .ctx-name,
+    .ctx-row.unavail .ctx-dist,
+    .ctx-row.unavail .ctx-ctx,
+    .ctx-row.unavail .ctx-avail-note,
+    .ctx-row.unavail .ctx-edge {
+      color: var(--unavail-text);
+    }
     .ctx-row-top {
       display: flex;
       align-items: center;
@@ -2153,16 +2169,17 @@
     <!-- ─── Tier 1 qualified-volunteer list (mirrors the Tier 2 #ctx-list) ───
          Populated by renderTier1Volunteers() in dispatcher.js after a By-County
          recommendation. Each row shows County, WIN Area, role badges, and the
-         availability note; unavailable volunteers are dimmed via .ctx-row.unavail
-         (the SAME visual treatment Tier 2 uses). Placed directly under the
-         summary cards and hidden behind the Show/Hide toggle. -->
+         availability note; unavailable volunteers get the light-red/pink text
+         treatment via .ctx-row.unavail (the SAME visual treatment Tier 2
+         uses). Placed directly under the summary cards and hidden behind the
+         Show/Hide toggle. -->
     <div id="t1-vol-section" style="display:none; margin-top:16px;">
       <!-- Two scope buttons. The AREA button (existing behavior) lists every
            qualified volunteer in the selected county's full WIN area. The
            COUNTY button lists ONLY volunteers whose home county matches the
            selected county. Both render into the SAME #t1-vol-block using the
-           SAME row markup (qualified-only, unavailable dimmed, role-colored
-           borders, Transport cap/banner); only the row set differs. -->
+           SAME row markup (qualified-only, unavailable text in light red/pink,
+           role-colored borders, Transport cap/banner); only the row set differs. -->
       <div class="t1-vol-toggles">
         <button id="t1-vol-toggle-county" class="btn-t1-vol-toggle btn-t1-vol-county" type="button"
                 aria-expanded="false" aria-controls="t1-vol-block">

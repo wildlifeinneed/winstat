@@ -3073,7 +3073,7 @@
   // By-County volunteer list) so the Worker returns ONLY the volunteers whose
   // roles qualify for the CURRENT scenario (derived from rvs/issue via
   // decision.js qualifyingRoles). Tier 1 = Tier 2 behavior: qualified-only,
-  // with unavailable volunteers dimmed (not dropped) downstream.
+  // with unavailable volunteers text-flagged in light red/pink (not dropped) downstream.
   function appendAggregateOpts(url, opts) {
     if (opts && opts.base) {
       url += '&rvs=' + encodeURIComponent(opts.base.rvs ? 'yes' : 'no') +
@@ -3494,7 +3494,9 @@
                   dist >= 0.85 * radiusNum)
         ? '<span class="ctx-edge">' + T2.ctxEdge + '</span>' : '';
 
-      // Availability note: show as small italic subtitle; dim row if unavailable.
+      // Availability note: show as small italic subtitle; mark row text with
+      // the light-red/pink unavailable color if unavailable (see .ctx-row.unavail
+      // / --unavail-text in dispatcher.html — text color signal, no opacity dimming).
       // A row is unavailable when `available === false` (set by the Worker from
       // the KV `available` field) OR when the note text contains a deny keyword.
       // This handles the case where available=false but availability_note is blank.
@@ -3534,8 +3536,8 @@
   // ─── Tier 1 (By-County) qualified-volunteer list ───────────────────
   // Replicates the Tier 2 #ctx-list rendering for the By-County panel. Each row
   // shows: role badges, County + WIN Area context, and the availability note —
-  // and is DIMMED via the SAME .ctx-row.unavail treatment Tier 2 uses when the
-  // volunteer is not currently available. `rows` are the Worker context rows
+  // and gets the SAME .ctx-row.unavail light-red/pink text treatment Tier 2
+  // uses when the volunteer is not currently available. `rows` are the Worker context rows
   // (out_of_county shape: {roles, distance_mi, win_area, county, availability_note,
   // available}); `ctx` carries { county, rvs, issue } for the header + the
   // defensive qualified-only filter. Hidden entirely when there is no list.
@@ -3652,7 +3654,7 @@
     // decision.js predicate (qualifiesForAnimal — the SAME rule, no
     // re-derivation) so an unqualified row can never render. Skipped when base
     // info is absent (backward compat). Availability is NOT filtered here:
-    // unavailable volunteers are KEPT and dimmed below (the original complaint
+    // unavailable volunteers are KEPT and text-flagged below (the original complaint
     // was an unavailable C&T volunteer being hidden entirely).
     var qualifyFn = (window.WildlifeDecision &&
                      typeof window.WildlifeDecision.qualifiesForAnimal === 'function')
@@ -3696,8 +3698,8 @@
     if (emptyEl) { emptyEl.style.display = 'none'; emptyEl.textContent = ''; }
 
     // Build the <li> markup for a single volunteer row (role badges + County +
-    // WIN Area context + availability note, with the SAME dim treatment Tier 2
-    // uses). Extracted so both the full list and the capped list reuse it.
+    // WIN Area context + availability note, with the SAME light-red/pink text
+    // treatment Tier 2 uses). Extracted so both the full list and the capped list reuse it.
     function rowHtml(row) {
       var roleList = Array.isArray(row.roles) ? row.roles : [];
       var badges = roleList.map(function (r) {
@@ -3713,8 +3715,9 @@
       if (row.county) ctxBits.push(escapeHtml(String(row.county)));
       var ctxTxt = ctxBits.length ? ' <span class="ctx-ctx">· ' + ctxBits.join(' · ') + '</span>' : '';
 
-      // Availability note + dimming: unavailable when available===false OR the
-      // note carries a deny keyword (mirrors Tier 2 renderContextList).
+      // Availability note + unavailable text color: unavailable when
+      // available===false OR the note carries a deny keyword (mirrors Tier 2
+      // renderContextList).
       var vNote = row.availability_note ? String(row.availability_note).trim() : '';
       var unavail = (row.available === false) || isUnavailNote(vNote);
       var rowClass = 'ctx-row ' + roleRowClass(roleList) + (unavail ? ' unavail' : '');
@@ -5004,7 +5007,7 @@
     // computed independent of SHOW_VOLUNTEER_MARKERS so hiding pins for a
     // privacy review does not also blank the area shading. Available AND
     // unavailable volunteers both count toward a highlight (availability is a
-    // DIM treatment on the pin/list, never a membership gate, matching
+    // text-color/pin flag, never a membership gate, matching
     // renderContextList) -- a "no one currently available" area still needs
     // to read as reachable, just not instantly staffed.
     var winAreaSet = {};
@@ -6638,7 +6641,7 @@
       // state (the t1VolToken stale guard inside loadTier1Volunteers ignores
       // out-of-order responses on rapid changes). Clearing the county hides the
       // list (refreshTier1Volunteers bumps the token + hides it). Unavailable
-      // qualified volunteers still render, dimmed (availability preserved).
+      // qualified volunteers still render, text-flagged (availability preserved).
       refreshTier1Volunteers();
     });
     $('#recommend-btn').addEventListener('click', onRecommendClick);

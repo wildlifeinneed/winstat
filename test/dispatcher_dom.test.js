@@ -3509,6 +3509,85 @@ async function runTier2AvailNote() {
   console.log('PASS: Tier 2 avail note — empty note no indicator; deny keyword dims + shows note; non-deny note shown without dimming; no-field backward compat; available=false blank-note dimming (Bug 2 fix).');
 }
 
+// ── UNAVAILABLE TEXT COLOR (not opacity dimming): owner-reported readability
+//    complaint — the old .ctx-row.unavail { opacity: 0.72 } treatment made
+//    unavailable-volunteer text hard to read. It must be replaced by a
+//    dedicated light-red/pink text color token (--unavail-text), NOT reused
+//    from --red (which means error/alert elsewhere), and the row must NEVER
+//    be opacity-dimmed, hidden, filtered, or excluded from the count. ───────
+async function runUnavailableTextColorNotOpacityDimmed() {
+  const html = fs.readFileSync(HTML_PATH, 'utf8');
+
+  // 1. CSS SOURCE: .ctx-row.unavail must carry NO opacity dimming at all.
+  //    jsdom does not compute the cascade for custom properties reliably, so
+  //    (matching the established pattern in runScopeButtonHoverFill) assert
+  //    directly against the CSS source text.
+  const unavailRuleMatches = html.match(/\.ctx-row\.unavail[^{]*\{[^}]*\}/g) || [];
+  assert.ok(unavailRuleMatches.length > 0, '.ctx-row.unavail CSS rule(s) exist');
+  unavailRuleMatches.forEach(function (rule) {
+    assert.ok(!/opacity\s*:/.test(rule),
+      '.ctx-row.unavail rule must not use opacity dimming (got: ' + rule + ')');
+    assert.ok(!/filter\s*:\s*grayscale/.test(rule),
+      '.ctx-row.unavail rule must not use grayscale dimming (got: ' + rule + ')');
+  });
+
+  // 2. A dedicated token exists and is distinct from --red / --amber (must not
+  //    read as an error/alert or collide with the staleness banner color).
+  const tokenMatch = html.match(/--unavail-text\s*:\s*(#[0-9a-fA-F]{3,8})/);
+  assert.ok(tokenMatch, '--unavail-text design token is defined in :root');
+  const unavailHex = tokenMatch[1].toLowerCase();
+  const redMatch = html.match(/--red\s*:\s*(#[0-9a-fA-F]{3,8})/);
+  const amberMatch = html.match(/--amber\s*:\s*(#[0-9a-fA-F]{3,8})/);
+  assert.ok(redMatch && unavailHex !== redMatch[1].toLowerCase(),
+    '--unavail-text must be a distinct hex from --red (not reused)');
+  assert.ok(amberMatch && unavailHex !== amberMatch[1].toLowerCase(),
+    '--unavail-text must be a distinct hex from --amber (must not look like the staleness banner)');
+
+  // 3. The unavail rule(s) actually apply --unavail-text as a text color.
+  const usesToken = unavailRuleMatches.some(function (rule) {
+    return /color\s*:\s*var\(--unavail-text\)/.test(rule);
+  });
+  assert.ok(usesToken, '.ctx-row.unavail applies color: var(--unavail-text) to row text');
+
+  // 4. DOM-level: unavailable rows carry the .unavail class (the new color
+  //    hook) and are NOT opacity-dimmed, and — critically — are still PRESENT
+  //    in the list and still COUNTED (presentation only, never a membership
+  //    gate per the hard constraint that availability never hides volunteers).
+  const agg = {
+    total_in_range: 3,
+    role_counts: { 'C&T': 2, 'RVS C&T': 1, 'COURIER': 0 },
+    win_areas: ['11'],
+    out_of_county: [
+      { roles: ['C&T'], distance_mi: 4.0, win_area: '11', county: 'Beaver', availability_note: '' },
+      { roles: ['C&T'], distance_mi: 7.0, win_area: '11', county: 'Beaver', availability_note: 'Unavail this week' },
+      { roles: ['RVS C&T'], distance_mi: 10.0, win_area: '11', county: 'Beaver', available: false, availability_note: '' },
+    ],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { doc } = await driveTier2(agg, 'Allegheny', { rvs: false, issue: 'transport' });
+
+  const rows = Array.prototype.slice.call(doc.querySelectorAll('#ctx-list .ctx-row'));
+  // All 3 volunteers still present — nothing hidden/filtered/excluded.
+  assert.strictEqual(rows.length, 3,
+    'all 3 volunteers (including 2 unavailable) still render — availability never hides a row (got ' + rows.length + ')');
+
+  const unavailRows = rows.filter(function (r) { return r.classList.contains('unavail'); });
+  assert.strictEqual(unavailRows.length, 2,
+    'exactly 2 rows are flagged .unavail (deny-keyword row + available:false row)');
+
+  unavailRows.forEach(function (r, i) {
+    // No inline opacity/style was set directly on the element (dimming must
+    // come exclusively from CSS class, and that CSS no longer dims by opacity —
+    // asserted against source above). Guards against a regression that
+    // re-introduces inline opacity dimming on the row element itself.
+    assert.ok(!/opacity/i.test(r.getAttribute('style') || ''),
+      'unavail row ' + i + ' has no inline opacity style');
+  });
+
+  console.log('PASS: unavailable-volunteer text uses a dedicated --unavail-text light-red/pink token (distinct from --red/--amber), .ctx-row.unavail has NO opacity/grayscale dimming, and unavailable rows remain present + counted (never hidden).');
+}
+
 // Drive a Tier 1 (By-County) recommendation: select a county, optionally set the
 // shared base info, click "Get Recommendation", and return the document. The
 // mock Worker returns the supplied `agg` (carrying the out_of_county rows that
@@ -6592,6 +6671,7 @@ async function run() {
   await runTier2NonConnecteamNotice();
   await runRegressionConnecteamTriState();
   await runTier2AvailNote();
+  await runUnavailableTextColorNotOpacityDimmed();
   await runTier1VolunteerList();
   await runTier1VolunteerListCaptureQualified();
   await runTier1DispatchSummary();
@@ -6639,7 +6719,7 @@ async function run() {
   await runCrossPostMapMobileFullscreenToggle();
   await runCrossPostMapMobileFullscreenEscapeKey();
   await runMobileTextInputFontSizeNoZoom();
-  console.log('\nALL DOM TESTS PASSED (91 scenarios).');
+  console.log('\nALL DOM TESTS PASSED (92 scenarios).');
 }
 
 run().then(function () {
