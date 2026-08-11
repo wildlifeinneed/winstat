@@ -92,7 +92,7 @@ and rehabbers from both the dispatch area and suggested areas.
 ### B. By Animal Address + Radius
 
 When the dispatcher has the animal's street address, they type it in (with
-type-ahead address suggestions) and set a **search radius** in miles (default 20,
+type-ahead address suggestions) and set a **search radius** in miles (default 30,
 maximum 100). The app then shows:
 
 - **Volunteers in range** — a total count within the radius, including volunteers

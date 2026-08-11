@@ -18,7 +18,7 @@
  */
 
 // --- Radius policy (mirror DEFAULT_RADIUS_MI / MAX_RADIUS_MI) ---------------
-const DEFAULT_RADIUS_MI = 20.0;
+const DEFAULT_RADIUS_MI = 30.0;
 const MAX_RADIUS_MI = 100.0;
 
 // Marginal-capacity threshold (mirror DEFAULT_CONFIG.marginal_threshold in

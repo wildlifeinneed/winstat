@@ -368,16 +368,16 @@ def test_recommendation_supporting_counts_mirror_aggregate():
 
 
 # ---------------------------------------------------------------------------
-# 8. Radius clamp / validate (default 20, max 100)
+# 8. Radius clamp / validate (default 30, max 100)
 # ---------------------------------------------------------------------------
 
 
 def test_clamp_radius_default_for_none():
-    assert dc.clamp_radius(None) == dc.DEFAULT_RADIUS_MI == 20.0
+    assert dc.clamp_radius(None) == dc.DEFAULT_RADIUS_MI == 30.0
 
 
 def test_clamp_radius_default_for_non_numeric():
-    assert dc.clamp_radius("abc") == 20.0
+    assert dc.clamp_radius("abc") == 30.0
 
 
 def test_clamp_radius_caps_at_max():
@@ -393,8 +393,8 @@ def test_clamp_radius_passes_valid_value_through():
 
 
 def test_clamp_radius_non_finite_falls_back_to_default():
-    assert dc.clamp_radius(float("inf")) == 20.0
-    assert dc.clamp_radius(float("nan")) == 20.0
+    assert dc.clamp_radius(float("inf")) == 30.0
+    assert dc.clamp_radius(float("nan")) == 30.0
 
 
 def test_find_volunteers_applies_radius_clamp():

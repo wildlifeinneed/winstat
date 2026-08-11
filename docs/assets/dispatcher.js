@@ -144,7 +144,7 @@
   // The browser NEVER calls the US Census geocoder directly — doing so was the
   // original cross-origin (CORS) failure that broke By-Animal-Address mode.
   var WORKER_URL = 'https://pa-wildlife-dispatcher.winstat.workers.dev';
-  var RADIUS_DEFAULT = 20;
+  var RADIUS_DEFAULT = 30;
   var RADIUS_MAX = 100;
   // Miles -> metres conversion for Leaflet's L.circle (which takes a TRUE
   // geographic radius in metres, unlike L.circleMarker's fixed pixel radius).
@@ -2413,7 +2413,7 @@
         }
       });
 
-      // NOTE on the radius_mi argument here (RADIUS_DEFAULT, 20mi): this call
+      // NOTE on the radius_mi argument here (RADIUS_DEFAULT, 30mi): this call
       // ALWAYS sends tier1Area, which makes fetchAggregateByCoord also set
       // by_county=1 (see appendAggregateOpts above). On the Worker,
       // by_county=1 + win_area makes prescreenByHaversine use AREA membership
@@ -2424,7 +2424,7 @@
       // radius) to avoid changing behavior on a call path that doesn't use it;
       // documented here (rather than silently left as a foot-gun) so a future
       // refactor that ever drops/bypasses by_county here does not silently
-      // truncate results to 20mi. If that ever happens, pass the actual
+      // truncate results to 30mi. If that ever happens, pass the actual
       // dispatch search radius instead.
       fetchAggregateByCoord(lat, lon, RADIUS_DEFAULT,
         { context: true, base: base, tier1Area: workerArea, tier1County: county || null })

@@ -8,7 +8,7 @@
  *
  * Endpoint behaviour:
  *   GET/POST with EITHER (animal_lat & animal_lon) OR (address), plus optional
- *   radius_mi (default 20, clamped to max 100). Reads the PRIVATE volunteer
+ *   radius_mi (default 30, clamped to max 100). Reads the PRIVATE volunteer
  *   coords from the KV binding and returns the PII-free AggregateResult plus
  *   the dispatcher-entered ANIMAL coordinate (safe -- it is the animal location,
  *   not volunteer PII) so the browser can rank rehabbers by distance:

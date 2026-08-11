@@ -29,7 +29,7 @@ What lives here:
      transport to the closest open rehabber). Output is STRUCTURED fields, not
      free prose. Coordinator NAME only (phone is excluded project-wide).
 
-Radius policy: default 20 mi, hard max 100 mi. ``clamp_radius`` validates +
+Radius policy: default 30 mi, hard max 100 mi. ``clamp_radius`` validates +
 clamps a requested radius into ``[0, MAX_RADIUS_MI]`` and substitutes the
 default for a missing/invalid value.
 
@@ -61,7 +61,7 @@ import county_win
 # Radius policy
 # ---------------------------------------------------------------------------
 
-DEFAULT_RADIUS_MI: float = 20.0
+DEFAULT_RADIUS_MI: float = 30.0
 MAX_RADIUS_MI: float = 100.0
 
 # Mean Earth radius in miles (used by the haversine formula).
@@ -258,7 +258,7 @@ def find_volunteers_in_radius(
     set of in-range WIN areas, and the total in-range count. NO names, NO
     coords, NO addresses are returned -- this is the PII boundary.
 
-    ``radius_mi`` is validated/clamped via :func:`clamp_radius` (default 20,
+    ``radius_mi`` is validated/clamped via :func:`clamp_radius` (default 30,
     max 100). Records missing/invalid lat or lon are skipped defensively.
     """
     provider = provider or _DEFAULT_PROVIDER

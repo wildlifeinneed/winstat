@@ -13,7 +13,7 @@
  *
  * Coverage:
  *   (a) correct aggregate for a known synthetic coord set
- *   (b) radius clamp (>100 -> 100; default 20; negative -> 0)
+ *   (b) radius clamp (>100 -> 100; default 30; negative -> 0)
  *   (c) 400 on bad input (missing location; invalid radius; unresolvable addr)
  *   (d) success response contains {total_in_range, role_counts, win_areas}
  *       plus the dispatcher-entered animal_lat/animal_lon (safe, not volunteer
@@ -326,7 +326,7 @@ async function main() {
   });
 
   // (b) radius clamp -----------------------------------------------------
-  await test('(b) clampRadius: >max -> 100, missing -> default 20, neg -> 0', () => {
+  await test('(b) clampRadius: >max -> 100, missing -> default 30, neg -> 0', () => {
     assert.strictEqual(clampRadius(500), MAX_RADIUS_MI);
     assert.strictEqual(clampRadius(null), DEFAULT_RADIUS_MI);
     assert.strictEqual(clampRadius(undefined), DEFAULT_RADIUS_MI);
