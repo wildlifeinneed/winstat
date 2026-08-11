@@ -1213,6 +1213,16 @@
       color: var(--text-muted);
       font-style: italic;
     }
+    /* Inside-but-near-the-edge (own boundary unreliable at this resolution)
+       and approximate-location lines are ADDITIVE to the main verdict line
+       above them, so they get their own bold treatment rather than blending
+       into the italic caveat/snapshot styling -- the dispatcher must notice
+       these, not skim past them. */
+    .cwd-zone-status .cwd-zone-line-inside-near-dma,
+    .cwd-zone-status .cwd-zone-line-inside-near-ea,
+    .cwd-zone-status .cwd-zone-line-approx {
+      font-weight: 600;
+    }
 
     /* ─── Feature status strip (under header) ─────────────────── */
     .status-strip {

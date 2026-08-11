@@ -5954,6 +5954,192 @@ async function runCwdZoneUsesLastInEffectSetOnly() {
   console.log('PASS: CWD zone check uses the 8-record last-in-effect set only; a DMA 2 hit is reported once, not eight times.');
 }
 
+// ── CWD zone check: INSIDE a DMA but near ITS OWN edge ────────────────────
+// Coordinate verified directly against the vendored geometry: inside DMA 2,
+// but only ~0.93 mi from DMA 2's own boundary (within the 2-mile
+// CWD_NEAR_BOUNDARY_MI band). This is its OWN distinct outcome per the
+// owner's refinement request -- NOT folded into a flat "inside" (the
+// boundary determination here is not reliable at this resolution) and NOT
+// folded into a "not inside" either. The plain "inside DMA 2" line must
+// STILL be present (additive), plus a separate "near the edge" line, plus
+// the PGC map link must still be offered.
+async function runCwdZoneInsideNearEdge() {
+  const agg = {
+    total_in_range: 3,
+    role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 2 },
+    win_areas: ['10'],
+    animal_lat: 39.97939306021836,
+    animal_lon: -79.02463401497138,
+    out_of_county: [],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { window: w2, opts } = loadDom({
+    workerAgg: agg,
+    data: Object.assign({ 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS }, CWD_ZONE_DATA_ROUTES),
+  });
+  void opts;
+  const doc = w2.document;
+  await flush(w2);
+  await flush(w2);
+  doc.getElementById('widen-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  doc.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+
+  const el = doc.getElementById('cwd-zone-status');
+  assert.ok(el, '#cwd-zone-status element exists');
+  assert.ok(el.className.indexOf('cwd-zone-hit') !== -1, 'zone status carries the "hit" state class');
+  assert.ok(el.textContent.indexOf('DMA 2') !== -1, 'still names DMA 2 as a plain inside hit (got: "' + el.textContent + '")');
+  assert.ok(/close to the edge/i.test(el.textContent),
+    'copy explicitly says "close to the edge" as its own distinct line (got: "' + el.textContent + '")');
+  assert.ok(/not (fully )?reliable/i.test(el.textContent),
+    'copy conveys the boundary determination is not reliable at this resolution (got: "' + el.textContent + '")');
+  assert.ok(!/^inside original DMA 2\.?$/i.test(el.textContent.trim()),
+    'is not a flat/unqualified "inside" with no near-edge line');
+
+  const link = doc.getElementById('dma-map-link');
+  assert.notStrictEqual(link.style.display, 'none', 'PGC map link is still offered for an inside-but-near-edge result');
+
+  console.log('PASS: CWD zone check reports "inside DMA 2, but near the edge" as its own distinct additive outcome, and still offers the PGC link.');
+}
+
+// ── CWD zone check: approximate-location flagging ─────────────────────────
+// The submitted text does NOT look like a house-number street address (an
+// intersection here). cwdClassifyAddressPrecision() must classify this as
+// 'approximate' and the render must show the approximate-location caveat as
+// its own line -- distinct from the unconditional fallback caveat.
+async function runCwdZoneApproximateIntersection() {
+  const agg = {
+    total_in_range: 3,
+    role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 2 },
+    win_areas: ['10'],
+    animal_lat: 40.2687,
+    animal_lon: -78.2168,
+    out_of_county: [],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { window: w2, opts } = loadDom({
+    workerAgg: agg,
+    data: Object.assign({ 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS }, CWD_ZONE_DATA_ROUTES),
+  });
+  void opts;
+  const doc = w2.document;
+  await flush(w2);
+  await flush(w2);
+  doc.getElementById('widen-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  doc.getElementById('animal-address').value = 'Main St and Pine Rd, Somewhere, PA';
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+
+  const el = doc.getElementById('cwd-zone-status');
+  assert.ok(el, '#cwd-zone-status element exists');
+  assert.ok(/does not appear to include a specific house number/i.test(el.textContent),
+    'copy flags that the address is not a house-number-level address (got: "' + el.textContent + '")');
+  assert.ok(!/only geocoded approximately/i.test(el.textContent),
+    'does NOT ALSO show the unconditional fallback caveat once a real classification applies');
+
+  console.log('PASS: CWD zone check flags an intersection query as approximate-location.');
+}
+
+// ── CWD zone check: approximate-location flagging for a raw pin-drop ──────
+// A raw coordinate typed into the address field is, by definition, not a
+// street address. Must be flagged with the pin-drop-specific wording.
+async function runCwdZoneApproximatePinDrop() {
+  const agg = {
+    total_in_range: 3,
+    role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 2 },
+    win_areas: ['10'],
+    animal_lat: 40.2687,
+    animal_lon: -78.2168,
+    out_of_county: [],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { window: w2, opts } = loadDom({
+    workerAgg: agg,
+    data: Object.assign({ 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS }, CWD_ZONE_DATA_ROUTES),
+  });
+  void opts;
+  const doc = w2.document;
+  await flush(w2);
+  await flush(w2);
+  doc.getElementById('widen-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  doc.getElementById('animal-address').value = '40.2687, -78.2168';
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+
+  const el = doc.getElementById('cwd-zone-status');
+  assert.ok(el, '#cwd-zone-status element exists');
+  assert.ok(/entered as raw coordinates/i.test(el.textContent),
+    'copy flags that the location was entered as raw coordinates, not a street address (got: "' + el.textContent + '")');
+
+  console.log('PASS: CWD zone check flags a raw pin-drop coordinate entry as approximate-location.');
+}
+
+// ── CWD zone check: a real house-number address does NOT get the
+//    approximate-location caveat (negative-case proof of the classifier) ──
+async function runCwdZoneHouseNumberNotFlaggedApproximate() {
+  const agg = {
+    total_in_range: 3,
+    role_counts: { 'C&T': 1, 'RVS C&T': 0, 'COURIER': 2 },
+    win_areas: ['10'],
+    animal_lat: 40.2687,
+    animal_lon: -78.2168,
+    out_of_county: [],
+    out_of_county_truncated: false,
+    radius_too_broad: false,
+  };
+  const { window: w2, opts } = loadDom({
+    workerAgg: agg,
+    data: Object.assign({ 'county_win.json': COUNTY_WIN, 'coordinators.json': COORDINATORS }, CWD_ZONE_DATA_ROUTES),
+  });
+  void opts;
+  const doc = w2.document;
+  await flush(w2);
+  await flush(w2);
+  doc.getElementById('widen-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  doc.getElementById('animal-address').value = '4400 Forbes Ave, Pittsburgh, PA 15213';
+  doc.getElementById('radius-mi').value = '50';
+  doc.getElementById('address-btn').dispatchEvent(new w2.Event('click', { bubbles: true }));
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+  await flush(w2);
+
+  const el = doc.getElementById('cwd-zone-status');
+  assert.ok(el, '#cwd-zone-status element exists');
+  assert.ok(!/does not appear to include a specific house number/i.test(el.textContent),
+    'a real house-number address does NOT get the approximate-location caveat (got: "' + el.textContent + '")');
+  assert.ok(!/entered as raw coordinates/i.test(el.textContent),
+    'a real house-number address does NOT get the pin-drop caveat (got: "' + el.textContent + '")');
+  assert.ok(!/only geocoded approximately/i.test(el.textContent),
+    'a real house-number address does NOT even get the unconditional fallback caveat (a real classification applied)');
+
+  console.log('PASS: a house-number street address does NOT trigger any approximate-location caveat.');
+}
+
 
 // ── Tier 2 "Check for Cross Post" ────────────────────────────────────────
 // New control at the bottom of the Tier 2 panel (Address mode), after the
@@ -6464,6 +6650,10 @@ async function run() {
   await runCwdZoneNearBoundary();
   await runCwdZoneCheckFailsLoud();
   await runCwdZoneUsesLastInEffectSetOnly();
+  await runCwdZoneInsideNearEdge();
+  await runCwdZoneApproximateIntersection();
+  await runCwdZoneApproximatePinDrop();
+  await runCwdZoneHouseNumberNotFlaggedApproximate();
   await runTier2CrossPostRenders();
   await runTier2CrossPostUsesResolvedCoords();
   await runTier2CrossPostFoundNone();
