@@ -78,12 +78,6 @@
   // docs/data/CWD_ZONES_REFRESH.md). Surfaced in the zone-check result so the
   // dispatcher can judge staleness of the retired-DMA data.
   var CWD_ZONES_SNAPSHOT_DATE = '2026-08-11';
-  // Proximity band: a point OUTSIDE every zone but within this distance of a
-  // zone boundary is reported as "near" rather than a clean miss. Chosen
-  // because DMA boundaries commonly follow roads/township lines where people
-  // live -- a small distance on the map is not a safe margin on the ground.
-  // Over-flagging near a boundary is the safe direction; under-flagging is not.
-  var CWD_NEAR_BOUNDARY_MI = 2;
 
   // Threshold values relocated to messages.js (MSG.thresholds) so the numeric
   // tuning knobs live in one editable place. Behavior is unchanged: these are
@@ -5172,60 +5166,6 @@
     return false;
   }
 
-  // Approximate planar distance in MILES from (lon,lat) to the nearest vertex
-  // OR outer-ring segment midpoint of `geometry`. This is NOT a true
-  // point-to-segment distance -- it is a cheap, deliberately-wide sampling
-  // that treats every ring vertex and every ring-segment midpoint as a probe
-  // point. For the short, mostly-straight boundary segments in this dataset
-  // this closes the gap a vertex-only check would have on a long straight
-  // edge, but it can still OVERSTATE true distance to an unusually long
-  // segment's true closest point. That direction of error (reporting FARTHER
-  // than reality) is the unsafe direction, so callers should treat the
-  // CWD_NEAR_BOUNDARY_MI cutoff as a floor, not a guarantee -- when a result
-  // lands just outside the band, the honest answer is still "confirm with
-  // PGC", not a hard guarantee of safety.
-  function cwdDistanceToGeometryMi(lon, lat, geometry) {
-    if (!geometry) return Infinity;
-    var milesPerDegLat = 69.0;
-    var milesPerDegLon = 69.1 * Math.cos(lat * Math.PI / 180);
-    var best = Infinity;
-
-    function probeRing(ring) {
-      if (!Array.isArray(ring) || ring.length < 2) return;
-      var pts = ring;
-      for (var i = 0; i < pts.length; i++) {
-        var vx = pts[i][0], vy = pts[i][1];
-        var dLon = (vx - lon) * milesPerDegLon;
-        var dLat = (vy - lat) * milesPerDegLat;
-        var d = Math.sqrt(dLon * dLon + dLat * dLat);
-        if (d < best) best = d;
-      }
-      // Segment midpoints -- closes the gap a vertex-only sample would miss
-      // on a long straight edge (see function comment above).
-      for (var s = 0; s < pts.length - 1; s++) {
-        var mx = (pts[s][0] + pts[s + 1][0]) / 2;
-        var my = (pts[s][1] + pts[s + 1][1]) / 2;
-        var mdLon = (mx - lon) * milesPerDegLon;
-        var mdLat = (my - lat) * milesPerDegLat;
-        var md = Math.sqrt(mdLon * mdLon + mdLat * mdLat);
-        if (md < best) best = md;
-      }
-    }
-
-    function probePolygon(polygon) {
-      if (!Array.isArray(polygon) || !polygon.length) return;
-      probeRing(polygon[0]); // outer ring only, matching cwdPointInPolygon
-    }
-
-    if (geometry.type === 'Polygon') {
-      probePolygon(geometry.coordinates);
-    } else if (geometry.type === 'MultiPolygon') {
-      var polys = Array.isArray(geometry.coordinates) ? geometry.coordinates : [];
-      for (var p = 0; p < polys.length; p++) probePolygon(polys[p]);
-    }
-    return best;
-  }
-
   // Validate a fetched CWD FeatureCollection has the shape checkCwdZone()
   // needs. Returns true only for a non-empty features array of Polygon /
   // MultiPolygon geometries -- ANY deviation (missing features, empty array,
@@ -5280,23 +5220,16 @@
 
   // Core zone check. Returns a Promise resolving to:
   //   { checkFailed: true }                                   -- data unavailable
-  //   { checkFailed: false, insideDmas: [2,3], nearDma: null, dma5Hit: bool,
-  //     insideEstablishedArea: bool, nearEstablishedArea: bool }
+  //   { checkFailed: false, insideDmas: [2,3], dma5Hit: bool,
+  //     insideEstablishedArea: bool }
   // insideDmas is a de-duplicated array of DMA numbers from the 8-record
   // last-in-effect set ONLY (never the 37-record version history -- the
   // vendored file itself contains only those 8, so there is nothing else to
   // accidentally match).
   //
-  // Near-boundary is tracked in BOTH directions, as its OWN distinct outcome
-  // -- never silently folded into a clean "inside" or "not inside":
-  //   nearDma / nearEstablishedArea -- OUTSIDE the polygon, but within
-  //                                    CWD_NEAR_BOUNDARY_MI of its edge.
-  //   insideNearDmas / insideNearEstablishedArea -- INSIDE the polygon, but
-  //                                    within CWD_NEAR_BOUNDARY_MI of its OWN
-  //                                    edge (i.e. near the edge from inside).
-  // A point can be BOTH insideDmas-nonempty AND have that same dma listed in
-  // insideNearDmas -- that combination is what the renderer uses to say
-  // "inside, but near the edge" instead of a flat "inside".
+  // This is a pure point-in-polygon membership check: the geocoded
+  // coordinate either falls inside a zone or it doesn't. There is no
+  // proximity/near-boundary state -- the result is a plain yes/no per zone.
   function checkCwdZone(lat, lon) {
     if (typeof lat !== 'number' || typeof lon !== 'number' || !isFinite(lat) || !isFinite(lon)) {
       return Promise.resolve({ checkFailed: true });
@@ -5305,64 +5238,36 @@
       if (zones === 'failed') return { checkFailed: true };
 
       var insideDmas = [];
-      var insideNearDmas = []; // subset of insideDmas whose OWN edge is close
-      var nearDma = null;
-      var nearDmaDist = Infinity;
       zones.dmaOriginal.features.forEach(function (f) {
         var dma = f.properties ? f.properties.dma : null;
-        var d = cwdDistanceToGeometryMi(lon, lat, f.geometry);
         if (cwdPointInGeometry(lon, lat, f.geometry)) {
           if (insideDmas.indexOf(dma) === -1) insideDmas.push(dma);
-          if (d <= CWD_NEAR_BOUNDARY_MI && insideNearDmas.indexOf(dma) === -1) {
-            insideNearDmas.push(dma);
-          }
-        } else if (insideDmas.length === 0) {
-          if (d <= CWD_NEAR_BOUNDARY_MI && d < nearDmaDist) {
-            nearDmaDist = d;
-            nearDma = dma;
-          }
         }
       });
-      // A literal "inside" hit always wins over an OUTSIDE-near flag on the
-      // same set (an outside-near DMA is irrelevant once ANY DMA is hit).
-      if (insideDmas.length > 0) { nearDma = null; }
 
       var dma5Feature = zones.dma5.features[0];
       var dma5Hit = cwdPointInGeometry(lon, lat, dma5Feature.geometry);
 
       var eaFeature = zones.establishedArea.features[0];
       var insideEstablishedArea = cwdPointInGeometry(lon, lat, eaFeature.geometry);
-      var eaDist = cwdDistanceToGeometryMi(lon, lat, eaFeature.geometry);
-      var nearEstablishedArea = false;
-      var insideNearEstablishedArea = false;
-      if (insideEstablishedArea) {
-        insideNearEstablishedArea = eaDist <= CWD_NEAR_BOUNDARY_MI;
-      } else {
-        nearEstablishedArea = eaDist <= CWD_NEAR_BOUNDARY_MI;
-      }
 
       return {
         checkFailed: false,
         insideDmas: insideDmas,
-        insideNearDmas: insideNearDmas,
-        nearDma: nearDma,
         dma5Hit: dma5Hit,
-        insideEstablishedArea: insideEstablishedArea,
-        insideNearEstablishedArea: insideNearEstablishedArea,
-        nearEstablishedArea: nearEstablishedArea
+        insideEstablishedArea: insideEstablishedArea
       };
     });
   }
 
-  // Renders the #cwd-zone-status block from a checkCwdZone() result plus the
-  // address-precision classification ('pin_drop' | 'approximate' | 'street' |
-  // undefined) computed client-side at submit time (see
-  // cwdClassifyAddressPrecision()). Every branch either names a specific
-  // zone/near-zone hit or explicitly says "confirm with PGC" -- there is NO
-  // branch that renders a bare green all-clear, and the checkFailed branch
-  // NEVER falls through to the "neither" wording (fail LOUD, never fail
-  // clear).
-  function renderCwdZoneStatus(result, addressPrecision) {
+  // Renders the #cwd-zone-status block from a checkCwdZone() result. Every
+  // branch either names a specific zone hit or explicitly says "confirm
+  // with PGC" -- there is NO branch that renders a bare green all-clear,
+  // and the checkFailed branch NEVER falls through to the "neither" wording
+  // (fail LOUD, never fail clear). The result is a plain yes/no per zone --
+  // there is no proximity/near-boundary state and no location-quality
+  // caveat of any kind.
+  function renderCwdZoneStatus(result) {
     var el = $('#cwd-zone-status');
     if (!el) return;
     var CZ = MSG.cwdZone;
@@ -5384,18 +5289,6 @@
       var dmaList = result.insideDmas.slice().sort(function (a, b) { return a - b; }).join(', ');
       lines.push('<p class="cwd-zone-line cwd-zone-line-dma">' +
         escapeHtml(fmt(CZ.insideDma, { dmas: dmaList })) + '</p>');
-      // "Inside, but near the edge" -- ITS OWN distinct line, additive to the
-      // inside-DMA line above, never a replacement for it and never silently
-      // dropped just because the point is also literally inside.
-      if (result.insideNearDmas.length > 0) {
-        var nearList = result.insideNearDmas.slice().sort(function (a, b) { return a - b; }).join(', ');
-        lines.push('<p class="cwd-zone-line cwd-zone-line-inside-near-dma">' +
-          escapeHtml(fmt(CZ.insideNearDma, { dmas: nearList })) + '</p>');
-      }
-    } else if (result.nearDma != null) {
-      anyHit = true;
-      lines.push('<p class="cwd-zone-line cwd-zone-line-near-dma">' +
-        escapeHtml(fmt(CZ.nearDma, { dma: result.nearDma })) + '</p>');
     }
 
     if (result.dma5Hit) {
@@ -5406,32 +5299,12 @@
     if (result.insideEstablishedArea) {
       anyHit = true;
       lines.push('<p class="cwd-zone-line cwd-zone-line-ea">' + escapeHtml(CZ.insideEstablishedArea) + '</p>');
-      if (result.insideNearEstablishedArea) {
-        lines.push('<p class="cwd-zone-line cwd-zone-line-inside-near-ea">' + escapeHtml(CZ.insideNearEstablishedArea) + '</p>');
-      }
-    } else if (result.nearEstablishedArea) {
-      anyHit = true;
-      lines.push('<p class="cwd-zone-line cwd-zone-line-near-ea">' + escapeHtml(CZ.nearEstablishedArea) + '</p>');
     }
 
     if (!anyHit) {
       lines.push('<p class="cwd-zone-line cwd-zone-line-neither">' + escapeHtml(CZ.neither) + '</p>');
     }
 
-    // Approximate-location flag: stated as ITS OWN line whenever a real
-    // client-side signal says the resolved coordinate is not a house-number
-    // street address (raw pin-drop coordinates, or typed/picked text that
-    // does not look like a specific street address -- see
-    // cwdClassifyAddressPrecision()). Falls back to the older UNCONDITIONAL
-    // caveat only when no classification was supplied at all (defensive --
-    // updateCwdZoneStatus/renderAggregate always set one today).
-    if (addressPrecision === 'pin_drop') {
-      lines.push('<p class="cwd-zone-line cwd-zone-line-approx cwd-zone-line-approx-pin">' + escapeHtml(CZ.approximatePinDrop) + '</p>');
-    } else if (addressPrecision === 'approximate') {
-      lines.push('<p class="cwd-zone-line cwd-zone-line-approx">' + escapeHtml(CZ.approximateLocation) + '</p>');
-    } else if (addressPrecision !== 'street') {
-      lines.push('<p class="cwd-zone-line cwd-zone-line-caveat">' + escapeHtml(CZ.precisionCaveat) + '</p>');
-    }
     lines.push('<p class="cwd-zone-line cwd-zone-line-snapshot">' +
       escapeHtml(fmt(CZ.snapshotNote, { date: CWD_ZONES_SNAPSHOT_DATE })) + '</p>');
 
@@ -5458,10 +5331,9 @@
     // misleading state this feature exists to avoid.
     el.style.display = 'none';
     el.innerHTML = '';
-    var addressPrecision = agg.cwd_address_precision;
     checkCwdZone(agg.animal_lat, agg.animal_lon)
-      .then(function (result) { renderCwdZoneStatus(result, addressPrecision); })
-      .catch(function () { renderCwdZoneStatus({ checkFailed: true }, addressPrecision); });
+      .then(function (result) { renderCwdZoneStatus(result); })
+      .catch(function () { renderCwdZoneStatus({ checkFailed: true }); });
   }
 
   function renderAggregate(agg, ctx) {
@@ -5857,10 +5729,6 @@
     var useCoord = picked &&
       typeof picked.lat === 'number' && typeof picked.lon === 'number' &&
       picked.label === addr;
-    // Classified NOW, before the async lookup, so a later edit to the input
-    // field can't retroactively change the CWD precision caveat for this
-    // in-flight request (see cwdClassifyAddressPrecision doc comment).
-    var addressPrecision = cwdClassifyAddressPrecision(addr, useCoord ? picked : null);
     var lookup = useCoord
       ? fetchAggregateByCoord(picked.lat, picked.lon, radius,
           { context: true, excludeCounty: excludeCounty, tier1County: tier1County, base: base })
@@ -5869,7 +5737,6 @@
     lookup
       .then(function (agg) {
         setAddressStatus('');
-        agg.cwd_address_precision = addressPrecision;
         // Render in its OWN try/catch so a rendering bug (e.g. a missing DOM
         // target) surfaces a DISTINCT message instead of being swallowed by the
         // network-error catch below and shown as "could not reach the service".
@@ -5945,71 +5812,6 @@
     if (b > 0 && inPaBounds(a, -b)) return { lat: a, lon: -b };
     if (a > 0 && inPaBounds(b, -a)) return { lat: b, lon: -a };
     return null;
-  }
-
-  // ─── CWD address-precision classification (display-layer heuristic) ──
-  // WHY THIS EXISTS: a boundary verdict is only as good as the coordinate it
-  // was given. A raw coordinate (pin-drop) or a non-house-number query
-  // (intersection, street-only, bare town/city/ZIP) resolves to something
-  // other than a specific rooftop, so a near-boundary or "inside" verdict
-  // built on it deserves an explicit caveat.
-  //
-  // SIGNAL INVESTIGATION (re-checked per owner request, not assumed):
-  //   - Census geocoder RAW response DOES carry a usable signal:
-  //     addressMatches[0].tigerLine.side is "" (empty) for a non-house-number
-  //     match (e.g. an intersection) and "L"/"R" for a real house-number
-  //     match; addressComponents.fromAddress/toAddress are similarly empty
-  //     for intersections and populated for house-number ranges. Verified
-  //     live against the Census geocoder for a house-number query, an
-  //     intersection query, and a bare city query.
-  //   - Photon's RAW API response DOES carry a usable signal:
-  //     properties.type is "house" (with a housenumber field) for a
-  //     house-number-level hit, vs "city"/"street"/etc. for anything coarser.
-  //     Verified live against photon.komoot.io for the same three cases.
-  //   - BOTH signals are real, but BOTH are currently dropped before they
-  //     reach this client: worker/src/census.js only forwards
-  //     {status, coord, county} (no tigerLine/addressComponents), and
-  //     worker/src/autocomplete.js's suggestion builder only forwards
-  //     {label, lat, lon} (no properties.type/osm_key). Forwarding either
-  //     one through requires a Worker change, and the owner's constraints
-  //     for this feature explicitly forbid a Worker deploy.
-  //   - So this is a CLIENT-SIDE-ONLY heuristic on the TYPED/PICKED TEXT,
-  //     not a real geocoder match-quality field. It mirrors the same kind of
-  //     pattern check the Worker already applies server-side for its own
-  //     purposes (see looksLikeFullAddress/looksLikeIntersection in
-  //     worker/src/autocomplete.js) but is re-implemented here for display
-  //     only, since there is no build step to share code between the two.
-  //   - Direct coordinate entry (detectPinDrop) is unambiguous: by
-  //     definition not a street address, always flagged.
-  //
-  // Returns true when `raw` LOOKS LIKE a house-number street address
-  // ("123 Main St, Somewhere, PA"), false when it looks like an
-  // intersection, a street-only query, or a bare place/ZIP query.
-  function looksLikeHouseNumberAddress(raw) {
-    if (typeof raw !== 'string') return false;
-    var s = raw.trim();
-    if (!s) return false;
-    // Intersection patterns: "Main St & Pine Rd", "Main St and Pine Rd",
-    // "Main St / Pine Rd", "Main St at Pine Rd" -- never house-number-level.
-    if (/\b(and|at)\b/i.test(s) || /[&/]/.test(s)) return false;
-    // A leading number (house number) followed by a street-ish word is the
-    // strongest positive signal available without a geocoder field.
-    return /^\s*\d+[a-zA-Z]?\s+\S/.test(s);
-  }
-
-  // Classifies the precision of the location about to be (or already)
-  // submitted, BEFORE the async lookup runs, so a later edit to the input
-  // can't retroactively change the classification for an in-flight request.
-  //   'pin_drop'    -- raw coordinates typed directly (always approximate).
-  //   'approximate' -- typed/picked text fails the house-number heuristic.
-  //   'street'      -- typed/picked text passes the house-number heuristic
-  //                    (best available signal, not a guarantee of an exact
-  //                    rooftop match).
-  function cwdClassifyAddressPrecision(addr, pickedSuggestion) {
-    if (detectPinDrop(addr)) return 'pin_drop';
-    var label = (pickedSuggestion && typeof pickedSuggestion.label === 'string')
-      ? pickedSuggestion.label : addr;
-    return looksLikeHouseNumberAddress(label) ? 'street' : 'approximate';
   }
 
   // ─── Reusable autocomplete factory ─────────────────────────────────

@@ -1178,12 +1178,11 @@
 
     /* ─── CWD zone check (checkCwdZone/renderCwdZoneStatus, dispatcher.js) ─
        cwd-zone-hit / cwd-zone-clear / cwd-zone-failed are mutually exclusive
-       top-level states. "hit" (amber) covers inside-DMA, near-DMA, inside/
-       near-Established-Area -- ANY reason to pause and confirm with PGC.
-       "clear" (also amber, NOT green) covers the "inside neither" case --
-       deliberately not the green treatment .resolved-location uses, so a
-       clean miss never reads as an all-clear. "failed" (red) is the fail-
-       loud error path. */
+       top-level states. "hit" (amber) covers inside-DMA, inside-Established-
+       Area -- ANY reason to pause and confirm with PGC. "clear" (also amber,
+       NOT green) covers the "inside neither" case -- deliberately not the
+       green treatment .resolved-location uses, so a clean miss never reads
+       as an all-clear. "failed" (red) is the fail-loud error path. */
     .cwd-zone-status {
       margin-bottom: 12px;
       padding: 10px 12px;
@@ -1207,21 +1206,10 @@
     }
     .cwd-zone-status .cwd-zone-line { margin: 0 0 6px 0; }
     .cwd-zone-status .cwd-zone-line:last-child { margin-bottom: 0; }
-    .cwd-zone-status .cwd-zone-line-caveat,
     .cwd-zone-status .cwd-zone-line-snapshot {
       font-size: 12px;
       color: var(--text-muted);
       font-style: italic;
-    }
-    /* Inside-but-near-the-edge (own boundary unreliable at this resolution)
-       and approximate-location lines are ADDITIVE to the main verdict line
-       above them, so they get their own bold treatment rather than blending
-       into the italic caveat/snapshot styling -- the dispatcher must notice
-       these, not skim past them. */
-    .cwd-zone-status .cwd-zone-line-inside-near-dma,
-    .cwd-zone-status .cwd-zone-line-inside-near-ea,
-    .cwd-zone-status .cwd-zone-line-approx {
-      font-weight: 600;
     }
 
     /* ─── Feature status strip (under header) ─────────────────── */

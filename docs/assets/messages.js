@@ -589,39 +589,11 @@
       // Shown ADDITIONALLY (never as a silent merge) when the point also falls
       // in the separately-retired DMA 5 footprint (ended 2026-06-04).
       insideDma5: 'Also inside the separately-retired DMA 5 historical footprint. Field staff working from "the original DMA locations" may still reference this boundary too — treat it the same as an original-DMA hit and confirm with PGC.',
-      // {dma} = single DMA number for a near-boundary (not literally inside) hit.
-      nearDma: 'Just outside original DMA {dma}, close enough to the boundary that it should be treated as inside pending confirmation with PGC. DMA boundaries follow roads and township lines — a short distance outside on a map can still be "inside" on the ground.',
-      // {dmas} = comma-joined DMA numbers. Shown ADDITIONALLY to insideDma
-      // above when the point IS inside the DMA(s) but close to their OWN
-      // edge -- a distinct "inside, but near the edge" outcome, never folded
-      // into a flat "inside" and never folded into a "not inside" either.
-      insideNearDma: 'This location is inside DMA {dmas}, but close to the edge of that boundary — at this resolution the boundary determination here is not fully reliable. Look at the PA Game Commission map yourself before relying on this result.',
       insideEstablishedArea: 'Inside the current official CWD Established Area (the boundary PGC formally adopted 2026-06-30, replacing the numbered DMA system).',
-      nearEstablishedArea: 'Just outside the current official CWD Established Area boundary, close enough that it should be treated as inside pending confirmation with PGC.',
-      // Shown ADDITIONALLY to insideEstablishedArea above when the point IS
-      // inside the Established Area but close to its OWN edge. Same "not
-      // reliable at this resolution" treatment as insideNearDma above.
-      insideNearEstablishedArea: 'This location is inside the current CWD Established Area, but close to the edge of that boundary — at this resolution the boundary determination here is not fully reliable. Look at the PA Game Commission map yourself before relying on this result.',
-      // Neither zone, and not near enough to either to trigger the proximity
-      // band above. Deliberately NOT phrased as "clear" or "safe" — silence on
-      // CWD status is not the same as confirmation there are no rules here.
-      neither: 'Not inside any original DMA or the current CWD Established Area, and not near enough to either boundary to flag automatically. Confirm with PA Game Commission before assuming no CWD rules apply here.',
-      // Unconditional fallback caveat -- shown ONLY when NEITHER a real
-      // pin-drop/approximate-address signal (below) applies NOR a
-      // house-number-level address was confirmed. See
-      // cwdClassifyAddressPrecision() in dispatcher.js for what signal is
-      // actually used and why (a real, if imperfect, signal DOES exist —
-      // this is not the "no signal at all" fallback it once was).
-      precisionCaveat: 'This check uses the coordinate the system resolved for this address. If that address only geocoded approximately (e.g. a rural route or an address with no exact street match), treat a near-boundary or "not inside" result with extra caution and confirm with PA Game Commission.',
-      // Raw lat/lon typed directly into the address field (a "pin drop"),
-      // detected client-side by detectPinDrop(). By definition not a street
-      // address -- always flagged, unconditionally, whenever this path is used.
-      approximatePinDrop: 'This location was entered as raw coordinates, not a street address — the CWD zone answer above is only as good as that coordinate. Check the PA Game Commission map yourself before relying on this result.',
-      // The submitted address/suggestion does not look like a house-number
-      // street address (an intersection, a street-only query, or a bare
-      // town/city/ZIP query) -- detected client-side by
-      // cwdClassifyAddressPrecision() / looksLikeHouseNumberAddress().
-      approximateLocation: 'This address does not appear to include a specific house number (it looks like an intersection, a street name only, or a town/city/ZIP query) — the resolved location is approximate, so the CWD zone answer above is approximate too. Check the PA Game Commission map yourself before relying on this result.',
+      // Neither zone. A pure point-in-polygon miss -- deliberately NOT
+      // phrased as "clear" or "safe" — silence on CWD status is not the same
+      // as confirmation there are no rules here.
+      neither: 'Not inside any original DMA or the current CWD Established Area. Confirm with PA Game Commission before assuming no CWD rules apply here.',
       // Fail-loud copy. MUST render instead of any of the above whenever the
       // vendored zone data can't be loaded/parsed, or is missing/empty — NEVER
       // silently fall through to "neither" on an error path.
