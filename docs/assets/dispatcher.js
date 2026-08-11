@@ -2244,7 +2244,7 @@
         if (fn) lines.push('<strong>' + escapeHtml(fn) + '</strong>');
         if (row.roles && row.roles.length) lines.push(escapeHtml(row.roles.join(', ')));
         if (row.county) lines.push('County: ' + escapeHtml(row.county));
-        if (!rowAvail) lines.push('<em style="color:#999;">Unavailable</em>');
+        if (!rowAvail) lines.push('<em class="popup-unavail">Unavailable</em>');
         var pinCls = t2VolPinClass(row.roles) + (rowAvail ? '' : ' t2-pin-unavail');
         var titleBase = fn ? fn : 'Volunteer';
         var marker = L.marker([pinLat, pinLon], {
@@ -4684,7 +4684,10 @@
     // Worker never sends an exact volunteer coordinate (PII rule). County-centroid
     // fallback pins share one point per county, so those are spread with a small
     // spiral offset; jittered pins keep their own point. Gated by the flag above.
-    // Unavailable volunteers get a dimmed pin (t2-pin-unavail class).
+    // Unavailable volunteers get a full-contrast pin with a white "X" overlay
+    // (t2-pin-unavail class) — NOT dimmed; see the CSS comment on .t2-pin-unavail
+    // in dispatcher.html for why (commit 904d367: opacity made pins hard to spot
+    // against the OSM basemap).
     var t2VolMarkers = []; // {marker, available} for toggle filtering
     if (SHOW_VOLUNTEER_MARKERS) {
       var perCounty = {};
@@ -4745,7 +4748,7 @@
         if (v.county) {
           lines.push('County: ' + escapeHtml(v.county));
         }
-        if (!v.available) lines.push('<em style="color:#999;">Unavailable</em>');
+        if (!v.available) lines.push('<em class="popup-unavail">Unavailable</em>');
         var pinCls = t2VolPinClass(v.roles) + (v.available ? '' : ' t2-pin-unavail');
         var titleBase = fn ? fn : 'Volunteer';
         var marker = L_.marker([lat, lon], {
@@ -4984,7 +4987,8 @@
           // the list instead of recalculating/using the straight-line metric.
           driving_miles: (typeof row.driving_miles === 'number') ? row.driving_miles : NaN,
           duration_min: (typeof row.duration_min === 'number') ? row.duration_min : null,
-          // Availability: carried through for dimmed-pin treatment + legend counts.
+          // Availability: carried through for the full-contrast white-X pin flag
+          // (t2-pin-unavail) + legend counts.
           available: row.available !== false && !isUnavailNote(
             row.availability_note ? String(row.availability_note).trim() : '')
         });

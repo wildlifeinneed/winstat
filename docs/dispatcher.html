@@ -972,6 +972,12 @@
     .ctx-row.unavail .ctx-edge {
       color: var(--unavail-text);
     }
+    /* Same unavailable-text color, for the small "Unavailable" label inside a
+       Leaflet marker popup (map pins stay full-contrast per commit 904d367 --
+       this only affects the popup's TEXT, not the pin itself). Leaflet popup
+       content is plain DOM appended into this same document (no iframe/shadow
+       DOM), so var(--unavail-text) resolves normally via the page's :root. */
+    .popup-unavail { color: var(--unavail-text); }
     .ctx-row-top {
       display: flex;
       align-items: center;

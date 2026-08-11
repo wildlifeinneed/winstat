@@ -287,8 +287,18 @@ function makeLeafletMock() {
   }
   function makeVectorOrMarker() {
     var self = {};
-    self.addTo = function () { return self; };
-    self.bindPopup = function () { return self; };
+    // addTo pushes onto the target layer group's _layers so a test can
+    // inspect what was actually added (e.g. popup content for readability
+    // assertions), matching real Leaflet's addTo->addLayer behavior.
+    self.addTo = function (group) {
+      if (group && typeof group.addLayer === 'function') group.addLayer(self);
+      return self;
+    };
+    // bindPopup records the HTML so tests can assert on rendered popup
+    // content (e.g. the unavailable-volunteer label) without needing a real
+    // Leaflet popup DOM.
+    self.popupHtml = null;
+    self.bindPopup = function (html) { self.popupHtml = html; return self; };
     self.bindTooltip = function () { return self; };
     self.getBounds = function () { return makeBounds(); };
     return self;
@@ -312,9 +322,18 @@ function makeLeafletMock() {
   };
   L.tileLayer = function () { return chainable({}, ['addTo']); };
   L.control = { scale: function () { return chainable({}, ['addTo']); }, layers: function () { return chainable({}, ['addTo']); } };
-  L.layerGroup = makeLayerGroup;
+  // Track every layer group created, in creation order, so a test can find
+  // (e.g.) the volunteer marker layer by its known position in ensureT2Map's
+  // fixed creation sequence without dispatcher.js needing to expose it.
+  L._layerGroups = [];
+  L.layerGroup = function () {
+    var g = makeLayerGroup();
+    L._layerGroups.push(g);
+    return g;
+  };
   L.marker = function () { return makeVectorOrMarker(); };
   L.polygon = function () { return makeVectorOrMarker(); };
+  L.circle = function () { return makeVectorOrMarker(); };
   L.divIcon = function (opts) { return opts || {}; };
   return L;
 }
@@ -6719,7 +6738,96 @@ async function run() {
   await runCrossPostMapMobileFullscreenToggle();
   await runCrossPostMapMobileFullscreenEscapeKey();
   await runMobileTextInputFontSizeNoZoom();
-  console.log('\nALL DOM TESTS PASSED (92 scenarios).');
+  await runMapPopupUnavailableLabelNotLowContrastGrey();
+  console.log('\nALL DOM TESTS PASSED (93 scenarios).');
+}
+
+// ── MAP POPUP "Unavailable" label: same readability complaint, different
+//    surface. The label used to be an inline color:#999 (2.85:1 -- fails
+//    WCAG AA) INSIDE the Leaflet marker popup for an unavailable volunteer.
+//    It must use the shared .popup-unavail class (-> var(--unavail-text)),
+//    NOT a hardcoded hex in JS, so the popup and the roster row always agree
+//    on one source of truth for the color. ─────────────────────────────────
+async function runMapPopupUnavailableLabelNotLowContrastGrey() {
+  const src = fs.readFileSync(path.join(DOCS, 'assets', 'dispatcher.js'), 'utf8');
+
+  // 1. SOURCE: no inline low-contrast grey left anywhere in dispatcher.js for
+  //    the "Unavailable" popup label (or anywhere else availability-related).
+  assert.ok(!/color\s*:\s*#(999|aaa|a0a0a0|9c9c9c|888|8a8a8a)\b/i.test(src),
+    'dispatcher.js must not hardcode a low-contrast grey inline color anywhere ' +
+    '(the map-popup "Unavailable" label used to be color:#999, 2.85:1, failing WCAG AA)');
+
+  // 2. SOURCE: both "Unavailable" popup label call sites use the shared class,
+  //    not an inline style -- one source of truth for the color (the CSS
+  //    token), matching .ctx-row.unavail's treatment.
+  const popupLabelMatches = src.match(/<em[^>]*>Unavailable<\/em>/g) || [];
+  assert.ok(popupLabelMatches.length >= 2,
+    'expected at least 2 "Unavailable" popup label sites (cross-post + address-mode maps), ' +
+    'found ' + popupLabelMatches.length);
+  popupLabelMatches.forEach(function (tag) {
+    assert.ok(/class="popup-unavail"/.test(tag),
+      'each "Unavailable" popup label must use class="popup-unavail" (got: ' + tag + ')');
+    assert.ok(!/style=/.test(tag),
+      'each "Unavailable" popup label must not use an inline style (got: ' + tag + ')');
+  });
+
+  // 3. CSS SOURCE: .popup-unavail resolves to the SAME --unavail-text token
+  //    the roster rows use (popup and row agree on one color).
+  const html = fs.readFileSync(HTML_PATH, 'utf8');
+  const popupRuleMatch = html.match(/\.popup-unavail\s*\{[^}]*\}/);
+  assert.ok(popupRuleMatch, '.popup-unavail CSS rule exists in dispatcher.html');
+  assert.ok(/color\s*:\s*var\(--unavail-text\)/.test(popupRuleMatch[0]),
+    '.popup-unavail must resolve via var(--unavail-text) -- the same token .ctx-row.unavail ' +
+    'uses -- not a separate hardcoded color (got rule: ' + popupRuleMatch[0] + ')');
+
+  // 4. DOM/END-TO-END: drive a real address-mode search (mobile Leaflet mock)
+  //    with an unavailable volunteer in range, and confirm the actual popup
+  //    HTML bound to that volunteer's marker carries the class (not #999),
+  //    AND that the volunteer marker still gets placed on the map (never
+  //    dropped/hidden because it's unavailable).
+  const agg = Object.assign({}, WORKER_AGG, {
+    animal_lat: 40.4443, animal_lon: -79.9569, animal_county: 'Allegheny', animal_area: '10',
+    out_of_county: [
+      {
+        roles: ['C&T'], distance_mi: 6.0, win_area: '10', county: 'Allegheny',
+        approx_lat: 40.46, approx_lon: -79.92, available: false,
+        first_name: 'Robin', availability_note: '',
+      },
+    ],
+  });
+  const { L, doc: mapDoc, window: mapWin } = await driveTier2CrossPostMobile(agg, 'Allegheny', 375);
+
+  // The Tier-2 map is lazy-mounted: paintT2Map only runs once the Show/Hide
+  // toggle has been opened (t2map.open gate in renderTier2Map). Open it so
+  // the pending payload actually paints.
+  const t2Toggle = mapDoc.getElementById('t2map-toggle');
+  assert.ok(t2Toggle, '#t2map-toggle exists');
+  t2Toggle.dispatchEvent(new mapWin.Event('click', { bubbles: true }));
+  await flush(mapWin);
+
+  // The 5th L.layerGroup() call inside ensureT2Map() is the volunteer layer
+  // (winArea, radius, animal, rehab, volunteer -- in that fixed source order;
+  // see the "=== VOLUNTEER MARKERS ===" block in docs/assets/dispatcher.js).
+  assert.ok(Array.isArray(L._layerGroups) && L._layerGroups.length >= 5,
+    'expected at least 5 layer groups created by ensureT2Map (got ' +
+    (L._layerGroups ? L._layerGroups.length : 0) + ')');
+  const volunteerLayer = L._layerGroups[4];
+  const markers = volunteerLayer._layers;
+  assert.strictEqual(markers.length, 1,
+    'the unavailable volunteer still gets a marker placed on the map -- ' +
+    'availability never hides a pin (got ' + markers.length + ' markers)');
+
+  const popupHtml = markers[0].popupHtml || '';
+  assert.ok(/class="popup-unavail">Unavailable<\/em>/.test(popupHtml),
+    'the unavailable volunteer\'s actual bound popup HTML uses class="popup-unavail" ' +
+    '(got: ' + JSON.stringify(popupHtml) + ')');
+  assert.ok(!/color\s*:\s*#999/.test(popupHtml),
+    'the unavailable volunteer\'s popup HTML must not carry an inline color:#999 (got: ' +
+    JSON.stringify(popupHtml) + ')');
+
+  console.log('PASS: map-popup "Unavailable" label uses the shared .popup-unavail class ' +
+    '(-> var(--unavail-text), same token as the roster rows) instead of a low-contrast inline ' +
+    'color:#999 (2.85:1); the unavailable volunteer\'s marker + popup still render (never hidden).');
 }
 
 run().then(function () {
