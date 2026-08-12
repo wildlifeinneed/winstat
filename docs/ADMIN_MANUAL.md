@@ -564,7 +564,7 @@ version you can:
   live
 - **Print** — opens a formatted, print-ready view of that snapshot
 
-There is also a **Print Current Policy** button for the working state.
+There is also a **Print Policy** button for the working state.
 
 ---
 
@@ -694,6 +694,7 @@ button.
 | Policy version history | Worker KV `policy_snapshot_*` keys via `?mode=policy_versions` |
 | PAWR facility sync | `check_pawr.py` — weekly via `check-pawr.yml`, issues on diff |
 | Geocode failures | `geocode_failures.json` — auto-created issue on failure |
+| CWD zone check data | Vendored boundary snapshots + refresh procedure: `docs/data/CWD_ZONES_REFRESH.md` |
 
 ---
 

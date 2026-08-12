@@ -100,6 +100,14 @@ maximum 1000). The app then shows:
   directly).
 - The same three **capacity cards** (C&T / RVS C&T / Courier), counted within range.
 - **WIN areas covered** — which WIN regions fall inside the radius.
+- A **CWD zone check** — the resolved address is checked against the PA Game
+  Commission's Chronic Wasting Disease (CWD) Disease Management Area (DMA)
+  boundaries and reports whether the location falls inside a numbered zone, is
+  outside all zones, or (if the underlying zone data fails to load) that the
+  check could not be performed. This deliberately checks against the DMA
+  boundaries PGC retired on 2026-06-30 rather than the newer "Established
+  Area," because PGC field staff are still enforcing the retired boundaries in
+  practice.
 - An optional **out-of-county volunteers** list — nearby volunteers just outside the
   animal's own county, each tagged **Qualified** or **Not qualified** for *this*
   specific animal, nearest first.

@@ -151,7 +151,9 @@ The cross-post map includes:
 - a **dynamic legend** showing pin types with per-role counts (C&T, RVS C&T,
   Courier) and availability breakdown (e.g., "RVS C&T 5 (3 avail)")
 - an **"Include unavailable"** toggle — uncheck to hide unavailable volunteers;
-  when shown, unavailable volunteers appear as **dimmed pins**
+  when shown, unavailable volunteers appear as **full-contrast pins with a
+  white "X" overlay** (not dimmed — this makes them easier to spot on the map,
+  not harder)
 - a **fullscreen button** (press Escape to exit)
 - a **distance scale bar** (miles)
 
@@ -169,7 +171,8 @@ search.
 
 1. Enter the animal address.
 2. Pick a suggestion if one appears.
-3. Set the **Search Radius (miles)**.
+3. Set the **Search Radius (miles)** — a free-text box, not a dropdown. It
+   defaults to **30** and accepts any value from **1 to 1000**.
 4. Click **Find Help Nearby**.
 
 The page uses an address lookup service and does **not** store the entered address.
@@ -185,10 +188,35 @@ Address results can show:
   - **Courier**
 - **WIN areas covered**
 - a resolved location line showing the animal's county and WIN area, when available
-- **Recommended Actions**
+- a **CWD zone check** (see below)
+- **Recommended Actions**, headed **"Volunteer Summary"**, with a **"Search
+  radius: N miles"** subtitle showing the radius that produced the displayed
+  results (this may differ from the radius box if you changed it since the
+  last search)
 - a list of **qualified volunteers within the selected radius**
 - an on-demand **nearest rehabbers** section
 - an optional **map**
+
+### CWD zone check
+
+Below the resolved location line, the page checks the animal's address against
+the PA Game Commission's Chronic Wasting Disease (CWD) Disease Management Area
+(DMA) boundaries and shows one of exactly three results:
+
+- **Location inside DMA Zone {number}** — the address falls inside one or more
+  DMA zones (the zone number(s) are named)
+- **Location not within a DMA Zone** — the address does not fall inside any
+  DMA zone
+- a message that the check could not be performed — shown if the zone data
+  fails to load
+
+A **"View PA Game Commission DMA Map"** link is always shown alongside this
+result so you can double-check the location on PGC's own map.
+
+Note: PGC officially retired the numbered DMA system on 2026-06-30 in favor of
+a smaller "Established Area," but PGC field staff are still enforcing the
+older DMA boundaries in practice — so this check deliberately uses the retired
+DMA boundaries, not the current Established Area.
 
 ### Non-Connecteam volunteers
 
@@ -207,11 +235,14 @@ you described. Each line may show:
 - county
 - an availability note, if one exists
 
-Some volunteer rows may appear dimmed when the person's availability note suggests
-they are not currently available.
+Some volunteer rows show their availability note in **light red/pink text** when
+the person is currently marked unavailable. Unavailable volunteers are never
+hidden or excluded from the list or from any count — they are always shown,
+just flagged.
 
-If the search radius is very broad, the page may show only the nearest results and
-tell you to narrow the radius for a complete list.
+If the search radius is very broad, the page may show only the nearest results
+in the list (while counts still reflect everyone in range) and tell you to
+narrow the radius for a complete list.
 
 ### Driving distances
 
@@ -245,9 +276,11 @@ The map includes:
 - a **dynamic legend** with per-role counts and availability breakdown
   (e.g., "C&T 8 (5 avail)")
 - an **"Include unavailable"** toggle — uncheck to hide unavailable volunteers;
-  when shown, unavailable volunteers appear as **dimmed pins**
+  when shown, unavailable volunteers appear as **full-contrast pins with a
+  white "X" overlay** (not dimmed)
 - a **fullscreen button** (press Escape to exit)
 - a **distance scale bar** (miles)
+- a reference circle showing the **search radius** used for the results
 
 ### Nearest rehabbers
 
