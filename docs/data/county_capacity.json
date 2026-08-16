@@ -159,7 +159,7 @@
     },
     "Blair": {
       "courier": {
-        "available": 4,
+        "available": 3,
         "marginal_volunteers": [],
         "total": 4
       },
@@ -610,9 +610,9 @@
     },
     "Lancaster": {
       "courier": {
-        "available": 3,
+        "available": 2,
         "marginal_volunteers": [],
-        "total": 3
+        "total": 2
       },
       "ct_no_rvs": {
         "available": 0,
@@ -1159,7 +1159,7 @@
       }
     }
   },
-  "generated_at": "2026-08-15T10:29:15Z",
+  "generated_at": "2026-08-16T10:29:40Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
