@@ -1,7 +1,207 @@
 [
   {
+    "address": "860 State Route 157, Oil City, PA, 16301",
+    "name": "Skylar",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "103 Brightwell Drive, PO Box 32, Fayette City, PA, 15438",
+    "name": "Lisa",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "179 Old Cement Rd, Lot B-56, Montoursville, PA, 17754",
+    "name": "Dustin",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "10 Chestnut Hill Rd., Dillsburg, PA, 17019",
+    "name": "Monica",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "13 Arbor Rd., Mohnton, PA, 19540",
+    "name": "Tyler",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "206 Long Rd, Pittsburgh, PA, 15235",
+    "name": "Ashley",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "5310 Coudersport Pike, Lock Haven, PA, 17745",
+    "name": "Laurie",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "1290 W Evergreen Dr, Phoenixville, PA, 19460",
+    "name": "Elizabeth",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "1315 Allegheny Ave, #104, Pittsburgh, PA, 15233",
+    "name": "Peter",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "8553 Pettis Rd, Meadville, PA, 16335",
+    "name": "Sue",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "584 Old Mercer Road, Volant, PA, 16156",
+    "name": "Stephanie",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "1302 Riverfront Dr, Pittsburgh, PA, 15238",
+    "name": "Nick",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "1039 Davis Grove Road, Ambler, PA, 19002",
+    "name": "Margot",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "620 Race St, Nescopeck, PA, 18635",
+    "name": "Brittney",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "145 E Lake Rd, Acme, PA, 15610",
+    "name": "Jill",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "360 Browntown Road, Slippery Rock, PA, 16057",
+    "name": "Chrisanne",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "197 Scullton Rd, Rockwood, PA, 15557",
+    "name": "Richard",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "138 Green Forest Dr, Baden, PA, 15005",
+    "name": "Michael",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "712 Flint Rd, Pittsburgh, PA, 15101",
+    "name": "Emma",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "279 Thomas Jefferson Rd, Lehighton, PA, 18235",
+    "name": "Darla",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "140 Mowry Estates Rd., Schellsburg, PA, 15559",
+    "name": "Ellen",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "454 Irwin Lane, Pittsburgh, PA, 15212",
+    "name": "Dale",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "22 Aber Rd., Finleyville, PA, 15332",
+    "name": "Mindy",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "225Central Ave., Glenside, PA, 19038",
+    "name": "Dana",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "203 Hunt Rd, Pittsburgh, PA, 15215",
+    "name": "Julia",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "212 Elfinwild Ln, Glenshaw, PA, 15116",
+    "name": "Leanne",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "22-2 Valley Rd, Drexel Hill, PA, 19026",
+    "name": "Bridget",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "9241 Barton Drive, Pittsburgh, PA, 15237",
+    "name": "Michelle",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "245 Eastshore Drive, East Stroudsburg, PA, 18301",
+    "name": "Deborah",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "444 Home Base Lane, Unityville, PA, 17774",
+    "name": "Nancy",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "1400 Marlboro Ave, Pittsburgh, PA, 15221",
+    "name": "Marielle",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "137 Williams Road, Cresco, PA, 18326",
+    "name": "Jamie",
+    "reason": "No Census or Nominatim match"
+  },
+  {
     "address": "1000 West Valley Rd, Southeastern, PA, 19399",
     "name": "Martine",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "77 Stonebrook Dr, Palmyra, PA, 17078",
+    "name": "Rita",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "413 White Thorn Rd, New Alexandria, PA, 15670",
+    "name": "Cheri",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "1711 Elimsport Rd, Montgomery, PA, 17752",
+    "name": "Deanna",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "109 Crest Street, Barnesville, PA, 18214",
+    "name": "Ashley",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "1125 Butter Ln, Reading, PA, 19606",
+    "name": "Austin",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "207 Hardwood Road, Fenelton, PA, 16034",
+    "name": "Leigh",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "801 Brandywine Rd., Downing Town, PA, 19335",
+    "name": "Laurie",
+    "reason": "No Census or Nominatim match"
+  },
+  {
+    "address": "11 Elliott St., Warren, PA, 16365",
+    "name": "Don",
     "reason": "No Census or Nominatim match"
   }
 ]
