@@ -50,7 +50,7 @@
         "total": 1
       },
       "ct_rvs": {
-        "available": 4,
+        "available": 3,
         "marginal_volunteers": [],
         "total": 5
       }
@@ -789,7 +789,7 @@
         "available": 1,
         "marginal_volunteers": [
           {
-            "availability_note": "Weekends, Work sched Flex, Unavail 10/3/26-10/18/26",
+            "availability_note": "Weekends, Work sched Flex, Unavail 10/3-10/18",
             "connecteam_user": true
           },
           {
@@ -1149,7 +1149,7 @@
       }
     }
   },
-  "generated_at": "2026-09-03T14:18:54Z",
+  "generated_at": "2026-09-04T14:08:11Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
