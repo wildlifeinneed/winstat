@@ -50,7 +50,7 @@
         "total": 1
       },
       "ct_rvs": {
-        "available": 3,
+        "available": 4,
         "marginal_volunteers": [],
         "total": 5
       }
@@ -940,7 +940,7 @@
         "available": 1,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail varies Weekdays & Weekends, Covers parts of Lackawana, Pike, Monroe, Wayne Co, Resides in Lords Valley",
+            "availability_note": "Avail varies Weekdays & Weekends, Covers parts of Lackawana, Pike, Monroe, Wayne Co, Resides in Lords Valley, Unavail 10/2 - 10/11",
             "connecteam_user": true
           }
         ],
@@ -1144,7 +1144,7 @@
       }
     }
   },
-  "generated_at": "2026-09-19T13:49:20Z",
+  "generated_at": "2026-09-20T14:04:01Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
