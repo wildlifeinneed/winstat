@@ -247,10 +247,25 @@ jobs:
           # data the page already shows), so its address/zip keys are expected
           # and must not abort the push. The scan stays active on the rehabber +
           # coordinator files, which are the volunteer-PII surfaces.
-          PII_SCAN_PATHS="docs/data/rehabbers.json docs/data/coordinators.json"
-          added="$(git diff --cached -- $PII_SCAN_PATHS | grep -E '^\+' || true)"
-          if printf '%s\n' "$added" | grep -Eiq '"(phone|phone_number|cell|mobile|email|e_mail|street|address|address1|address_line|home_address|zip|postal)"[[:space:]]*:'; then
-            echo "ABORT: staged public diff contains a PII-shaped key (phone/email/address/etc.)." >&2
+          #
+          # rehabbers.json legitimately carries a "phone" key: the facility's
+          # public contact number, shown in the dispatcher rehab panel since
+          # a43ff76. So "phone" is allowed there (and only there); every other
+          # PII-shaped key is still blocked in both files, and coordinators.json
+          # still blocks "phone" too.
+          PII_KEYS_STRICT='phone|phone_number|cell|mobile|email|e_mail|street|address|address1|address_line|home_address|zip|postal'
+          PII_KEYS_REHAB='phone_number|cell|mobile|email|e_mail|street|address|address1|address_line|home_address|zip|postal'
+          pii_hit=""
+          added_coord="$(git diff --cached -- docs/data/coordinators.json | grep -E '^\+' || true)"
+          if printf '%s\n' "$added_coord" | grep -Eiq "\"($PII_KEYS_STRICT)\"[[:space:]]*:"; then
+            pii_hit="docs/data/coordinators.json"
+          fi
+          added_rehab="$(git diff --cached -- docs/data/rehabbers.json | grep -E '^\+' || true)"
+          if printf '%s\n' "$added_rehab" | grep -Eiq "\"($PII_KEYS_REHAB)\"[[:space:]]*:"; then
+            pii_hit="$pii_hit docs/data/rehabbers.json"
+          fi
+          if [ -n "$pii_hit" ]; then
+            echo "ABORT: staged public diff contains a PII-shaped key (phone/email/address/etc.) in:$pii_hit" >&2
             git reset -q
             exit 1
           fi
