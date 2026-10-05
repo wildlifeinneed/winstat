@@ -298,5 +298,17 @@
     "state": "PA",
     "website": "https://westshorewildlife.org/",
     "zip": "17315"
+  },
+  {
+    "address": "170 Possum Hollow Rd",
+    "city": "Newark",
+    "county": "New Castle",
+    "lat": 39.714518,
+    "lon": -75.726569,
+    "name": "Tri-State Bird Rescue and Research",
+    "phone": "3027379543",
+    "state": "DE",
+    "website": "https://www.tristatebird.org/",
+    "zip": "19711"
   }
 ]

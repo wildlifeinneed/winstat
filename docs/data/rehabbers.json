@@ -223,5 +223,14 @@
     "phone": "7172689574",
     "rehab_name": "West Shore",
     "website": "https://westshorewildlife.org/"
+  },
+  {
+    "availability": "Tri-State Bird Rescue and Research, P, RA (intake: 9am - 5pm)",
+    "county": "New Castle",
+    "lat": 39.714518,
+    "lon": -75.726569,
+    "phone": "3027379543",
+    "rehab_name": "Tri-State Bird Rescue and Research",
+    "website": "https://www.tristatebird.org/"
   }
 ]
