@@ -532,7 +532,7 @@
         "total": 0
       },
       "ct_rvs": {
-        "available": 0,
+        "available": 1,
         "marginal_volunteers": [
           {
             "availability_note": "Avail varies, Unavail 10/6-10/10",
@@ -1168,7 +1168,7 @@
       }
     }
   },
-  "generated_at": "2026-10-10T15:48:38Z",
+  "generated_at": "2026-10-11T16:13:03Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
