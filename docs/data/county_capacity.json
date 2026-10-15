@@ -316,7 +316,7 @@
         "available": 0,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail after 5pm: Mon, Tues, Thurs, Fri; After 1pm Wed; Weekends. Varies, Unavail 9/21-10/5, 11/2-11/16, 12/14-1/1/27, but contact if emergency",
+            "availability_note": "Avail after 5pm: Mon, Tues, Thurs, Fri; After 1pm Wed; Weekends. Varies, Unavail 11/2-11/16, 12/14-1/1/27, but contact if emergency",
             "connecteam_user": true
           }
         ],
@@ -372,10 +372,10 @@
         "total": 0
       },
       "ct_rvs": {
-        "available": 0,
+        "available": 1,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail Weekdays & Weekends, Unavail 10/2-10/11",
+            "availability_note": "Avail Weekdays & Weekends",
             "connecteam_user": true
           }
         ],
@@ -531,7 +531,7 @@
         "available": 1,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail varies, Unavail 10/6-10/10",
+            "availability_note": "Avail varies",
             "connecteam_user": true
           }
         ],
@@ -950,7 +950,7 @@
         "available": 1,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail varies Weekdays & Weekends, Covers parts of Lackawana, Pike, Monroe, Wayne Co, Resides in Lords Valley, Unavail 10/2 - 10/12",
+            "availability_note": "Avail varies Weekdays & Weekends, Covers parts of Lackawana, Pike, Monroe, Wayne Co, Resides in Lords Valley",
             "connecteam_user": true
           }
         ],
@@ -1164,7 +1164,7 @@
       }
     }
   },
-  "generated_at": "2026-10-14T14:58:04Z",
+  "generated_at": "2026-10-15T14:47:52Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
