@@ -284,7 +284,7 @@
         "total": 0
       },
       "ct_rvs": {
-        "available": 0,
+        "available": 1,
         "marginal_volunteers": [
           {
             "availability_note": "Avail Weekdays, Sat, Afternoon Sun, Can vary",
@@ -1168,7 +1168,7 @@
       }
     }
   },
-  "generated_at": "2026-10-17T13:33:30Z",
+  "generated_at": "2026-10-18T13:52:44Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
