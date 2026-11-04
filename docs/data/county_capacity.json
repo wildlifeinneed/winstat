@@ -667,7 +667,7 @@
     },
     "Lehigh": {
       "courier": {
-        "available": 3,
+        "available": 2,
         "marginal_volunteers": [],
         "total": 3
       },
@@ -682,14 +682,9 @@
         "total": 1
       },
       "ct_rvs": {
-        "available": 1,
-        "marginal_volunteers": [
-          {
-            "availability_note": "Avail Weekdays after 5PM, Weekends",
-            "connecteam_user": true
-          }
-        ],
-        "total": 1
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
       }
     },
     "Luzerne": {
@@ -969,14 +964,9 @@
         "total": 1
       },
       "ct_no_rvs": {
-        "available": 1,
-        "marginal_volunteers": [
-          {
-            "availability_note": "Fri, Sat & Sun 4PM-8PM",
-            "connecteam_user": true
-          }
-        ],
-        "total": 1
+        "available": 0,
+        "marginal_volunteers": [],
+        "total": 0
       },
       "ct_rvs": {
         "available": 1,
@@ -1159,7 +1149,7 @@
       }
     }
   },
-  "generated_at": "2026-11-03T17:39:45Z",
+  "generated_at": "2026-11-04T17:54:02Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
