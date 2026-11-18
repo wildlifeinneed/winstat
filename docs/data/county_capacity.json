@@ -866,9 +866,9 @@
     },
     "Northumberland": {
       "courier": {
-        "available": 2,
+        "available": 3,
         "marginal_volunteers": [],
-        "total": 2
+        "total": 3
       },
       "ct_no_rvs": {
         "available": 2,
@@ -1149,7 +1149,7 @@
       }
     }
   },
-  "generated_at": "2026-11-17T19:01:36Z",
+  "generated_at": "2026-11-18T18:45:29Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
