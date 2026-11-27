@@ -50,7 +50,7 @@
         "total": 1
       },
       "ct_rvs": {
-        "available": 4,
+        "available": 5,
         "marginal_volunteers": [],
         "total": 5
       }
@@ -601,9 +601,14 @@
     },
     "Lancaster": {
       "courier": {
-        "available": 2,
-        "marginal_volunteers": [],
-        "total": 2
+        "available": 1,
+        "marginal_volunteers": [
+          {
+            "availability_note": "Available Weekdays after 5PM, Weekends",
+            "connecteam_user": true
+          }
+        ],
+        "total": 1
       },
       "ct_no_rvs": {
         "available": 0,
@@ -616,9 +621,9 @@
         "total": 1
       },
       "ct_rvs": {
-        "available": 3,
+        "available": 2,
         "marginal_volunteers": [],
-        "total": 3
+        "total": 2
       }
     },
     "Lawrence": {
@@ -898,10 +903,10 @@
         "total": 0
       },
       "ct_rvs": {
-        "available": 0,
+        "available": 1,
         "marginal_volunteers": [
           {
-            "availability_note": "Avail Varies, Covers Cumberland, Dauphin, Juniata, Perry Co, Unavail 11/23-11/26",
+            "availability_note": "Avail Varies, Covers Cumberland, Dauphin, Juniata, Perry Co",
             "connecteam_user": true
           }
         ],
@@ -1149,7 +1154,7 @@
       }
     }
   },
-  "generated_at": "2026-11-26T19:28:40Z",
+  "generated_at": "2026-11-27T19:24:30Z",
   "source_board_id": "9092079933",
   "source_group_id": "topics,group_mkw838ad"
 }
